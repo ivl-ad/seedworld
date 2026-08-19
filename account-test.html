@@ -47,47 +47,59 @@
   <p class="sub">The full player lifecycle: create a key, claim a name, store character
      state in Cloudflare, then log back in and prove it came back.</p>
 
-  <!-- ---------------------------------------------------------- identity -->
+  <!-- ------------------------------------------------------ create account -->
   <div class="panel">
-    <h2>1 · Identity</h2>
+    <h2>Create a new account</h2>
     <div class="grid">
       <div style="grid-column:1/-1">
-        <label>Key — 25 characters, this is the password</label>
-        <input id="keyIn" placeholder="generate one, or paste a saved key" spellcheck="false" autocomplete="off">
+        <label>New key — generated for you, this is the password</label>
+        <input id="regKey" placeholder="press Generate key" spellcheck="false" autocomplete="off">
       </div>
     </div>
     <div class="key" id="keyOut" hidden></div>
-    <div style="margin-top:9px">
-      <button id="gen">Generate key</button>
-      <button id="forget">Forget saved key</button>
-    </div>
-    <p class="hint">Derived, not stored: pid = SHA-256("seedworld-id|" + key) truncated.
-       The same key always gives the same pid. The server only ever sees hashes.</p>
-    <div class="grid" style="margin-top:10px">
-      <div><label>pid (public id)</label><input id="pidOut" readonly></div>
-      <div><label>auth token sent to server</label><input id="authOut" readonly></div>
-    </div>
-  </div>
-
-  <!-- ------------------------------------------------------------ account -->
-  <div class="panel">
-    <h2>2 · Account</h2>
-    <div class="grid">
+    <div class="grid" style="margin-top:9px">
       <div><label>Display name — must be unique</label><input id="nameIn" maxlength="12" placeholder="2-12 chars" spellcheck="false"></div>
       <div><label>World seed</label><input id="seedIn" value="lumbridge" spellcheck="false"></div>
     </div>
     <div style="margin-top:9px">
+      <button id="gen">Generate key</button>
       <button id="check">Check name</button>
-      <button id="reg" class="go">Register new</button>
-      <button id="login" class="go">Log in</button>
+      <button id="reg" class="go">Create account</button>
     </div>
-    <p class="hint">Register claims the name for this key, once. Log in works from then on,
-       from any browser, with only the key.</p>
+    <p class="hint">Write the key down before creating the account. There is no recovery —
+       no email, no reset. The server stores only a hash of it.</p>
+  </div>
+
+  <!-- ------------------------------------------------------------ log in -->
+  <div class="panel">
+    <h2>Log in to an existing account</h2>
+    <div class="grid">
+      <div style="grid-column:1/-1">
+        <label>Key — 25 characters, the only thing needed to log in</label>
+        <input id="loginKey" placeholder="paste your saved key" spellcheck="false" autocomplete="off">
+      </div>
+      <div style="grid-column:1/-1">
+        <label>Expected display name or pid — optional, checked against what comes back</label>
+        <input id="verifyIn" placeholder="leave blank to skip the check" spellcheck="false">
+      </div>
+    </div>
+    <div style="margin-top:9px">
+      <button id="login" class="go">Log in</button>
+      <button id="useSaved">Use saved key</button>
+      <button id="forget">Forget saved key</button>
+    </div>
+    <p class="hint">The key alone authenticates you — name and pid are identifiers, not
+       credentials, and neither can produce the auth token. The optional field above just
+       catches a mistyped or wrong key by comparing against the account you expected.</p>
+    <div class="grid" style="margin-top:10px">
+      <div><label>pid derived from the key in use</label><input id="pidOut" readonly></div>
+      <div><label>auth token sent to server</label><input id="authOut" readonly></div>
+    </div>
   </div>
 
   <!-- ---------------------------------------------------------- character -->
   <div class="panel">
-    <h2>3 · Character</h2>
+    <h2>Character</h2>
     <div class="who">
       <div><span>logged in as</span><b id="whoName">—</b></div>
       <div><span>pid</span><b id="whoPid">—</b></div>
@@ -165,7 +177,6 @@ async function useKey(raw) {
   KEY = k;
   AUTH = await sha('seedworld-auth|' + k);
   PID  = (await sha('seedworld-id|' + k)).slice(0, 12);
-  $('keyIn').value = k;
   $('pidOut').value = PID;
   $('authOut').value = AUTH.slice(0, 24) + '…';
   localStorage['seedworld.key'] = k;
@@ -259,6 +270,7 @@ function connect() {
 /* --------------------------------------------------------------------- ui */
 $('gen').onclick = async () => {
   const k = newKey();
+  $('regKey').value = k;
   $('keyOut').textContent = k; $('keyOut').hidden = false;
   await useKey(k);
   log('generated a key — write it down, it cannot be recovered', 'warn');
@@ -267,9 +279,17 @@ $('gen').onclick = async () => {
 $('forget').onclick = () => {
   delete localStorage['seedworld.key'];
   KEY = AUTH = PID = NAME = null;
-  $('keyIn').value = $('pidOut').value = $('authOut').value = '';
+  $('loginKey').value = $('regKey').value = $('pidOut').value = $('authOut').value = '';
   $('whoName').textContent = $('whoPid').textContent = '—';
-  log('cleared localStorage — paste a key to log back in', 'dim');
+  log('cleared localStorage — paste a key into Log in to come back', 'dim');
+};
+
+$('useSaved').onclick = async () => {
+  const k = localStorage['seedworld.key'];
+  if (!k) return log('no key saved in this browser', 'bad');
+  $('loginKey').value = k;
+  await useKey(k);
+  log('loaded saved key — press Log in', 'dim');
 };
 
 $('check').onclick = async () => {
@@ -282,7 +302,7 @@ $('check').onclick = async () => {
 };
 
 $('reg').onclick = async () => {
-  if (!await useKey($('keyIn').value)) return;
+  if (!await useKey($('regKey').value)) return;
   const name = $('nameIn').value.trim();
   if (!/^[A-Za-z0-9 ]{2,12}$/.test(name)) return log('name must be 2-12 letters, digits or spaces', 'bad');
 
@@ -310,8 +330,9 @@ $('reg').onclick = async () => {
 };
 
 $('login').onclick = async () => {
-  if (!await useKey($('keyIn').value)) return;
-  log('GET /save …');
+  if (!await useKey($('loginKey').value)) return;
+  const want = $('verifyIn').value.trim();
+  log('GET /save  pid=' + PID + ' …');
   const j = await api('/save?auth=' + AUTH);
   if (!j) return;
   if (j.e) {
@@ -319,10 +340,14 @@ $('login').onclick = async () => {
     else log('HTTP ' + j.__status + ': ' + j.e, 'bad');
     return;
   }
+  if (want && want.toLowerCase() !== (j.name || '').toLowerCase() && want.toLowerCase() !== j.pid) {
+    log('MISMATCH: you expected "' + want + '" but this key belongs to "' +
+        j.name + '" (' + j.pid + ') — wrong key?', 'bad');
+    return;
+  }
   NAME = j.name;
   $('whoName').textContent = j.name;
   $('whoPid').textContent = j.pid;
-  $('nameIn').value = j.name;
   if (j.seed) $('seedIn').value = j.seed;
   log('logged in as "' + j.name + '" (' + j.pid + ')', 'ok');
   apply(j.save);
@@ -366,10 +391,11 @@ $('scramble').onclick = () => {
 /* ------------------------------------------------------------------- boot */
 (async () => {
   if (localStorage['seedworld.key']) {
+    $('loginKey').value = localStorage['seedworld.key'];
     await useKey(localStorage['seedworld.key']);
-    log('found a saved key — press Log in', 'dim');
+    log('found a saved key in this browser — press Log in', 'dim');
   } else {
-    log('no saved key. Generate one, pick a name, Register.', 'dim');
+    log('no saved key. Either create an account above, or paste a key into Log in.', 'dim');
   }
 })();
 </script>
