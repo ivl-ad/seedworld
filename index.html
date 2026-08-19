@@ -4922,6 +4922,10 @@ function freshCharacter() {
    account: the wipe is stored, and every later login then loads it back
    perfectly correctly. Nothing may overwrite a character we could not read. */
 let saveDirty = 0, lastSave = 0, saveTimer = 0, saveArmed = 0, savedOnce = 0;
+/* Every send expects an acknowledgement. A save that leaves the client and is
+   never confirmed used to look identical to one that worked — that is how a
+   size cap on the server ate every save for days without a single symptom. */
+let ackPending = 0, ackWarned = 0;
 const SAVE_MS = 5000;
 function markDirty(now) {
   if (OFFLINE || !AUTH || !saveArmed) return;
@@ -4936,8 +4940,16 @@ function flushSave() {
   // timer is gone and the write waits for the next unrelated mutation.
   if (!ws || ws.readyState !== 1) { saveTimer = setTimeout(flushSave, 2000); return; }
   try {
-    ws.send(JSON.stringify([8, SEED, packSave()]));
+    const msg = JSON.stringify([8, SEED, packSave()]);
+    ws.send(msg);
     saveDirty = 0; lastSave = Date.now();
+    ackPending = lastSave;
+    setTimeout(() => {
+      if (!ackPending || ackWarned) return;
+      ackWarned = 1;
+      say('The server is not confirming saves (' + msg.length + ' byte character).', 'bad');
+      say('Your progress is probably not being stored.', 'bad');
+    }, 12000);
   } catch { saveTimer = setTimeout(flushSave, 2000); }
 }
 addEventListener('visibilitychange', () => { if (document.hidden) markDirty(1); });
@@ -5009,6 +5021,7 @@ function onNet(m) {
       say('Progress this session will not persist.', 'bad');
       break;
     case 10:                                   // write confirmed
+      ackPending = 0; ackWarned = 0;
       if (!savedOnce) { savedOnce = 1; say('Character saved to ' + m[1] + '.', 'lv'); }
       break;
     case 1:                                    // movement, batched per sender
