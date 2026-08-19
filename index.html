@@ -209,8 +209,23 @@
   .mk u{text-decoration:none;color:var(--dim);font-size:9px;display:block}
   .mk .gp{color:#ffd34a;font-weight:700;white-space:nowrap}
 
-  #chat{position:fixed;bottom:8px;left:10px;width:392px;height:132px;z-index:5;
-    padding:5px 7px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end}
+  #chatwrap{position:fixed;bottom:8px;left:10px;width:392px;z-index:5}
+  #chat{width:100%;height:132px;padding:5px 7px;
+    overflow-y:auto;overflow-x:hidden;
+    -webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain;
+    display:flex;flex-direction:column;justify-content:flex-start;
+    scrollbar-width:thin;scrollbar-color:var(--bevel) transparent}
+  #chat::-webkit-scrollbar{width:8px}
+  #chat::-webkit-scrollbar-thumb{background:var(--bevel);border-radius:4px}
+  #chat::-webkit-scrollbar-track{background:rgba(0,0,0,.25)}
+  #chat>div{flex:0 0 auto}
+  #chatmin{position:absolute;top:-2px;right:2px;z-index:2;width:18px;height:16px;
+    display:grid;place-items:center;font-size:13px;line-height:1;font-weight:700;
+    color:var(--dim);background:linear-gradient(180deg,#4b4133,#332b20);
+    border:1px solid #171209;border-radius:2px;cursor:pointer;text-shadow:1px 1px 0 #000}
+  #chatmin:hover{color:var(--amber)}
+  body.chatmin #chat{height:0;padding-top:0;padding-bottom:0;border-width:0;overflow:hidden}
+  body.chatmin #chatbar{bottom:26px}
   #chat div{font-size:11px;line-height:1.42;text-shadow:1px 1px 0 #000;white-space:pre-wrap}
   #chat .g{color:#e9dcbe}
   #chat .lv{color:#0ff}
@@ -283,7 +298,7 @@
   .wchar{display:block;width:100%;text-align:left;margin-bottom:3px;padding:6px 8px;font-size:11px}
   .wchar u{text-decoration:none;color:var(--dim);font-size:9px}
   /* chat input and the connection lamp */
-  #chatbar{position:fixed;bottom:146px;left:10px;width:392px;z-index:6;display:flex;
+  #chatbar{position:fixed;bottom:150px;left:10px;width:392px;z-index:6;display:flex;
     gap:6px;align-items:center}
   #chatin{flex:1;min-width:0;background:rgba(25,19,9,.92);border:2px solid #171209;
     box-shadow:inset 0 0 0 1px var(--bevel);color:var(--bone);font:inherit;font-size:11px;
@@ -328,11 +343,11 @@
     background:#10131a;transition:opacity .5s;font-size:12px;letter-spacing:.2em;color:var(--dim)}
   #boot.gone{opacity:0;pointer-events:none}
 
-  @media (max-width:900px){ #chat{width:280px;height:104px} #budget{display:none}
-    #chatbar{width:280px;bottom:118px} }
+  @media (max-width:900px){ #chatwrap{width:280px} #chat{height:104px} #budget{display:none}
+    #chatbar{width:280px;bottom:122px} }
   @media (max-width:680px){
     #side{width:180px} #panes{height:236px} #minimap{width:112px;height:112px} #mm{width:112px}
-    #chatbar{width:200px;bottom:92px}
+    #chatwrap{width:200px} #chat{height:78px} #chatbar{width:200px;bottom:96px}
     #orbs{right:130px} #chat{width:200px;height:78px}
   }
   @media (prefers-reduced-motion:reduce){#boot{transition:none}}
@@ -501,7 +516,8 @@
   </div>
 </div>
 
-<div id="chat" class="panel"></div>
+<div id="chatwrap"><b id="chatmin" title="minimise the chat log">–</b>
+  <div id="chat" class="panel"></div></div>
 <div id="chatbar"><i id="netdot" title="offline — single player"></i>
   <input id="chatin" maxlength="120" placeholder="press Enter to chat" spellcheck="false"></div>
 <div id="ctx"></div>
@@ -3696,11 +3712,15 @@ const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).to
 const chatEl = el('chat');
 
 function say(msg, cls) {
+  // only follow the tail if the reader is already at it, so scrolling back
+  // through the log is not yanked away by the next line
+  const stick = chatEl.scrollTop + chatEl.clientHeight >= chatEl.scrollHeight - 14;
   const d = document.createElement('div');
   d.className = cls || 'g';
   d.textContent = msg;
   chatEl.appendChild(d);
-  while (chatEl.childNodes.length > 40) chatEl.removeChild(chatEl.firstChild);
+  while (chatEl.childNodes.length > 120) chatEl.removeChild(chatEl.firstChild);
+  if (stick) chatEl.scrollTop = chatEl.scrollHeight;
 }
 
 const invGrid = el('invGrid'), slotEls = [];
@@ -4403,6 +4423,16 @@ eqWrap.addEventListener('click', e => {
 el('orbRun').onclick = () => { P.run = P.run ? 0 : 1; dirty.orb = 1; };
 /* Enter focuses the bar, Enter again sends — the keyboard is otherwise the
    camera, so chat has to be explicitly entered and left. */
+el('chatmin').onclick = () => {
+  const c = document.body.classList.toggle('chatmin');
+  el('chatmin').textContent = c ? '+' : '\u2013';
+  if (!c) chatEl.scrollTop = chatEl.scrollHeight;
+};
+/* The canvas swallows touch to drive pinch-zoom, so the log has to claim its
+   own vertical drags or it cannot be scrolled on a phone at all. */
+chatEl.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+chatEl.addEventListener('touchmove', e => e.stopPropagation(), { passive: true });
+chatEl.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
 const chatIn = el('chatin');
 chatIn.addEventListener('keydown', e => {
   e.stopPropagation();
@@ -4887,17 +4917,21 @@ function freshCharacter() {
    burn it in 28 player-hours, so mutations only raise a flag and a scheduler
    coalesces them. Anything the player would be upset to lose — a level, a
    purchase, death — flushes at once regardless. */
-let saveDirty = 0, lastSave = 0, saveTimer = 0;
+/* Writing is disarmed until a read has succeeded. Saving a fresh character
+   because the load failed is how one bad request permanently destroys an
+   account: the wipe is stored, and every later login then loads it back
+   perfectly correctly. Nothing may overwrite a character we could not read. */
+let saveDirty = 0, lastSave = 0, saveTimer = 0, saveArmed = 0, savedOnce = 0;
 const SAVE_MS = 5000;
 function markDirty(now) {
-  if (OFFLINE || !AUTH) return;
+  if (OFFLINE || !AUTH || !saveArmed) return;
   saveDirty = 1;
   if (now) return flushSave();
   if (!saveTimer) saveTimer = setTimeout(flushSave, Math.max(0, SAVE_MS - (Date.now() - lastSave)));
 }
 function flushSave() {
   clearTimeout(saveTimer); saveTimer = 0;
-  if (!saveDirty || OFFLINE || !AUTH) return;
+  if (!saveDirty || OFFLINE || !AUTH || !saveArmed) return;
   // A socket that is not up yet must not swallow the flush: reschedule, or the
   // timer is gone and the write waits for the next unrelated mutation.
   if (!ws || ws.readyState !== 1) { saveTimer = setTimeout(flushSave, 2000); return; }
@@ -4970,8 +5004,12 @@ function onNet(m) {
       NAME = m[3] || NAME;
       break;
     case 7:                                    // the server could not store it
+      saveArmed = 0;                           // stop writing into a hole
       say('Your character could not be saved: ' + (m[1] || 'unknown error'), 'bad');
-      say('Progress this session may be lost. Check the characters table exists.', 'bad');
+      say('Progress this session will not persist.', 'bad');
+      break;
+    case 10:                                   // write confirmed
+      if (!savedOnce) { savedOnce = 1; say('Character saved to ' + m[1] + '.', 'lv'); }
       break;
     case 1:                                    // movement, batched per sender
       for (const r of m[1]) {
@@ -5320,19 +5358,33 @@ async function enterWorld(seed) {
   el('welGo').disabled = true;
   el('welGo').textContent = 'Loading…';
 
-  let blob = null, isNew = 1;
+  let blob = null, isNew = 1, loaded = 0;
+  saveArmed = 0; savedOnce = 0;
   if (!OFFLINE && AUTH) {
-    const j = await api('/save?auth=' + AUTH + '&seed=' + encodeURIComponent(seed));
-    if (j && !j.e) { blob = j.save; isNew = j.isNew; NAME = j.name || NAME; }
-    else if (!j) say('Could not reach the server — playing offline.', 'bad');
-    else say('Could not load your character (' + j.e + ') — starting fresh.', 'bad');
+    // A blip must not cost the character, so ask three times before giving up
+    let j = null;
+    for (let a = 0; a < 3 && !loaded; a++) {
+      if (a) await new Promise(k => setTimeout(k, 400 * a));
+      j = await api('/save?auth=' + AUTH + '&seed=' + encodeURIComponent(seed));
+      if (j && !j.e) loaded = 1;
+    }
+    if (loaded) { blob = j.save; isNew = j.isNew; NAME = j.name || NAME; }
+    else if (!j) say('Could not reach the server.', 'bad');
+    else say('Could not load your character: ' + j.e, 'bad');
   }
 
   el('seed').value = seed;
   loadSeed(seed);                              // places the player at the spawn default
 
-  if (blob && blob.v === 1 && !isNew) {
+  if (!OFFLINE && AUTH && !loaded) {
+    /* Read-only: play on, but never write, or this session overwrites whatever
+       is actually stored with a character that was never really loaded. */
+    freshCharacter();
+    say('Your character could not be loaded, so nothing will be saved this', 'bad');
+    say('session. Reload to try again — your stored character is untouched.', 'bad');
+  } else if (blob && blob.v === 1 && !isNew) {
     applySave(blob);
+    saveArmed = 1;
     // a saved character resumes where it stood, not at the settlement outskirts
     if (Number.isInteger(blob.tx)) {
       focus.set(blob.tx, 0, blob.tz); refresh(); pump(300);
@@ -5341,7 +5393,9 @@ async function enterWorld(seed) {
     }
     say('Welcome back, ' + (NAME || 'Adventurer') + '.', 'lv');
   } else {
+    // the server confirmed there is no character here yet, so one may be made
     freshCharacter();
+    saveArmed = 1;
     if (!OFFLINE) say('A new life begins in ' + seed + '.', 'lv');
   }
   dressAvatar();
