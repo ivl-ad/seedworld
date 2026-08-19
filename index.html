@@ -4898,11 +4898,13 @@ function markDirty(now) {
 function flushSave() {
   clearTimeout(saveTimer); saveTimer = 0;
   if (!saveDirty || OFFLINE || !AUTH) return;
-  if (!ws || ws.readyState !== 1) return;      // reconnect flushes it instead
+  // A socket that is not up yet must not swallow the flush: reschedule, or the
+  // timer is gone and the write waits for the next unrelated mutation.
+  if (!ws || ws.readyState !== 1) { saveTimer = setTimeout(flushSave, 2000); return; }
   try {
     ws.send(JSON.stringify([8, SEED, packSave()]));
     saveDirty = 0; lastSave = Date.now();
-  } catch {}
+  } catch { saveTimer = setTimeout(flushSave, 2000); }
 }
 addEventListener('visibilitychange', () => { if (document.hidden) markDirty(1); });
 addEventListener('pagehide', () => markDirty(1));
@@ -4967,27 +4969,31 @@ function onNet(m) {
     case 0:                                    // hello
       NAME = m[3] || NAME;
       break;
+    case 7:                                    // the server could not store it
+      say('Your character could not be saved: ' + (m[1] || 'unknown error'), 'bad');
+      say('Progress this session may be lost. Check the characters table exists.', 'bad');
+      break;
     case 1:                                    // movement, batched per sender
       for (const r of m[1]) {
-        const R = remotes.get(r[0]); if (!R) continue;
+        const R = ensureRemote(r[0], r[2] | 0, r[3] | 0);
         R.q.push({ k: r[1] | 0, x: r[2] | 0, z: r[3] | 0, f: r[4] | 0, s: r[5] | 0 });
         if (R.q.length > 24) R.q.shift();
       }
       break;
     case 2: {                                  // action
-      const R = remotes.get(m[1]); if (!R) break;
+      const R = ensureRemote(m[1]); if (!R) break;
       R.act = m[2] | 0;
       R.acting = R.act ? 1 : 0;
       R.actSpan = R.act === 5 ? 4 : 2;
       break;
     }
     case 3: {                                  // equipment
-      const R = remotes.get(m[1]); if (!R) break;
+      const R = ensureRemote(m[1]); if (!R) break;
       R.eq = m[2] || []; R.eqDirty = 1;
       break;
     }
     case 4: {                                  // chat
-      const R = remotes.get(m[1]);
+      const R = ensureRemote(m[1]);
       const who = R ? R.name : 'Someone';
       say(who + ': ' + m[2]);
       if (R) { R.bubble = m[2].slice(0, 60); R.bubbleT = 4; }
@@ -4998,7 +5004,15 @@ function onNet(m) {
       break;
     case 6: {                                  // enter
       const pid = m[1];
-      if (pid === PID || remotes.has(pid)) break;
+      if (pid === PID) break;
+      const had = remotes.get(pid);
+      if (had) {                                 // rejoin: refresh, do not discard
+        had.name = m[2] || had.name;
+        had.eq = m[5] || had.eq; had.eqDirty = 1;
+        had.tx = had.px = m[3] | 0; had.tz = had.pz = m[4] | 0;
+        had.lastSeen = tickN; had.q.length = 0;
+        break;
+      }
       remotes.set(pid, {
         pid, name: m[2] || 'Adventurer',
         tx: m[3] | 0, tz: m[4] | 0, px: m[3] | 0, pz: m[4] | 0,
@@ -5069,6 +5083,28 @@ function takeRig() {
   return g;
 }
 function giveRig(g) { g.visible = false; if (rigPool.length < 24) rigPool.push(g); }
+/* A packet for someone we do not know about means the enter was missed or we
+   dropped them in error; conjure a placeholder rather than discarding the
+   packet forever, since the server will not resend an enter for a player it
+   still believes is visible to us. */
+function ensureRemote(pid, x, z) {
+  if (pid === PID) return null;
+  let R = remotes.get(pid);
+  if (!R) {
+    R = {
+      pid, name: 'Adventurer',
+      tx: x | 0, tz: z | 0, px: x | 0, pz: z | 0, rx: x | 0, ry: 0, rz: z | 0,
+      face: 0, faceT: 0, afloat: 0, moved: 0, run: 1, energy: 100,
+      act: 0, acting: 0, actSpan: 2, eq: [], eqDirty: 1,
+      q: [], path: [], walkPhase: 0, bobPhase: 0, swingPhase: 0,
+      g: null, parts: null, plate: null, bubble: '', bubbleT: 0,
+      lastSeen: tickN, lod: -1
+    };
+    remotes.set(pid, R);
+  }
+  R.lastSeen = tickN;                          // any traffic counts as alive
+  return R;
+}
 function dropRemote(pid) {
   const R = remotes.get(pid); if (!R) return;
   if (R.g) giveRig(R.g);
@@ -5147,7 +5183,10 @@ function updateRemotes(dt, alpha) {
         R.lastSeen = tickN;
       } else R.moved = 0;
     }
-    if (tickN - R.lastSeen > 12) { dropRemote(R.pid); continue; }
+    /* No timeout at all. Presence is the server's to decide: it sends [5]
+       when someone leaves or walks out of range, and a dropped socket clears
+       every remote wholesale. An idle player is still standing there, and any
+       local guess about that is a guess that eventually deletes them. */
 
     R.rx = R.px + (R.tx - R.px) * alpha;
     R.rz = R.pz + (R.tz - R.pz) * alpha;
@@ -5286,6 +5325,7 @@ async function enterWorld(seed) {
     const j = await api('/save?auth=' + AUTH + '&seed=' + encodeURIComponent(seed));
     if (j && !j.e) { blob = j.save; isNew = j.isNew; NAME = j.name || NAME; }
     else if (!j) say('Could not reach the server — playing offline.', 'bad');
+    else say('Could not load your character (' + j.e + ') — starting fresh.', 'bad');
   }
 
   el('seed').value = seed;
@@ -5309,6 +5349,8 @@ async function enterWorld(seed) {
 
   WEL.classList.add('gone');
   setTimeout(() => { WEL.style.display = 'none'; }, 420);
+  el('welGo').disabled = false;
+  el('welGo').textContent = 'Enter this world';
   started = 1;
   if (!OFFLINE && AUTH) { connect(); markDirty(1); }
 }
