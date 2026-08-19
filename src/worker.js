@@ -10,17 +10,58 @@
    that is echoing timestamps for the offset estimate. That is deliberate — a
    server-side tick loop would keep the Durable Object awake permanently and
    an empty world would cost money.
+
+   The seed is the world. One account, one character per seed: `players` holds
+   who you are, `characters` holds who you are *there*.
    =========================================================================== */
 
 import { DurableObject } from 'cloudflare:workers';
 
 const VIEW = 48;      // interest radius in tiles; render radius is ~7 chunks
 const RATE = 25;      // client messages per second before we start dropping
-const MAXMSG = 512;   // bytes
+const MAXSAVE = 8192; // save blob ceiling, enforced here not client-side
+/* Two limits, because a save is a different animal from a chat line. The
+   transport cap has to clear MAXSAVE plus its wrapper or a save can never
+   arrive at all; movement and chat stay on a tight leash. A single cap of 512
+   silently ate every save from a character with more than a few items in the
+   pack, which is every character that has actually been played. */
+const MAXMSG = MAXSAVE + 2048;   // hard transport ceiling
+const MAXSMALL = 512;            // everything that is not a save
 
 const encoder = new TextEncoder();
 const toHex = b => [...new Uint8Array(b)].map(v => v.toString(16).padStart(2, '0')).join('');
 const sha256 = async s => toHex(await crypto.subtle.digest('SHA-256', encoder.encode(s)));
+const cleanSeed = s => (String(s || '').trim().toLowerCase().slice(0, 32)) || 'lumbridge';
+
+/* Bumped whenever the wire contract changes. The client reads it out of the
+   socket hello, because a stale Worker deployment is otherwise independently
+   invisible from the browser: assets update instantly and the Worker does not,
+   so the game looks new while the server is months old and silently dropping
+   everything it does not understand. */
+const BUILD = 3;
+
+/* The 2007 xp curve, server side, so /characters can summarise a blob without
+   trusting the client to report its own combat level. */
+const XP_TABLE = new Float64Array(100);
+for (let L = 2, acc = 0; L <= 99; L++) {
+  acc += Math.floor((L - 1) + 300 * Math.pow(2, (L - 1) / 7));
+  XP_TABLE[L] = Math.floor(acc / 4);
+}
+function levelFor(xp) {
+  let L = 1;
+  while (L < 99 && xp >= XP_TABLE[L + 1]) L++;
+  return L;
+}
+/* Indices match the client's SKILLS array: attack 0, strength 1, defence 2,
+   hitpoints 8. Anything else here is a silent wrong number on the menu. */
+function summarise(save) {
+  const xp = Array.isArray(save && save.xp) ? save.xp : [];
+  let total = 0;
+  const lv = [];
+  for (let i = 0; i < 28; i++) { const L = levelFor(+xp[i] || 0); lv[i] = L; total += L; }
+  const combat = Math.floor(0.25 * (lv[2] + lv[8]) + 0.325 * (lv[0] + lv[1])) || 3;
+  return { combat, totalLevel: total };
+}
 
 /* =========================== THE ROOM ==================================== */
 
@@ -41,6 +82,13 @@ export class World extends DurableObject {
 
   async fetch(req) {
     const u = new URL(req.url);
+
+    // cheap population probe for the world-select screen; no socket involved
+    if (u.pathname === '/count') {
+      return new Response(JSON.stringify({ n: this.players.size }),
+        { headers: { 'content-type': 'application/json' } });
+    }
+
     const pid = u.searchParams.get('pid');
     const name = u.searchParams.get('name') || 'Adventurer';
     if (!pid) return new Response('no pid', { status: 400 });
@@ -48,13 +96,28 @@ export class World extends DurableObject {
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);          // NOT server.accept() — that kills hibernation
 
-    const seed = u.searchParams.get('seed') || 'lumbridge';
-    const rec = { pid, name, x: 0, z: 0, face: 0, flags: 0, eq: [] };
+    const seed = cleanSeed(u.searchParams.get('seed'));
+
+    /* A reconnecting pid is a new socket wearing an old name. If the previous
+       close was missed — an abrupt tab kill, or this object hibernating in
+       between — the survivors still list this pid as seen and will therefore
+       never be sent an enter for it again. Forget it everywhere so the next
+       flush rediscovers them. */
+    const old = this.players.get(pid);
+    if (old && old.ws !== server) { try { old.ws.close(1000); } catch {} }
+    for (const q of this.players.values()) q.seen.delete(pid);
+
+    const rec = { pid, name, seed, x: 0, z: 0, face: 0, flags: 0, eq: [] };
     server.serializeAttachment(rec);
     this.players.set(pid, { ws: server, ...rec, seen: new Set(), n: 0, t0: 0 });
 
     // extra fields appended, so older clients reading only [1] and [2] still work
-    server.send(JSON.stringify([[0, pid, Date.now(), name, seed]]));
+    server.send(JSON.stringify([[0, pid, Date.now(), name, seed, BUILD]]));
+
+    /* Interest management only runs inside flush(), and flush only runs when
+       somebody queues traffic. Without this, a join is invisible to a room
+       where nobody happens to be moving. */
+    if (!this.timer) this.timer = setTimeout(() => this.flush(), 40);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -62,7 +125,12 @@ export class World extends DurableObject {
     const att = ws.deserializeAttachment();
     if (!att) return;
     const me = this.players.get(att.pid);
-    if (!me || typeof raw !== 'string' || raw.length > MAXMSG) return;
+    if (!me || typeof raw !== 'string') return;
+    if (raw.length > MAXMSG) {
+      console.log('over transport cap', raw.length, me.pid);
+      try { ws.send(JSON.stringify([[7, 'save too large (' + raw.length + ' bytes)']])); } catch {}
+      return;
+    }
 
     const now = Date.now();
     if (now - me.t0 > 1000) { me.t0 = now; me.n = 0; }
@@ -71,6 +139,13 @@ export class World extends DurableObject {
     let m;
     try { m = JSON.parse(raw); } catch { return; }
     if (!Array.isArray(m)) return;
+    // Size is judged after the type is known, and a rejection is never silent:
+    // a save that vanishes without a word is indistinguishable from one that
+    // was never sent, which is exactly how this went unnoticed.
+    if (m[0] !== 8 && raw.length > MAXSMALL) {
+      console.log('oversize', m[0], raw.length, me.pid);
+      return;
+    }
 
     switch (m[0]) {
 
@@ -103,13 +178,46 @@ export class World extends DurableObject {
       }
 
       case 8: {                                  // save blob
+        // New shape is [8, seed, blob]. The old [8, blob] still arrives from
+        // account-test.html, so a non-string second element means legacy and
+        // the connection's own seed applies.
+        const legacy = typeof m[1] !== 'string';
+        const seed = legacy ? (me.seed || 'lumbridge') : cleanSeed(m[1]);
+        const payload = legacy ? m[1] : m[2];
         let blob;
-        try { blob = JSON.stringify(m[1]); } catch { return; }
-        if (!blob || blob.length > 8192) return;
+        try { blob = JSON.stringify(payload); } catch { return; }
+        if (!blob || blob.length > MAXSAVE) {
+          try { ws.send(JSON.stringify([[7, 'blob over ' + MAXSAVE + ' bytes']])); } catch {}
+          return;
+        }
+        if (!this.env.DB) {
+          try { ws.send(JSON.stringify([[7, 'no D1 binding on the durable object']])); } catch {}
+          return;
+        }
         try {
-          await this.env.DB.prepare('UPDATE players SET save=?, updated=? WHERE pid=?')
-            .bind(blob, now, me.pid).run();
-        } catch (e) { console.log('save failed', me.pid, String(e)); }
+          await this.env.DB.prepare(
+            'INSERT INTO characters (pid, seed, save, created, updated) VALUES (?,?,?,?,?) ' +
+            'ON CONFLICT(pid, seed) DO UPDATE SET save=excluded.save, updated=excluded.updated'
+          ).bind(me.pid, seed, blob, now, now).run();
+          // Remember the last world played so login can preselect it — but only
+          // when it actually changes. Writing it on every flush doubled the D1
+          // cost of a save for a column that changes once a session.
+          if (me.savedSeed !== seed) {
+            me.savedSeed = seed;
+            await this.env.DB.prepare('UPDATE players SET seed=?, updated=? WHERE pid=?')
+              .bind(seed, now, me.pid).run();
+          }
+          // confirm the write, so a client can tell "saved" from "swallowed"
+          try { ws.send(JSON.stringify([[10, seed, blob.length]])); } catch {}
+        } catch (e) {
+          // Silence here is how a missing table costs somebody their session.
+          const msg = String(e);
+          console.log('save failed', me.pid, msg);
+          try {
+            ws.send(JSON.stringify([[7, /no such table/i.test(msg)
+              ? 'the characters table does not exist' : msg.slice(0, 120)]]));
+          } catch {}
+        }
         return;                                  // no attachment change
       }
 
@@ -122,7 +230,7 @@ export class World extends DurableObject {
     }
 
     ws.serializeAttachment({
-      pid: me.pid, name: me.name, x: me.x, z: me.z,
+      pid: me.pid, name: me.name, seed: me.seed, x: me.x, z: me.z,
       face: me.face, flags: me.flags, eq: me.eq
     });
   }
@@ -141,6 +249,14 @@ export class World extends DurableObject {
 
     for (const p of this.players.values()) {
       const out = [];
+
+      /* Reap anyone this player still thinks is here but who is not in the
+         room any more. A missed close, or this object hibernating and losing
+         its seen sets, would otherwise leave a ghost that never departs and
+         that the client can never be told about. */
+      for (const pid of p.seen) {
+        if (!this.players.has(pid)) { p.seen.delete(pid); out.push([5, pid]); }
+      }
 
       // interest management: emit enter/leave as people cross the view radius
       for (const q of this.players.values()) {
@@ -194,6 +310,46 @@ const json = (body, status, origin) => new Response(JSON.stringify(body), {
   headers: { 'content-type': 'application/json', ...cors(origin) }
 });
 
+async function population(env, u, origin) {
+  const seed = cleanSeed(u.searchParams.get('seed'));
+  try {
+    const stub = env.WORLD.get(env.WORLD.idFromName('world:' + seed));
+    const r = await stub.fetch(new Request('https://do/count'));
+    const j = await r.json();
+    return json({ seed, n: j.n | 0, build: BUILD }, 200, origin);
+  } catch {
+    // an empty world has never been instantiated; that is not an error
+    return json({ seed, n: 0, build: BUILD }, 200, origin);
+  }
+}
+async function characters(env, u, origin) {
+  const auth = u.searchParams.get('auth') || '';
+  if (!/^[0-9a-f]{64}$/.test(auth)) return json({ e: 'bad auth' }, 400, origin);
+  let row;
+  try {
+    row = await env.DB.prepare('SELECT pid, name, seed FROM players WHERE auth_hash=?')
+      .bind(await sha256('v1|' + auth)).first();
+  } catch { return json({ e: 'db error' }, 500, origin); }
+  if (!row) return json({ e: 'unknown key' }, 401, origin);
+
+  let rows;
+  try {
+    rows = await env.DB.prepare(
+      'SELECT seed, save, updated FROM characters WHERE pid=? ORDER BY updated DESC LIMIT 40'
+    ).bind(row.pid).all();
+  } catch {
+    // no table yet: an account with no characters, not a server fault
+    return json({ pid: row.pid, name: row.name, last: row.seed, characters: [], build: BUILD }, 200, origin);
+  }
+  const list = (rows?.results || []).map(r => {
+    let save = {};
+    try { save = JSON.parse(r.save || '{}'); } catch {}
+    const s = summarise(save);
+    return { seed: r.seed, updated: r.updated, combat: s.combat, totalLevel: s.totalLevel };
+  });
+  return json({ pid: row.pid, name: row.name, last: row.seed, characters: list, build: BUILD }, 200, origin);
+}
+
 export default {
   async fetch(req, env) {
     const u = new URL(req.url);
@@ -215,6 +371,19 @@ export default {
       return new Response(null, { headers: cors(originOk ? origin : 'null') });
     }
 
+    /* Resolve an auth token to an account row. Every authed route needs this
+       and every one of them wants the same 401 on failure. */
+    const whoami = async auth => {
+      if (!/^[0-9a-f]{64}$/.test(auth || '')) return { e: 'bad auth', code: 400 };
+      let row;
+      try {
+        row = await env.DB.prepare('SELECT pid, name, seed FROM players WHERE auth_hash=?')
+          .bind(await sha256('v1|' + auth)).first();
+      } catch (e) { console.log('db error', String(e)); return { e: 'db error', code: 500 }; }
+      if (!row) return { e: 'unknown key', code: 401 };
+      return { row };
+    };
+
     /* ---------------- /ws : the only hot path ---------------- */
     if (u.pathname === '/ws') {
       // WebSocket upgrades skip CORS preflight entirely, so check this yourself
@@ -225,22 +394,16 @@ export default {
       }
 
       const auth = u.searchParams.get('auth') || '';
-      const seed = (u.searchParams.get('seed') || 'lumbridge').slice(0, 32);
+      const seed = cleanSeed(u.searchParams.get('seed'));
       if (!/^[0-9a-f]{64}$/.test(auth)) return new Response('bad auth', { status: 400 });
 
-      let row;
-      try {
-        row = await env.DB.prepare('SELECT pid, name FROM players WHERE auth_hash=?')
-          .bind(await sha256('v1|' + auth)).first();
-      } catch (e) {
-        console.log('db error on /ws', String(e));
-        return new Response('db error', { status: 500 });
-      }
-      if (!row) return new Response('unknown key', { status: 401 });
+      const who = await whoami(auth);
+      if (who.e) return new Response(who.e, { status: who.code });
 
       const target = new URL(req.url);
-      target.searchParams.set('pid', row.pid);
-      target.searchParams.set('name', row.name || 'Adventurer');
+      target.searchParams.set('pid', who.row.pid);
+      target.searchParams.set('name', who.row.name || 'Adventurer');
+      target.searchParams.set('seed', seed);
 
       const stub = env.WORLD.get(env.WORLD.idFromName('world:' + seed));
       return stub.fetch(new Request(target, req));
@@ -308,29 +471,59 @@ export default {
       } catch { return json({ e: 'db error' }, 500, origin); }
     }
 
-    /* ---------------- /save ---------------- */
+    /* ---------------- /save : one character, per seed ---------------- */
     if (u.pathname === '/save' && req.method === 'GET') {
       if (!originOk) return json({ e: 'origin' }, 403, 'null');
-      const auth = u.searchParams.get('auth') || '';
-      if (!/^[0-9a-f]{64}$/.test(auth)) return json({ e: 'bad auth' }, 400, origin);
 
-      let row;
+      // ?pop=1 needs no account, so answer before authenticating
+      if (u.searchParams.get('pop')) return population(env, u, origin);
+      if (u.searchParams.get('list')) return characters(env, u, origin);
+
+      const who = await whoami(u.searchParams.get('auth') || '');
+      if (who.e) return json({ e: who.e }, who.code, origin);
+      const row = who.row;
+
+      // no seed given means "wherever I was last"
+      const seed = cleanSeed(u.searchParams.get('seed') || row.seed);
+
+      let ch = null, note = null;
       try {
-        row = await env.DB.prepare('SELECT pid, name, seed, save FROM players WHERE auth_hash=?')
-          .bind(await sha256('v1|' + auth)).first();
-      } catch { return json({ e: 'db error' }, 500, origin); }
-      if (!row) return json({ e: 'unknown key' }, 401, origin);
+        ch = await env.DB.prepare('SELECT save FROM characters WHERE pid=? AND seed=?')
+          .bind(row.pid, seed).first();
+      } catch (e) {
+        /* Before the characters table exists there is still one legacy blob on
+           the player row. Serving it keeps an account that predates per-seed
+           characters from looking wiped. */
+        note = 'characters table missing';
+        try {
+          const legacy = await env.DB.prepare('SELECT save FROM players WHERE pid=?')
+            .bind(row.pid).first();
+          if (legacy && legacy.save && legacy.save !== '{}') ch = legacy;
+        } catch {}
+      }
 
       let save = {};
-      try { save = JSON.parse(row.save || '{}'); } catch {}
-      return json({ pid: row.pid, name: row.name, seed: row.seed, save }, 200, origin);
+      try { save = JSON.parse((ch && ch.save) || '{}'); } catch {}
+      const body = { pid: row.pid, name: row.name, seed, save, isNew: ch ? 0 : 1 };
+      if (note) body.note = note;
+      return json(body, 200, origin);
+    }
+
+    /* ---------------- /characters and /population ---------------- */
+    if (u.pathname === '/characters' && req.method === 'GET') {
+      if (!originOk) return json({ e: 'origin' }, 403, 'null');
+      return characters(env, u, origin);
+    }
+    if (u.pathname === '/population' && req.method === 'GET') {
+      if (!originOk) return json({ e: 'origin' }, 403, 'null');
+      return population(env, u, origin);
     }
 
     /* ---------------- /health ---------------- */
     if (u.pathname === '/health') {
       try {
         await env.DB.prepare('SELECT 1').first();
-        return json({ ok: 1, db: 'up', now: Date.now() }, 200, origin);
+        return json({ ok: 1, db: 'up', now: Date.now(), build: BUILD }, 200, origin);
       } catch (e) {
         return json({ ok: 0, db: 'down', err: String(e) }, 500, origin);
       }
