@@ -4841,14 +4841,18 @@ async function useKey(raw) {
   store.set('seedworld.key', k);
   return 1;
 }
+/* Returns parsed JSON, or {__status} when the reply was not JSON — a 404 from
+   the static asset handler and an unreachable host are very different problems
+   and used to be indistinguishable here. null means the request never landed. */
 async function api(path, opts) {
   try {
     const r = await fetch(API + path, opts);
     const t = await r.text();
     let j = null; try { j = JSON.parse(t); } catch {}
-    if (j) j.__status = r.status;
+    if (!j) j = { e: 'not json', __html: 1 };
+    j.__status = r.status;
     return j;
-  } catch { return null; }                     // caller decides how to degrade
+  } catch { return null; }
 }
 
 /* ---- the save blob: short keys, positional arrays, well under a kilobyte --- */
@@ -4926,6 +4930,7 @@ let saveDirty = 0, lastSave = 0, saveTimer = 0, saveArmed = 0, savedOnce = 0;
    never confirmed used to look identical to one that worked — that is how a
    size cap on the server ate every save for days without a single symptom. */
 let ackPending = 0, ackWarned = 0;
+const NEED_BUILD = 3;                          // the wire contract this client speaks
 const SAVE_MS = 5000;
 function markDirty(now) {
   if (OFFLINE || !AUTH || !saveArmed) return;
@@ -4947,8 +4952,9 @@ function flushSave() {
     setTimeout(() => {
       if (!ackPending || ackWarned) return;
       ackWarned = 1;
-      say('The server is not confirming saves (' + msg.length + ' byte character).', 'bad');
-      say('Your progress is probably not being stored.', 'bad');
+      say('The server never confirmed a ' + msg.length + ' byte save.', 'bad');
+      say('The Worker is almost certainly not deployed — check /health for', 'bad');
+      say('a "build" field. If it is missing, run: npx wrangler deploy', 'bad');
     }, 12000);
   } catch { saveTimer = setTimeout(flushSave, 2000); }
 }
@@ -5012,9 +5018,20 @@ function pingClock() {
 
 function onNet(m) {
   switch (m[0]) {
-    case 0:                                    // hello
+    case 0: {                                  // hello
       NAME = m[3] || NAME;
+      /* A Worker deployment is invisible from here otherwise: the page is a
+         static asset and updates on its own, so a months-old Worker serves a
+         brand-new client and silently drops every message it predates. */
+      const build = m[5] | 0;
+      if (build < NEED_BUILD) {
+        saveArmed = 0;
+        say('The server is running an old build (' + (build || 'pre-versioning') + ').', 'bad');
+        say('Saving is disabled so it cannot be corrupted. Redeploy the Worker:', 'bad');
+        say('npx wrangler deploy — src/worker.js is not live yet.', 'bad');
+      }
       break;
+    }
     case 7:                                    // the server could not store it
       saveArmed = 0;                           // stop writing into a hole
       say('Your character could not be saved: ' + (m[1] || 'unknown error'), 'bad');
@@ -5380,6 +5397,7 @@ async function enterWorld(seed) {
       if (a) await new Promise(k => setTimeout(k, 400 * a));
       j = await api('/save?auth=' + AUTH + '&seed=' + encodeURIComponent(seed));
       if (j && !j.e) loaded = 1;
+      else if (j && j.__html) j.e = 'HTTP ' + j.__status + ' — /save is not reaching the Worker';
     }
     if (loaded) { blob = j.save; isNew = j.isNew; NAME = j.name || NAME; }
     else if (!j) say('Could not reach the server.', 'bad');
@@ -5510,7 +5528,9 @@ async function afterLogin() {
    that you can keep several and switch between them. */
 async function loadCharacterList() {
   const box = el('welChars');
-  const j = await api('/characters?auth=' + AUTH);
+  // run_worker_first is a second thing that must be deployed; /save always is
+  let j = await api('/characters?auth=' + AUTH);
+  if (!j || j.__status === 404) j = await api('/save?list=1&auth=' + AUTH);
   if (!j || !j.characters || !j.characters.length) { box.innerHTML = ''; return; }
   box.innerHTML = '<div class="wclab">Your characters</div>' + j.characters.map(c =>
     '<button class="wchar" data-seed="' + c.seed + '">' + c.seed +
@@ -5529,8 +5549,11 @@ async function pollPopulation() {
   const line = el('welPop');
   const mine = haveChars.has(seed) ? ' · you have a character here' : ' · new character';
   if (OFFLINE) { line.textContent = 'Offline' + mine; return; }
-  const j = await api('/population?seed=' + encodeURIComponent(seed));
-  line.textContent = (j ? (j.n === 1 ? '1 player online' : j.n + ' players online') : 'population unknown') + mine;
+  let j = await api('/population?seed=' + encodeURIComponent(seed));
+  if (!j || j.__status === 404) j = await api('/save?pop=1&seed=' + encodeURIComponent(seed));
+  const ok = j && typeof j.n === 'number';
+  line.textContent = (ok ? (j.n === 1 ? '1 player online' : j.n + ' players online')
+                         : 'population unknown') + mine;
   popTimer = setTimeout(pollPopulation, 10000);
 }
 
