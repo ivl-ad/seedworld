@@ -58,6 +58,19 @@
     display:grid;place-items:center;font-size:9px;font-weight:700;letter-spacing:.02em;
     color:var(--bone);background:linear-gradient(180deg,#4b4133,#2c251c);
     border:2px solid #171209;box-shadow:inset 0 0 0 1px var(--bevel);text-shadow:1px 1px 0 #000}
+  #signout{display:block;width:100%;margin-top:6px;padding:5px 0;font-size:9px;
+    letter-spacing:.14em;text-transform:uppercase;
+    background:linear-gradient(180deg,#5a4c39,#3a3024);color:var(--bone)}
+  #signout:hover{color:#fff;box-shadow:inset 0 0 0 1px var(--bevel-2)}
+  #bye{position:fixed;inset:0;z-index:80;display:none;place-items:center;
+    background:rgba(8,6,4,.62)}
+  #bye.on{display:grid}
+  #byeBox{width:min(300px,90vw);padding:18px 20px;text-align:center}
+  #byeBox h2{margin:0 0 8px;font-size:11px;letter-spacing:.16em;color:var(--amber);
+    text-transform:uppercase}
+  #byeMsg{margin:0;font-size:11px;line-height:1.6;color:var(--bone)}
+  #byeBtns{margin-top:12px;display:flex;gap:6px;justify-content:center}
+  #byeBtns:empty{display:none}
   #posr{display:block;text-align:center;margin-top:5px;font-size:10px;
     letter-spacing:.1em;color:var(--dim);font-variant-numeric:tabular-nums;
     text-shadow:1px 1px 0 #000}
@@ -373,6 +386,15 @@
   <canvas id="minimap" width="120" height="120"></canvas>
   <span id="compass">N ↑</span>
   <span id="posr">0, 0</span>
+  <button id="signout" title="Save your character and return to the world list">Sign out</button>
+</div>
+
+<div id="bye">
+  <div id="byeBox" class="panel">
+    <h2 id="byeTitle">Saving your character</h2>
+    <p id="byeMsg">Making sure everything is stored…</p>
+    <div id="byeBtns"></div>
+  </div>
 </div>
 
 <div id="orbs">
@@ -3711,6 +3733,11 @@ const el = id => document.getElementById(id);
 const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(0) + 'k' : n | 0;
 const chatEl = el('chat');
 
+/* Chat gets the player's version, the console gets the engineer's. */
+function trouble(playerText, devText) {
+  say(playerText, 'bad');
+  if (devText) console.warn('[seedworld] ' + devText);
+}
 function say(msg, cls) {
   // only follow the tail if the reader is already at it, so scrolling back
   // through the log is not yanked away by the next line
@@ -4952,14 +4979,16 @@ function flushSave() {
     setTimeout(() => {
       if (!ackPending || ackWarned) return;
       ackWarned = 1;
-      say('The server never confirmed a ' + msg.length + ' byte save.', 'bad');
-      say('The Worker is almost certainly not deployed — check /health for', 'bad');
-      say('a "build" field. If it is missing, run: npx wrangler deploy', 'bad');
+      trouble('Your progress is not reaching Seedworld right now. Use Sign out ' +
+              'to try saving again.',
+              'no save ack after 12s for a ' + msg.length + ' byte blob — check ' +
+              'https://vla.dev/health reports build ' + NEED_BUILD);
     }, 12000);
   } catch { saveTimer = setTimeout(flushSave, 2000); }
 }
 addEventListener('visibilitychange', () => { if (document.hidden) markDirty(1); });
 addEventListener('pagehide', () => markDirty(1));
+addEventListener('beforeunload', () => markDirty(1));
 
 /* ========================= 35. THE SOCKET =========================== */
 /* Everything here degrades to single player. A dead socket costs a chat line
@@ -5026,19 +5055,21 @@ function onNet(m) {
       const build = m[5] | 0;
       if (build < NEED_BUILD) {
         saveArmed = 0;
-        say('The server is running an old build (' + (build || 'pre-versioning') + ').', 'bad');
-        say('Saving is disabled so it cannot be corrupted. Redeploy the Worker:', 'bad');
-        say('npx wrangler deploy — src/worker.js is not live yet.', 'bad');
+        trouble('Seedworld is being updated. You can play, but your progress ' +
+                'will not be kept until it finishes.',
+                'server build ' + (build || 'pre-versioning') + ' < client ' + NEED_BUILD +
+                ' — deploy src/worker.js (npx wrangler deploy)');
       }
       break;
     }
     case 7:                                    // the server could not store it
       saveArmed = 0;                           // stop writing into a hole
-      say('Your character could not be saved: ' + (m[1] || 'unknown error'), 'bad');
-      say('Progress this session will not persist.', 'bad');
+      trouble('Seedworld could not save your character. Your progress this ' +
+              'session will not be kept.', 'server refused save: ' + (m[1] || 'unknown'));
       break;
     case 10:                                   // write confirmed
       ackPending = 0; ackWarned = 0;
+      if (ackResolve) ackResolve(true);
       if (!savedOnce) { savedOnce = 1; say('Character saved to ' + m[1] + '.', 'lv'); }
       break;
     case 1:                                    // movement, batched per sender
@@ -5400,8 +5431,8 @@ async function enterWorld(seed) {
       else if (j && j.__html) j.e = 'HTTP ' + j.__status + ' — /save is not reaching the Worker';
     }
     if (loaded) { blob = j.save; isNew = j.isNew; NAME = j.name || NAME; }
-    else if (!j) say('Could not reach the server.', 'bad');
-    else say('Could not load your character: ' + j.e, 'bad');
+    else if (!j) trouble('Could not reach Seedworld.', 'network failure on /save');
+    else trouble('Could not load your character.', '/save said: ' + j.e);
   }
 
   el('seed').value = seed;
@@ -5411,8 +5442,8 @@ async function enterWorld(seed) {
     /* Read-only: play on, but never write, or this session overwrites whatever
        is actually stored with a character that was never really loaded. */
     freshCharacter();
-    say('Your character could not be loaded, so nothing will be saved this', 'bad');
-    say('session. Reload to try again — your stored character is untouched.', 'bad');
+    say('Your saved character could not be loaded, so nothing will be stored', 'bad');
+    say('this session. Your progress so far is safe — reload to try again.', 'bad');
   } else if (blob && blob.v === 1 && !isNew) {
     applySave(blob);
     saveArmed = 1;
@@ -5441,6 +5472,105 @@ async function enterWorld(seed) {
 }
 
 let started = 0;
+/* ===================== 36b. LEAVING PROPERLY ======================= */
+/* A refresh can lose the last few seconds: the browser often kills an in-flight
+   socket send on unload, so the periodic flush is the only guarantee and it is
+   at most five seconds old. Signing out deliberately is the one moment we can
+   actually wait for the server to confirm the write, so it does. */
+const BYE = el('bye');
+const byeMsg = t => { el('byeMsg').textContent = t; };
+const wait = ms => new Promise(r => setTimeout(r, ms));
+let byeBusy = 0, ackResolve = null;
+
+function showBye(title, msg) {
+  el('byeTitle').textContent = title;
+  byeMsg(msg);
+  el('byeBtns').innerHTML = '';
+  BYE.classList.add('on');
+}
+const hideBye = () => BYE.classList.remove('on');
+
+/* Push a save and wait for the server to say it landed, rather than assuming. */
+async function saveAndConfirm(tries) {
+  for (let i = 0; i < tries; i++) {
+    if (!ws || ws.readyState !== 1) {
+      byeMsg('Reconnecting…');
+      wsWant = 1; connect();
+      await wait(1400);
+    }
+    if (ws && ws.readyState === 1) {
+      saveDirty = 1;
+      const acked = new Promise(res => { ackResolve = res; });
+      flushSave();
+      const ok = await Promise.race([acked, wait(4000).then(() => false)]);
+      ackResolve = null;
+      if (ok) return true;
+    }
+    if (i < tries - 1) { byeMsg('Still trying… attempt ' + (i + 2) + ' of ' + tries); await wait(900 + i * 600); }
+  }
+  return false;
+}
+async function signOut() {
+  if (byeBusy || !started) return;
+  byeBusy = 1;
+  showBye('Signing out', 'Saving your character…');
+
+  // nothing to store offline, or when the load never succeeded
+  const ok = (OFFLINE || !AUTH || !saveArmed) ? true : await saveAndConfirm(5);
+
+  if (ok) { byeBusy = 0; toWorldSelect(); return; }
+
+  showBye('Could not save', 'Seedworld is not responding. Leaving now may lose ' +
+          'the last few minutes of progress.');
+  const keep = document.createElement('button');
+  keep.textContent = 'Keep trying';
+  keep.onclick = async () => {
+    showBye('Signing out', 'Saving your character…');
+    const ok2 = await saveAndConfirm(5);
+    byeBusy = 0;
+    if (ok2) toWorldSelect(); else signOutFailed();
+  };
+  const leave = document.createElement('button');
+  leave.textContent = 'Leave anyway';
+  leave.onclick = () => { byeBusy = 0; toWorldSelect(); };
+  el('byeBtns').append(keep, leave);
+  byeBusy = 0;
+}
+function signOutFailed() {
+  showBye('Could not save', 'Still no response. You can keep playing and try ' +
+          'again later, or leave and lose recent progress.');
+  const stay = document.createElement('button');
+  stay.textContent = 'Keep playing';
+  stay.onclick = hideBye;
+  const leave = document.createElement('button');
+  leave.textContent = 'Leave anyway';
+  leave.onclick = toWorldSelect;
+  el('byeBtns').append(stay, leave);
+}
+/* Back to the world list — not the login box. The account is still signed in;
+   only the character is being put down. */
+function toWorldSelect() {
+  hideBye();
+  started = 0;
+  saveArmed = 0;                               // nothing may write until a world is entered again
+  wsWant = 0;                                  // and the backoff must not resurrect the socket
+  clearTimeout(wsTimer);
+  try { if (ws) ws.close(1000); } catch {}
+  ws = null;
+  clearRemotes();
+  netStatus(0);
+  closeOverlays(); closeCtx(); closeDev();
+  P.task = null; P.path.length = 0;
+  WEL.style.display = '';
+  WEL.classList.remove('gone');
+  el('welGo').disabled = false;
+  el('welGo').textContent = 'Enter this world';
+  if (!OFFLINE && AUTH) loadCharacterList();
+  pollPopulation();
+  say('You have signed out. Your character is saved.', 'lv');
+}
+el('signout').onclick = signOut;
+
 /* ========================= 37. LOGIN =============================== */
 /* Login sits in front of world select: who you are, then where you are.
    Every branch here has an offline exit, because a dead backend must still
