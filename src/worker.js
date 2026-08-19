@@ -199,7 +199,17 @@ export default {
     const u = new URL(req.url);
     const origin = req.headers.get('Origin') || '';
     const list = (env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
-    const originOk = list.length === 0 || list.includes(origin);
+
+    /* Browsers omit Origin entirely on same-origin GET requests, and always send
+       it for POST and for anything cross-origin. So an absent Origin means the
+       request is same-origin (or not from a browser at all, where an Origin
+       check was never a security boundary anyway — it can simply be forged).
+       An Origin equal to our own is same-origin by definition. */
+    const originOk =
+      !origin ||                       // same-origin GET
+      origin === u.origin ||           // same-origin, header present
+      list.length === 0 ||             // allow-list disabled
+      list.includes(origin);           // explicitly permitted cross-origin
 
     if (req.method === 'OPTIONS') {
       return new Response(null, { headers: cors(originOk ? origin : 'null') });
