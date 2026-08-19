@@ -48,11 +48,13 @@ export class World extends DurableObject {
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);          // NOT server.accept() — that kills hibernation
 
+    const seed = u.searchParams.get('seed') || 'lumbridge';
     const rec = { pid, name, x: 0, z: 0, face: 0, flags: 0, eq: [] };
     server.serializeAttachment(rec);
     this.players.set(pid, { ws: server, ...rec, seen: new Set(), n: 0, t0: 0 });
 
-    server.send(JSON.stringify([[0, pid, Date.now()]]));
+    // extra fields appended, so older clients reading only [1] and [2] still work
+    server.send(JSON.stringify([[0, pid, Date.now(), name, seed]]));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -249,23 +251,51 @@ export default {
       const ipHash = await sha256('ip|' + (req.headers.get('cf-connecting-ip') || ''));
       const hourAgo = Date.now() - 3600e3;
 
+      const authHash = await sha256('v1|' + auth);
+
       try {
+        // Is this key already an account? Then the answer is "log in", not "error".
+        const mine = await env.DB.prepare('SELECT pid, name FROM players WHERE auth_hash=?')
+          .bind(authHash).first();
+        if (mine) return json({ e: 'key_registered', pid: mine.pid, name: mine.name }, 409, origin);
+
+        // Name uniqueness is case-insensitive, so Vlad and vlad cannot coexist.
+        const taken = await env.DB.prepare(
+          'SELECT 1 AS x FROM players WHERE name = ? COLLATE NOCASE'
+        ).bind(name).first();
+        if (taken) return json({ e: 'name_taken' }, 409, origin);
+
         const c = await env.DB.prepare(
           'SELECT COUNT(*) AS n FROM players WHERE ip_hash=? AND created>?'
         ).bind(ipHash, hourAgo).first();
-        if ((c?.n ?? 0) >= 5) return json({ e: 'too many accounts, try later' }, 429, origin);
+        if ((c?.n ?? 0) >= 5) return json({ e: 'rate_limited' }, 429, origin);
 
         await env.DB.prepare(
           'INSERT INTO players (pid, auth_hash, name, ip_hash, created, updated) VALUES (?,?,?,?,?,?)'
-        ).bind(pid, await sha256('v1|' + auth), name, ipHash, Date.now(), Date.now()).run();
+        ).bind(pid, authHash, name, ipHash, Date.now(), Date.now()).run();
       } catch (e) {
         const msg = String(e);
-        if (msg.includes('UNIQUE')) return json({ e: 'name taken or key already used' }, 409, origin);
+        if (msg.includes('UNIQUE')) return json({ e: 'name_taken' }, 409, origin);
         console.log('register failed', msg);
         return json({ e: 'db error' }, 500, origin);
       }
 
       return json({ ok: 1, pid, name }, 200, origin);
+    }
+
+    /* ---------------- /name-check ---------------- */
+    if (u.pathname === '/name-check' && req.method === 'GET') {
+      if (!originOk) return json({ e: 'origin' }, 403, 'null');
+      const name = (u.searchParams.get('name') || '').trim();
+      if (!/^[A-Za-z0-9 ]{2,12}$/.test(name)) {
+        return json({ valid: 0, e: 'Name must be 2-12 letters, digits or spaces.' }, 200, origin);
+      }
+      try {
+        const taken = await env.DB.prepare(
+          'SELECT 1 AS x FROM players WHERE name = ? COLLATE NOCASE'
+        ).bind(name).first();
+        return json({ valid: 1, available: taken ? 0 : 1, name }, 200, origin);
+      } catch { return json({ e: 'db error' }, 500, origin); }
     }
 
     /* ---------------- /save ---------------- */

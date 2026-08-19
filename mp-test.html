@@ -155,9 +155,13 @@ async function diagnose() {
     return;
   }
 
-  const wsOk = await probe('/ws', s => s === 426,
+  const wsOk = await probe('/ws', s => s === 426 || s === 403,
     'The Worker is NOT handling this route — you are getting static assets only. ' +
     'Either the deploy failed, or this page is not being served from the Worker.');
+  if (!wsOk) { /* handled above */ }
+  else await probe('/ws', s => s === 426,
+    'A 403 here means the Worker IS running but ALLOWED_ORIGINS does not list ' +
+    location.origin + ' — it must be the full origin including https://');
 
   await probe('/health', s => s === 200,
     'D1 binding problem: check database_id in wrangler.toml and that schema.sql ran.');
