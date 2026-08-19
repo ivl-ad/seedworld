@@ -3265,7 +3265,12 @@ const globalTick = () => Math.floor((netNow() - EPOCH) / TICK);
 
 function placePlayer(x, z) {
   P.tx = P.px = x; P.tz = P.pz = z;
-  P.rx = x; P.rz = z; P.ry = walkY(x, z);
+  P.rx = x; P.rz = z;
+  /* Being afloat was only ever decided by taking a step, so arriving on water
+     — a saved position, a respawn, a teleport — left you standing on the sea
+     bed until you moved. Decide it on arrival too. */
+  P.afloat = isWater(walkY(x, z)) ? 1 : 0;
+  P.ry = P.afloat ? 0 : walkY(x, z);
   P.path.length = 0; P.task = null;
   focus.set(x, P.ry, z);
 }
@@ -4993,7 +4998,7 @@ addEventListener('beforeunload', () => markDirty(1));
 /* ========================= 35. THE SOCKET =========================== */
 /* Everything here degrades to single player. A dead socket costs a chat line
    and nothing else — the world is generated locally and always was. */
-let ws = null, wsWant = 0, wsTries = 0, wsTimer = 0, pingTimer = 0, netOK = 0;
+let ws = null, wsWant = 0, wsTries = 0, wsTimer = 0, pingTimer = 0, netOK = 0, everConnected = 0;
 const pings = [];                              // {rtt, off}, best-of-N not mean
 
 function netStatus(on) {
@@ -5004,31 +5009,53 @@ function netStatus(on) {
 function connect() {
   if (OFFLINE || !AUTH) return;
   wsWant = 1;
-  try { if (ws) ws.close(); } catch {}
+
+  /* Detach the outgoing socket before replacing it. Its close event arrives
+     asynchronously, after the replacement is already live, and would otherwise
+     run the entire disconnect path — "connection lost", every remote wiped,
+     and a retry that closes the healthy socket — against the new connection. */
+  if (ws) {
+    const old = ws;
+    ws = null;
+    old.onopen = old.onclose = old.onerror = old.onmessage = null;
+    try { old.close(1000); } catch {}
+  }
+
   const url = API.replace(/^http/, 'ws') + '/ws?auth=' + AUTH + '&seed=' + encodeURIComponent(SEED);
   let sock;
   try { sock = new WebSocket(url); } catch { return retry(); }
   ws = sock;
 
   sock.onopen = () => {
+    if (ws !== sock) { try { sock.close(); } catch {} return; }
+    const rejoin = everConnected;
+    everConnected = 1;
     wsTries = 0; netStatus(1);
-    say('Connected to ' + SEED + '.', 'lv');
+    say(rejoin ? 'Reconnected.' : 'Connected to ' + SEED + '.', 'lv');
     pingClock(); setTimeout(pingClock, 500); setTimeout(pingClock, 1500);
     clearInterval(pingTimer);
-    pingTimer = setInterval(pingClock, 30000);
+    pingTimer = setInterval(pingClock, 20000);
+    /* The server knows nothing about us on a fresh socket — its record starts
+       with no equipment and no position — so everything the old connection had
+       been told must be forgotten, or the dedupe suppresses the very frames
+       that would rebuild it and everyone sees us barefoot. */
+    lastMove = ''; lastAct = -1; lastEqSent = '';
     sendEquip();
-    lastMove = '';                             // force a position frame on join
+    netSend();
     if (saveDirty) flushSave();
   };
   sock.onclose = () => {
+    if (ws !== sock) return;                   // a socket we already replaced
     clearInterval(pingTimer);
     if (netOK) say('Connection lost — still playing offline.', 'bad');
     netStatus(0);
     clearRemotes();
+    ws = null;
     retry();
   };
-  sock.onerror = () => { try { sock.close(); } catch {} };
+  sock.onerror = () => { if (ws === sock) { try { sock.close(); } catch {} } };
   sock.onmessage = e => {
+    if (ws !== sock) return;
     let batch; try { batch = JSON.parse(e.data); } catch { return; }
     if (!Array.isArray(batch)) return;
     for (const m of batch) onNet(m);
@@ -5555,8 +5582,10 @@ function toWorldSelect() {
   saveArmed = 0;                               // nothing may write until a world is entered again
   wsWant = 0;                                  // and the backoff must not resurrect the socket
   clearTimeout(wsTimer);
-  try { if (ws) ws.close(1000); } catch {}
-  ws = null;
+  if (ws) { const old = ws; ws = null; old.onopen = old.onclose = old.onerror = old.onmessage = null;
+            try { old.close(1000); } catch {} }
+  everConnected = 0;
+  lastMove = ''; lastAct = -1; lastEqSent = '';   // nothing has been told to anyone
   clearRemotes();
   netStatus(0);
   closeOverlays(); closeCtx(); closeDev();
