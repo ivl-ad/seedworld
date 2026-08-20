@@ -209,15 +209,7 @@
   #modalBody,#devBody{padding:7px 9px;overflow:auto;flex:1}
   #modalFoot{padding:5px 9px 7px;font-size:9px;color:#8d7e63;border-top:1px solid rgba(107,83,52,.4)}
   #modalBody .grid{display:grid;grid-template-columns:1fr 1fr;gap:3px}
-  .mk{display:flex;align-items:center;gap:6px;padding:3px 4px;cursor:pointer;
-    border-radius:2px;background:rgba(0,0,0,.22);font-size:10px}
-  .mk:hover{background:rgba(255,155,33,.16)}
-  .mk.no{opacity:.42;cursor:default}
-  .mk.no:hover{background:rgba(0,0,0,.22)}
-  .mk img{width:26px;height:26px;image-rendering:pixelated;flex:0 0 auto}
-  .mk span{flex:1;min-width:0}
-  .mk u{text-decoration:none;color:var(--dim);font-size:9px;display:block}
-  .mk .gp{color:#ffd34a;font-weight:700;white-space:nowrap}
+  /* .mk rows are styled once, in the dev-console section below */
 
   /* --- dev console --- */
   .dsec{margin-bottom:9px}
@@ -400,8 +392,8 @@
     #chatbar{width:280px;bottom:122px} }
   @media (max-width:680px){
     #side{width:180px} #panes{height:236px} #minimap{width:112px;height:112px} #mm{width:112px}
-    #chatwrap{width:200px} #chat{height:78px} #chatbar{width:200px;bottom:96px}
-    #orbs{right:130px} #chat{width:200px;height:78px}
+    #chatwrap{width:200px} #chat{width:200px;height:78px} #chatbar{width:200px;bottom:96px}
+    #orbs{right:130px}
   }
   @media (prefers-reduced-motion:reduce){#boot{transition:none}}
 </style>
@@ -1816,11 +1808,21 @@ const GLYPH = {
   }
 };
 
+/* Memoised on (glyph, colours): toDataURL is a synchronous canvas readback,
+   and the style, spell and prayer tabs redraw their icons on every refresh —
+   including every cast. The '|' key cannot collide with the item-id and 'sk:'
+   keys that share this cache, and distinct combinations are bounded by the
+   content tables. */
 function drawIcon(glyph, c, c2) {
+  const k = glyph + '|' + c + '|' + c2;
+  let u = _iconCache.get(k);
+  if (u) return u;
   _ix.clearRect(0, 0, 32, 32);
   _ix.lineJoin = 'round'; _ix.lineWidth = 1;
   (GLYPH[glyph] || GLYPH.log)(_ix, c || '#a9713b', c2 || '#6e4520');
-  return _ic.toDataURL();
+  u = _ic.toDataURL();
+  _iconCache.set(k, u);
+  return u;
 }
 function icon(id) {
   let u = _iconCache.get(id);
@@ -5942,11 +5944,14 @@ function freshCharacter() {
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
 }
 
-/* ---- write budget: at most one D1 row per player per 5 s ----
+/* ---- write budget: at most one D1 row per player per 15 s ----
    D1's free tier is 100k writes a day. One write a second per player would
    burn it in 28 player-hours, so mutations only raise a flag and a scheduler
    coalesces them. Anything the player would be upset to lose — a level, a
-   purchase, death — flushes at once regardless. */
+   purchase, death — still flushes promptly, but back-to-back instant flushes
+   (a shopping spree, a level spurt) coalesce behind SAVE_GAP so a burst costs
+   one write, not twenty. Only unload and sign-out force straight through,
+   because for them there is no later. */
 /* Writing is disarmed until a read has succeeded. Saving a fresh character
    because the load failed is how one bad request permanently destroys an
    account: the wipe is stored, and every later login then loads it back
@@ -5961,19 +5966,23 @@ let worldSync = 0;                             // build >= 4: rooms relay 20/21/
 function netWorld(msg) {
   if (worldSync && ws && ws.readyState === 1) { try { ws.send(JSON.stringify(msg)); } catch {} }
 }
-const SAVE_MS = 5000;
+const SAVE_MS = 15000, SAVE_GAP = 2000;
 function markDirty(now) {
   if (OFFLINE || !AUTH || !saveArmed) return;
   saveDirty = 1;
-  if (now) return flushSave();
+  if (now) return flushSave(now === 2);          // 2 = unload: skip the burst gap
   if (!saveTimer) saveTimer = setTimeout(flushSave, Math.max(0, SAVE_MS - (Date.now() - lastSave)));
 }
-function flushSave() {
+function flushSave(force) {
   clearTimeout(saveTimer); saveTimer = 0;
   if (!saveDirty || OFFLINE || !AUTH || !saveArmed) return;
   // A socket that is not up yet must not swallow the flush: reschedule, or the
   // timer is gone and the write waits for the next unrelated mutation.
   if (!ws || ws.readyState !== 1) { saveTimer = setTimeout(flushSave, 2000); return; }
+  // instant flushes arriving back to back collapse into one write, at most
+  // SAVE_GAP late; the page-is-dying paths pass force and go now
+  const gap = Date.now() - lastSave;
+  if (!force && gap < SAVE_GAP) { saveTimer = setTimeout(flushSave, SAVE_GAP - gap); return; }
   try {
     const msg = JSON.stringify([8, SEED, packSave()]);
     ws.send(msg);
@@ -5989,9 +5998,9 @@ function flushSave() {
     }, 12000);
   } catch { saveTimer = setTimeout(flushSave, 2000); }
 }
-addEventListener('visibilitychange', () => { if (document.hidden) markDirty(1); });
-addEventListener('pagehide', () => markDirty(1));
-addEventListener('beforeunload', () => markDirty(1));
+addEventListener('visibilitychange', () => { if (document.hidden) markDirty(2); });
+addEventListener('pagehide', () => markDirty(2));
+addEventListener('beforeunload', () => markDirty(2));
 
 /* ========================= 35. THE SOCKET =========================== */
 /* Everything here degrades to single player. A dead socket costs a chat line
@@ -6254,17 +6263,7 @@ function onNet(m) {
         had.lastSeen = tickN; had.q.length = 0;
         break;
       }
-      remotes.set(pid, {
-        remote: 1, pid, name: m[2] || 'Adventurer',
-        hp: 10, maxhp: 10, hurt: 0,
-        tx: m[3] | 0, tz: m[4] | 0, px: m[3] | 0, pz: m[4] | 0,
-        rx: m[3] | 0, ry: 0, rz: m[4] | 0,
-        face: 0, faceT: 0, afloat: 0, moved: 0, run: 1, energy: 100,
-        act: 0, acting: 0, actSpan: 2, eq: m[5] || [], eqDirty: 1,
-        q: [], path: [], walkPhase: 0, bobPhase: 0, swingPhase: 0,
-        g: null, parts: null, plate: null, bubble: '', bubbleT: 0,
-        lastSeen: tickN, lod: -1
-      });
+      remotes.set(pid, newRemote(pid, m[2], m[3], m[4], m[5]));
       break;
     }
     case 9: {                                  // clock echo
@@ -6334,22 +6333,24 @@ function giveRig(g) {
    dropped them in error; conjure a placeholder rather than discarding the
    packet forever, since the server will not resend an enter for a player it
    still believes is visible to us. */
+/* One blank record shared by enter packets and conjured placeholders, so the
+   two can never drift apart field by field. */
+function newRemote(pid, name, x, z, eqArr) {
+  return {
+    remote: 1, pid, name: name || 'Adventurer',
+    hp: 10, maxhp: 10, hurt: 0,
+    tx: x | 0, tz: z | 0, px: x | 0, pz: z | 0, rx: x | 0, ry: 0, rz: z | 0,
+    face: 0, faceT: 0, afloat: 0, moved: 0, run: 1, energy: 100,
+    act: 0, acting: 0, actSpan: 2, eq: eqArr || [], eqDirty: 1,
+    q: [], path: [], walkPhase: 0, bobPhase: 0, swingPhase: 0,
+    g: null, parts: null, plate: null, bubble: '', bubbleT: 0,
+    lastSeen: tickN, lod: -1
+  };
+}
 function ensureRemote(pid, x, z) {
   if (pid === PID) return null;
   let R = remotes.get(pid);
-  if (!R) {
-    R = {
-      remote: 1, pid, name: 'Adventurer',
-      hp: 10, maxhp: 10, hurt: 0,
-      tx: x | 0, tz: z | 0, px: x | 0, pz: z | 0, rx: x | 0, ry: 0, rz: z | 0,
-      face: 0, faceT: 0, afloat: 0, moved: 0, run: 1, energy: 100,
-      act: 0, acting: 0, actSpan: 2, eq: [], eqDirty: 1,
-      q: [], path: [], walkPhase: 0, bobPhase: 0, swingPhase: 0,
-      g: null, parts: null, plate: null, bubble: '', bubbleT: 0,
-      lastSeen: tickN, lod: -1
-    };
-    remotes.set(pid, R);
-  }
+  if (!R) { R = newRemote(pid, null, x, z, null); remotes.set(pid, R); }
   R.lastSeen = tickN;                          // any traffic counts as alive
   return R;
 }
@@ -6834,7 +6835,7 @@ async function saveAndConfirm(tries) {
     if (ws && ws.readyState === 1) {
       saveDirty = 1;
       const acked = new Promise(res => { ackResolve = res; });
-      flushSave();
+      flushSave(1);                              // signing out: no burst gap
       const ok = await Promise.race([acked, wait(4000).then(() => false)]);
       ackResolve = null;
       if (ok) return true;
@@ -7021,6 +7022,10 @@ async function loadCharacterList() {
 let haveChars = new Set(), popTimer = 0;
 async function pollPopulation() {
   clearTimeout(popTimer);
+  /* Only while the select screen is up. Without this the 10 s poll ran for the
+     whole play session — a Worker request and a Durable Object wake each time,
+     for a line nobody could see. Sign-out restarts it. */
+  if (started) return;
   const seed = (el('welSeed').value || 'osrs').trim().toLowerCase();
   const line = el('welPop');
   const mine = haveChars.has(seed) ? ' · you have a character here' : ' · new character';

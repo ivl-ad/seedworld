@@ -120,7 +120,11 @@ export class World extends DurableObject {
     if (old && old.ws !== server) { try { old.ws.close(1000); } catch {} }
     for (const q of this.players.values()) q.seen.delete(pid);
 
-    const rec = { pid, name, seed, x: 0, z: 0, face: 0, flags: 0, eq: [] };
+    // savedSeed starts as what the players row already says, so a session in
+    // the same world never rewrites it — that UPDATE used to fire once per
+    // connection (and again after every hibernation wake) for nothing.
+    const rec = { pid, name, seed, x: 0, z: 0, face: 0, flags: 0, eq: [],
+                  savedSeed: u.searchParams.get('last') || null };
     server.serializeAttachment(rec);
     this.players.set(pid, { ws: server, ...rec, seen: new Set(), n: 0, t0: 0 });
 
@@ -327,7 +331,7 @@ export class World extends DurableObject {
 
     ws.serializeAttachment({
       pid: me.pid, name: me.name, seed: me.seed, x: me.x, z: me.z,
-      face: me.face, flags: me.flags, eq: me.eq
+      face: me.face, flags: me.flags, eq: me.eq, savedSeed: me.savedSeed || null
     });
   }
 
@@ -411,6 +415,12 @@ export class World extends DurableObject {
   drop(ws) {
     const a = ws.deserializeAttachment();
     if (!a) return;
+    /* A reconnect replaces the record and closes the old socket, and that
+       close lands here later wearing the same pid. Deleting by pid alone
+       would evict the live connection — the room then ignores everything it
+       sends, saves included. Only the socket that owns the record removes it. */
+    const cur = this.players.get(a.pid);
+    if (!cur || cur.ws !== ws) return;
     this.players.delete(a.pid);
     for (const p of this.players.values()) {
       if (p.seen.delete(a.pid)) {
@@ -435,6 +445,19 @@ const json = (body, status, origin) => new Response(JSON.stringify(body), {
   headers: { 'content-type': 'application/json', ...cors(origin) }
 });
 
+/* Resolve an auth token to an account row. Every authed route needs this
+   and every one of them wants the same 401 on failure. */
+async function whoami(env, auth) {
+  if (!/^[0-9a-f]{64}$/.test(auth || '')) return { e: 'bad auth', code: 400 };
+  let row;
+  try {
+    row = await env.DB.prepare('SELECT pid, name, seed FROM players WHERE auth_hash=?')
+      .bind(await sha256('v1|' + auth)).first();
+  } catch (e) { console.log('db error', String(e)); return { e: 'db error', code: 500 }; }
+  if (!row) return { e: 'unknown key', code: 401 };
+  return { row };
+}
+
 async function population(env, u, origin) {
   const seed = cleanSeed(u.searchParams.get('seed'));
   try {
@@ -448,14 +471,9 @@ async function population(env, u, origin) {
   }
 }
 async function characters(env, u, origin) {
-  const auth = u.searchParams.get('auth') || '';
-  if (!/^[0-9a-f]{64}$/.test(auth)) return json({ e: 'bad auth' }, 400, origin);
-  let row;
-  try {
-    row = await env.DB.prepare('SELECT pid, name, seed FROM players WHERE auth_hash=?')
-      .bind(await sha256('v1|' + auth)).first();
-  } catch { return json({ e: 'db error' }, 500, origin); }
-  if (!row) return json({ e: 'unknown key' }, 401, origin);
+  const who = await whoami(env, u.searchParams.get('auth') || '');
+  if (who.e) return json({ e: who.e }, who.code, origin);
+  const row = who.row;
 
   let rows;
   try {
@@ -496,19 +514,6 @@ export default {
       return new Response(null, { headers: cors(originOk ? origin : 'null') });
     }
 
-    /* Resolve an auth token to an account row. Every authed route needs this
-       and every one of them wants the same 401 on failure. */
-    const whoami = async auth => {
-      if (!/^[0-9a-f]{64}$/.test(auth || '')) return { e: 'bad auth', code: 400 };
-      let row;
-      try {
-        row = await env.DB.prepare('SELECT pid, name, seed FROM players WHERE auth_hash=?')
-          .bind(await sha256('v1|' + auth)).first();
-      } catch (e) { console.log('db error', String(e)); return { e: 'db error', code: 500 }; }
-      if (!row) return { e: 'unknown key', code: 401 };
-      return { row };
-    };
-
     /* ---------------- /ws : the only hot path ---------------- */
     if (u.pathname === '/ws') {
       // WebSocket upgrades skip CORS preflight entirely, so check this yourself
@@ -522,13 +527,14 @@ export default {
       const seed = cleanSeed(u.searchParams.get('seed'));
       if (!/^[0-9a-f]{64}$/.test(auth)) return new Response('bad auth', { status: 400 });
 
-      const who = await whoami(auth);
+      const who = await whoami(env, auth);
       if (who.e) return new Response(who.e, { status: who.code });
 
       const target = new URL(req.url);
       target.searchParams.set('pid', who.row.pid);
       target.searchParams.set('name', who.row.name || 'Adventurer');
       target.searchParams.set('seed', seed);
+      target.searchParams.set('last', who.row.seed || '');
 
       const stub = env.WORLD.get(env.WORLD.idFromName('world:' + seed));
       return stub.fetch(new Request(target, req));
@@ -604,7 +610,7 @@ export default {
       if (u.searchParams.get('pop')) return population(env, u, origin);
       if (u.searchParams.get('list')) return characters(env, u, origin);
 
-      const who = await whoami(u.searchParams.get('auth') || '');
+      const who = await whoami(env, u.searchParams.get('auth') || '');
       if (who.e) return json({ e: who.e }, who.code, origin);
       const row = who.row;
 
