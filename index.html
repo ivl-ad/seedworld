@@ -2259,7 +2259,20 @@ const WOOD = [0.42, 0.29, 0.15], STRING = [0.94, 0.90, 0.78];
 /* grip anchor per family: the point that sits in the hand */
 const WGRIP = { sword: [16, 26], dagger: [16, 25], scim: [8, 28], axe: [11.5, 26],
                 pick: [16, 26], staff: [16, 26], bow: [20, 16] };
-const WHOLD = { staff: Math.PI, bow: Math.PI / 2 };   // rotation.x; blades keep 0
+const WHOLD = {
+  // a blade turned edge-on to the chest, rather than lying flat against it
+  sword: g => g.rotateY(Math.PI / 2), dagger: g => g.rotateY(Math.PI / 2),
+  scim:  g => g.rotateY(Math.PI / 2), axe:    g => g.rotateY(Math.PI / 2),
+  pick:  g => g.rotateY(Math.PI / 2),
+  staff: g => g.rotateX(Math.PI),                             // orb overhead
+  // limbs out to the sides and the string toward the archer's back, which is
+  // the only way round that lets you pull it toward yourself
+  bow:   g => g.rotateX(Math.PI / 2).rotateY(-Math.PI / 2)
+};
+// a staff runs the length of the arm and past the ear, so it stands clear of
+// both: forward of the hand, and a little further out from the shoulder
+const WFWD = { staff: 0.19, bow: 0.03 };
+const WOUT = { staff: -0.10 };
 const WEAPON = {
   sword: (c, d, x, y) => [
     xtr([16, 2, 19.5, 9, 19.5, 20, 12.5, 20, 12.5, 9], c, x, y),
@@ -2301,6 +2314,8 @@ function wepGeo(id) {
   if (g) return g;
   const it = ITEMS[id], b = WEAPON[it.g] || WEAPON.sword, a = WGRIP[it.g] || WGRIP.sword;
   g = merge(b(hexRgb(it.c), hexRgb(it.c2 || it.c), a[0], a[1]));
+  if (WHOLD[it.g]) WHOLD[it.g](g);
+  g.computeBoundingSphere();
   _wepGeo.set(id, g);
   return g;
 }
@@ -2310,7 +2325,8 @@ function holdWeapon(mesh, it) {
   if (!it) return;
   mesh.geometry = wepGeo(it.id);
   mesh.material.color.set('#ffffff');              // the shape carries its own colours
-  mesh.rotation.set(WHOLD[it.g] || 0, 0, 0);
+  mesh.rotation.set(0, 0, 0);                      // orientation is baked in
+  mesh.position.set(WOUT[it.g] || 0, -0.60, 0.05 + (WFWD[it.g] || 0));
 }
 
 function buildAvatar() {
@@ -4221,6 +4237,8 @@ function taskTick() {
   if (t.k === 'ui')   { P.task = null; t.fn(o); return; }
 
   if (t.k === 'attack') healthBar(P);            // fighting shows your own health too
+  // a duel shows their bar from the first swing, hit or miss
+  if (t.k === 'attack' && o.remote && o.hp !== undefined) healthBar(o, 2.0);
   if (t.k === 'attack' && o.remote) {
     /* Player versus player. Each client owns its own hitpoints: we roll the
        damage with our stats and send it, and the victim applies it to itself.
@@ -4770,11 +4788,11 @@ function hitsplat(x, y, z, dmg) {
   splats.push({ f, x, y, z, t: 1.1, vy: 0.9 });
 }
 const bars = [];
-function healthBar(target) {
-  if (target._bar) { target._bar.t = 5; return; }
+function healthBar(target, h) {
+  if (target._bar) { target._bar.t = 5; if (h) target._bar.h = h; return; }
   const f = fxGet('hb');
   f.el.innerHTML = '<i></i>';
-  const b = { f, target, t: 5 };
+  const b = { f, target, t: 5, h: h || 2.0 };
   target._bar = b; bars.push(b);
 }
 function fxFrame(dt) {
@@ -4789,7 +4807,7 @@ function fxFrame(dt) {
   for (let i = bars.length - 1; i >= 0; i--) {
     const b = bars[i]; b.t -= dt;
     const t = b.target;
-    const p = (b.t <= 0 || t.dead || t.hp <= 0) ? null : project(t.rx, t.ry + 2.0, t.rz);
+    const p = (b.t <= 0 || t.dead || t.hp <= 0) ? null : project(t.rx, t.ry + b.h, t.rz);
     if (!p) { fxFree(b.f); t._bar = null; bars.splice(i, 1); continue; }
     b.f.el.style.transform = 'translate(' + p[0] + 'px,' + p[1] + 'px)';
     b.f.el.firstChild.style.width = Math.max(0, t.hp / t.maxhp * 100) + '%';
@@ -5428,6 +5446,9 @@ function animate(E, parts, dt) {
   if (E.turn) E.turn.rotation.y = E.face;
 
   const rig = E.rig, bt = E.boat, oL = E.oarL, oR = E.oarR;
+  // the staff is only tilted while a cast is actually running, so clear it
+  // here rather than inside a branch a rower never reaches
+  if (p.wep) p.wep.rotation.x = 0;
   if (E.afloat) {
     if (bt) {
       bt.visible = true;
@@ -5468,15 +5489,16 @@ function animate(E, parts, dt) {
         p.torso.rotation.y = -0.40 + loose * 0.10;
         p.torso.rotation.x = 0;
       } else if (E.pose === 2) {
-        /* A cast is a push, not a swing: the staff comes up and out, the free
-           hand rises to meet it, and the whole body leans into the release. */
-        const pu = ph < 0.55 ? smoothstep(0, 1, ph / 0.55)
-                             : 1 - smoothstep(0, 1, (ph - 0.55) / 0.45);
-        p.armR.rotation.x = -0.20 - 1.95 * pu;
-        p.armL.rotation.x = -0.10 - 0.85 * pu;
-        p.armR.rotation.z = -0.06 - 0.28 * pu;
-        p.armL.rotation.z = 0.06 + 0.28 * pu;
-        p.torso.rotation.x = pu * 0.12;
+        /* Casting is a lift and nothing more. The staff is counter-rotated
+           below so it stays upright as the shoulder swings — pinned to the
+           arm it would sweep out behind you rather than rise. */
+        const li = ph < 0.45 ? smoothstep(0, 1, ph / 0.45)
+                             : 1 - smoothstep(0, 1, (ph - 0.45) / 0.55);
+        p.armR.rotation.x = -1.40 * li;
+        p.armL.rotation.x = 0;
+        p.armR.rotation.z = -0.06 - 0.16 * li;
+        p.armL.rotation.z = 0.06;
+        p.torso.rotation.x = 0;
         p.torso.rotation.y = 0;
       } else {
       const sw = ph < 0.6 ? smoothstep(0, 1, ph / 0.6) : 1 - smoothstep(0, 1, (ph - 0.6) / 0.4);
@@ -5492,6 +5514,8 @@ function animate(E, parts, dt) {
       p.torso.rotation.y = 0; p.torso.rotation.x = 0;
     }
     if (!(E.acting && !moving)) { p.armL.rotation.z = 0.06; p.armR.rotation.z = -0.06; }
+    // whatever the shoulder does, the staff points at the sky
+    if (p.wep && E.pose === 2 && E.acting && !moving) p.wep.rotation.x = -p.armR.rotation.x;
     if (rig) rig.position.y = moving ? Math.abs(Math.sin(E.walkPhase)) * 0.045 : 0;
   }
 }
@@ -5621,7 +5645,11 @@ function frame(now) {
       n.mesh.position.set(n.rx, n.ry, n.rz);
     }
     n.mesh.rotation.y = n.face;
-    if (n.hp < n.maxhp) healthBar(n);
+    /* A bar for anything in the fight, not only anything already bleeding —
+       miss the first few swings and the old rule showed nothing at all. The
+       height follows the monster, or a giant wears its bar in its chest. */
+    if (n.hp < n.maxhp || n.target === P || (P.task && P.task.k === 'attack' && P.task.o === n))
+      healthBar(n, 1.5 + n.t.sz * 1.4);
     // name and level over every monster in view, coloured by the gap to yours
     if (npcPlates < 14 && Math.abs(n.rx - P.rx) < 40 && Math.abs(n.rz - P.rz) < 40) {
       const lbl = n.t.n + ' <i style="color:' + lvlColour(n.t.lv, myCombat) + '">level ' + n.t.lv + '</i>';
@@ -6001,7 +6029,7 @@ function onNet(m) {
     case 13: {                                 // a remote's hitpoints
       const R = ensureRemote(m[1]);
       R.hp = m[2] | 0; R.maxhp = Math.max(1, m[3] | 0); R.hurt = tickN;
-      if (R.hp < R.maxhp) healthBar(R);
+      if (R.hp < R.maxhp) healthBar(R, 2.0);
       break;
     }
     case 12: {                                 // a player died near us and spilled
