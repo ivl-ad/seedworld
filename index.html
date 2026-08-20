@@ -210,6 +210,13 @@
   #modalHead b{cursor:pointer;font-size:15px;color:var(--dim);line-height:1;padding:0 3px}
   #modalHead b:hover{color:#fff}
   #modalBody,#devBody{padding:7px 9px;overflow:auto;flex:1}
+  /* the barber's palette */
+  .blab{margin:7px 0 3px;font-size:11px;letter-spacing:.08em;color:var(--dim)}
+  .swr{display:flex;gap:4px;flex-wrap:wrap}
+  .swb{width:28px;height:22px;border:1px solid #000;border-radius:2px;cursor:pointer;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+  .swb.on{outline:2px solid #fff}
+  .mk.fon{outline:2px solid #fff}
   #modalFoot{padding:5px 9px 7px;font-size:9px;color:#8d7e63;border-top:1px solid rgba(107,83,52,.4)}
   #modalBody .grid{display:grid;grid-template-columns:1fr 1fr;gap:3px}
   /* .mk rows are styled once, in the dev-console section below */
@@ -357,8 +364,9 @@
     overflow:hidden;text-overflow:ellipsis}
   .plate i{font-style:normal}
   /* Utility markers: a bobbing icon over furnaces, anvils, shops, the bank —
-     the 2007 way of finding the town's plumbing at a glance. */
-  .plate.mk{margin:-12px 0 0}
+     the 2007 way of finding the town's plumbing at a glance. Clickable: the
+     icon stands in for the thing it floats over. */
+  .plate.mk{margin:-12px 0 0;pointer-events:auto;cursor:pointer}
   .plate.mk img{width:22px;height:22px;image-rendering:pixelated;
     filter:drop-shadow(1px 1px 0 rgba(0,0,0,.85))}
   /* Speech is its own element a world-unit higher up, because swapping the
@@ -2254,6 +2262,31 @@ function part(geo, hex, x, y, z) {
 }
 const SKIN = 0xd8a878, TUNIC = 0x6a5a3f, PANTS = 0x4a4030, HAIR = 0x4a3524;
 
+/* The barber's book. Index 0 of each is the fresh-character default — the
+   classic level-3 look: tan skin, olive shirt, drab trousers, plain face. */
+const SKINS  = ['#d8a878', '#c99a6a', '#b98255', '#8a5f3d', '#6e452b', '#e8c9a0'];
+const SHIRTS = ['#6a5a3f', '#8a2f27', '#31538a', '#3a6b34', '#6a4a8a', '#8a7431', '#4a4a52', '#874a6a'];
+const LEGSC  = ['#4a4030', '#33302b', '#4a3524', '#2f4a5a', '#513333', '#3d4a33', '#5a5a62', '#3a3348'];
+const FACES = [
+  { n: 'Plain',      on: ['eyeL', 'eyeR'] },
+  { n: 'Bearded',    on: ['eyeL', 'eyeR', 'beard'] },
+  { n: 'Moustache',  on: ['eyeL', 'eyeR', 'mo'] },
+  { n: 'Heavy brow', on: ['eyeL', 'eyeR', 'brow'] },
+  { n: 'Old salt',   on: ['eyeL', 'eyeR', 'brow', 'beard'], grey: 1 },
+  { n: 'Warpaint',   on: ['eyeL', 'eyeR', 'paint'] }
+];
+/* Features live only on the head's front face, which is what makes a
+   character readable from ahead versus side-on. */
+function applyFace(p, fi) {
+  const f = FACES[fi] || FACES[0], fp = p.face;
+  if (!fp) return;
+  for (const k in fp) fp[k].visible = f.on.indexOf(k) >= 0;
+  const hairC = f.grey ? 0x9a938a : 0x2a1f16;
+  fp.beard.material.color.set(hairC);
+  fp.brow.material.color.set(hairC);
+  fp.mo.material.color.set(hairC);
+}
+
 /* ------------- weapons you can tell apart at a glance -------------
    The inventory icons are already vector outlines in a 32x32 box, so the same
    points that draw the picture cut the mesh. Icon space runs y downward with
@@ -2379,8 +2412,17 @@ function buildAvatar() {
   wep.visible = false; armR.add(wep);
   const shl = part(bakeW(shift(box(0.1, 0.66, 0.52), -0.3)), 0xffffff, 0, -0.5, 0);
   shl.visible = false; armL.add(shl);
-  g.add(torso, head, hair, armL, armR, legL, legR, helm);
-  g.parts = { torso, head, hair, armL, armR, legL, legR, helm, wep, shl };
+  // the face: small features on the head's front (+z), so front reads as front
+  const eyeL  = part(bakeW(box(0.09, 0.07, 0.03)), 0x1d1712,  0.11, 1.72, 0.235);
+  const eyeR  = part(bakeW(box(0.09, 0.07, 0.03)), 0x1d1712, -0.11, 1.72, 0.235);
+  const brow  = part(bakeW(box(0.34, 0.06, 0.03)), 0x2a1f16, 0, 1.785, 0.235);
+  const mo    = part(bakeW(box(0.26, 0.06, 0.03)), 0x2a1f16, 0, 1.60, 0.235);
+  const beard = part(bakeW(box(0.38, 0.20, 0.08)), 0x2a1f16, 0, 1.475, 0.21);
+  const paint = part(bakeW(box(0.46, 0.05, 0.03)), 0x8a2f27, 0, 1.665, 0.235);
+  brow.visible = mo.visible = beard.visible = paint.visible = false;
+  g.add(torso, head, hair, armL, armR, legL, legR, helm, eyeL, eyeR, brow, mo, beard, paint);
+  g.parts = { torso, head, hair, armL, armR, legL, legR, helm, wep, shl,
+              face: { eyeL, eyeR, brow, mo, beard, paint } };
   return g;
 }
 
@@ -3236,7 +3278,7 @@ function layoutCity(v) {
       st2: v.rank >= 2 && hw + hd >= 5 && ((hh >>> 12) & 7) < 3 ? 1 : 0,
       stone: v.rank >= 3 && ((hh >>> 15) & 3) === 0 ? 1 : 0,
       gable: ((hh >>> 17) & 3) !== 0 ? 1 : 0,
-      door, shop: null, forge: 0, range: 0, bank: 0, roof: null, blk: null
+      door, shop: null, forge: 0, range: 0, bank: 0, barber: 0, roof: null, blk: null
     };
     b.dx = door === 1 ? px + hw : door === 3 ? px - hw : px;
     b.dz = door === 0 ? pz - hd : door === 2 ? pz + hd : pz;
@@ -3355,6 +3397,11 @@ function layoutCity(v) {
     const host = byCentre.find(b => b.shop === null && !b.forge && !b.range && b.hw >= 2 && b.hd >= 2);
     if (host) host.bank = 1;
   }
+  /* ---- and a barber, where a town keeps up appearances ---- */
+  if (v.rank >= 2 || (v.rank === 1 && (hash2(v.x, v.z, S + 49) & 3) === 0)) {
+    const host = byCentre.find(b => b.shop === null && !b.forge && !b.range && !b.bank && b.hw >= 2 && b.hd >= 2);
+    if (host) host.barber = 1;
+  }
 
   /* ---- street trees and gardens in whatever ground is left ---- */
   const trees = [];
@@ -3394,7 +3441,7 @@ function layoutCity(v) {
       else floorMap.set(k, b);
     }
     b.blk = blk;
-    if (b.shop !== null || b.bank) {
+    if (b.shop !== null || b.bank || b.barber) {
       const ix = b.door === 1 ? b.cx - 1 : b.door === 3 ? b.cx + 1 : b.cx;
       const iz = b.door === 0 ? b.cz + 1 : b.door === 2 ? b.cz - 1 : b.cz;
       b.keeper = { x: Math.abs(ix - b.x) <= b.hw - 1 ? ix : b.cx,
@@ -3773,6 +3820,8 @@ function buildStructures(rec, cx, cz) {
     }
     if (b.bank) rec.objs.push({ t: 7, k: 0, x: b.keeper.x, z: b.keeper.z, y: b.y + FLOOR_TOP,
                                 key: tk(b.keeper.x, b.keeper.z), n: 'Banker', b: b });
+    if (b.barber) rec.objs.push({ t: 9, k: 0, x: b.keeper.x, z: b.keeper.z, y: b.y + FLOOR_TOP,
+                                  key: tk(b.keeper.x, b.keeper.z), n: 'Barber', b: b });
   }
   const sm = shell.mesh();
   if (sm) { scene.add(sm); rec.extra.push(sm); }
@@ -3978,8 +4027,8 @@ function rayGround(ray) {
 }
 /* Picking is a sphere test per nearby thing. At a few hundred candidates that
    beats any spatial index, and it means props need no colliders of their own. */
-const PICK_R = [1.7, 1.15, 1.5, 2.4, 1.5, 1.1, 1.6, 1.1, 1.5];  // tree, rock, spot, furnace, anvil, keeper, range, banker, altar
-const PICK_Y = [2.4, 0.55, 0.05, 1.6, 0.9, 0.9, 1.0, 0.9, 0.8];
+const PICK_R = [1.7, 1.15, 1.5, 2.4, 1.5, 1.1, 1.6, 1.1, 1.5, 1.1];  // tree, rock, spot, furnace, anvil, keeper, range, banker, altar, barber
+const PICK_Y = [2.4, 0.55, 0.05, 1.6, 0.9, 0.9, 1.0, 0.9, 0.8, 0.9];
 function pickObject(ray) {
   const o = ray.origin, d = ray.direction;
   let bestT = 1e9, best = null;
@@ -4147,6 +4196,7 @@ const P = {
   run: 1, energy: 100, hp: 10, maxhp: 10,
   style: 0, rstyle: 1, ammoN: 0, pose: 0, spell: null, prayers: 0, pray: 10, maxpray: 10,
   afloat: 0, moved: 0, dead: 0,
+  look: { skin: 0, shirt: 0, legs: 0, face: 0 },     // the barber writes here
   home: { x: 0, z: 0 },
   regionK: '', regionT: 0
 };
@@ -4174,17 +4224,20 @@ function placePlayer(x, z) {
   focus.set(x, P.ry, z);
 }
 function dressAvatar() {
-  const p = avatar.parts;
+  const p = avatar.parts, L = P.look;
   const bodyIt = eq.body ? ITEMS[eq.body] : null;
   const legsIt = eq.legs ? ITEMS[eq.legs] : null;
   const headIt = eq.head ? ITEMS[eq.head] : null;
   const wepIt  = eq.weapon ? ITEMS[eq.weapon] : null;
   const shlIt  = eq.shield ? ITEMS[eq.shield] : null;
-  p.torso.material.color.set(bodyIt ? bodyIt.c : '#6a5a3f');
-  p.armL.material.color.set(bodyIt ? bodyIt.c : '#d8a878');
-  p.armR.material.color.set(bodyIt ? bodyIt.c : '#d8a878');
-  p.legL.material.color.set(legsIt ? legsIt.c : '#4a4030');
-  p.legR.material.color.set(legsIt ? legsIt.c : '#4a4030');
+  // armour paints over the barber's work; bare slots show the chosen look
+  p.torso.material.color.set(bodyIt ? bodyIt.c : SHIRTS[L.shirt]);
+  p.armL.material.color.set(bodyIt ? bodyIt.c : SKINS[L.skin]);
+  p.armR.material.color.set(bodyIt ? bodyIt.c : SKINS[L.skin]);
+  p.legL.material.color.set(legsIt ? legsIt.c : LEGSC[L.legs]);
+  p.legR.material.color.set(legsIt ? legsIt.c : LEGSC[L.legs]);
+  p.head.material.color.set(SKINS[L.skin]);
+  applyFace(p, L.face);
   p.helm.visible = !!headIt; p.hair.visible = !headIt;
   if (headIt) p.helm.material.color.set(headIt.c);
   holdWeapon(p.wep, wepIt);
@@ -4997,6 +5050,26 @@ function bankWithdraw(bi, n) {
   markDirty();
   drawBank();
 }
+/* The barber's chair: swatches for skin, shirt and trousers, and the short
+   book of faces. Armour paints over clothes while it is worn. */
+function openBarber() {
+  clearUse();
+  say('The barber sizes you up.');
+  drawBarber();
+}
+function drawBarber() {
+  const sw = (arr, key, cur) => '<div class="swr">' + arr.map((c, i) =>
+    '<b class="swb' + (i === cur ? ' on' : '') + '" data-lk="' + key + ':' + i +
+    '" style="background:' + c + '"></b>').join('') + '</div>';
+  const html =
+    '<p class="blab">Skin</p>' + sw(SKINS, 'skin', P.look.skin) +
+    '<p class="blab">Shirt</p>' + sw(SHIRTS, 'shirt', P.look.shirt) +
+    '<p class="blab">Trousers</p>' + sw(LEGSC, 'legs', P.look.legs) +
+    '<p class="blab">Face</p><div class="grid">' + FACES.map((f, i) =>
+      '<div class="mk' + (i === P.look.face ? ' fon' : '') + '" data-lk="face:' + i +
+      '"><span>' + f.n + '</span></div>').join('') + '</div>';
+  showModal('Barber', html, 'Pick a look. Worn armour covers clothes until you take it off.');
+}
 function shopBuy(id) {
   const it = ITEMS[id], price = buyPrice(it);
   if (coins() < price) { say("You don't have enough coins.", 'bad'); return; }
@@ -5174,6 +5247,13 @@ function drawShop() {
   showTab('inv');
 }
 modalBody.addEventListener('click', e => {
+  const lk = e.target.closest('[data-lk]');
+  if (lk) {                                       // the barber's swatches
+    const [k, i] = lk.dataset.lk.split(':');
+    P.look[k] = +i;
+    dressAvatar(); markDirty(); drawBarber();
+    return;
+  }
   const all = e.target.closest('[data-wall]');
   if (all) { bankWithdraw(+all.dataset.wall, 1e9); return; }
   const row = e.target.closest('[data-buy],[data-mk],[data-wd]');
@@ -5599,6 +5679,7 @@ function optionsFor(o) {
   else if (o.t === 6) opts.push({ t: 'Cook at', o: 'Range', f: () => { flashTarget(o, 0); startTask(o, 'cook'); } });
   else if (o.t === 7) opts.push({ t: 'Bank at', o: o.n, f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openBank }; } });
   else if (o.t === 8) opts.push({ t: 'Pray at', o: 'Altar', f: () => { flashTarget(o, 0); startTask(o, 'pray'); } });
+  else if (o.t === 9) opts.push({ t: 'Groom at', o: o.n, f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openBarber }; } });
   if (o.t !== undefined && o.t <= 2 && depleted.has(o.key)) return [];
   return opts;
 }
@@ -5664,6 +5745,18 @@ function openCtx(x, y, opts) {
   ctxEl.style.top = Math.min(y, innerHeight - ctxEl.offsetHeight - 4) + 'px';
 }
 const closeCtx = () => { ctxEl.style.display = 'none'; };
+/* Left-clicking anywhere while the menu is up dismisses it — and that click
+   is spent on the dismissal, so it cannot also walk you somewhere. */
+let ctxAte = 0;
+addEventListener('pointerdown', e => {
+  if (e.button === 0 && ctxEl.style.display === 'block' &&
+      !(e.target instanceof Node && ctxEl.contains(e.target))) {
+    closeCtx();
+    ctxAte = 1;
+  }
+}, true);
+// whoever the click lands on may consume the flag first; this mops up after
+addEventListener('click', () => { ctxAte = 0; });
 
 /* -------------------------- 27. MINIMAP ----------------------------- */
 /* 120 px over 360 tiles — three tiles a pixel, roughly two and a half times
@@ -5798,6 +5891,7 @@ dom.addEventListener('pointermove', e => {
 dom.addEventListener('pointerup', e => {
   if (!drag) return;
   drag = 0;
+  if (ctxAte) { ctxAte = 0; return; }              // that click closed the menu
   if (dragged || e.button === 2) return;
   if (trade && trade.open) return;                 // you are stood still, trading
   const ray = rayAt(e.clientX, e.clientY);
@@ -5866,6 +5960,7 @@ function combineItems(ai, bi) {
   return 0;
 }
 invGrid.addEventListener('click', e => {
+  if (ctxAte) { ctxAte = 0; return; }                 // that click closed the menu
   const s = e.target.closest('.slot');
   if (!s) { clearUse(); return; }                     // dead space in the pack
   const i = +s.dataset.i;
@@ -6152,7 +6247,7 @@ function animate(E, parts, dt) {
 
 /* Repopulate the instance pools from whatever is near enough to matter.
    Five draw calls cover every stump, fire, drop, ripple and shopkeeper. */
-const POOL_KEEP = Pool(KEEP_GEO, 10, 1);   // tinted: bankers wear cooler cloth
+const POOL_KEEP = Pool(KEEP_GEO, 12, 1);   // tinted: banker blue, barber pink
 function updatePools(t) {
   poolReset(POOL_STUMP); poolReset(POOL_FIRE); poolReset(POOL_DROP);
   poolReset(POOL_SPOT); poolReset(POOL_KEEP);
@@ -6162,9 +6257,9 @@ function updatePools(t) {
       if (depleted.has(o.key)) continue;
       const w = 0.85 + Math.sin(t * 2.2 + o.x * 0.7 + o.z * 0.4) * 0.16;
       poolPut(POOL_SPOT, o.x, 0.08, o.z, t * 0.5 + o.x, w, 1, w);
-    } else if (o.t === 5 || o.t === 7) {        // shopkeeper plain, banker in cooler cloth
+    } else if (o.t === 5 || o.t === 7 || o.t === 9) {   // keeper, banker, barber by tint
       poolPut(POOL_KEEP, o.x, o.y, o.z, o.b ? o.b.door * (Math.PI / 2) : 0, 1, 1, 1,
-              o.t === 7 ? 0x9fb4e8 : 0xffffff);
+              o.t === 7 ? 0x9fb4e8 : o.t === 9 ? 0xf2b8d8 : 0xffffff);
     }
   }
   for (const f of fires) poolPut(POOL_FIRE, f.x, f.y, f.z, t * 1.7, 1, 0.86 + Math.sin(t * 9 + f.x) * 0.14, 1);
@@ -6283,9 +6378,9 @@ function frame(now) {
     if (n.hp < n.maxhp || n.target === P || n.owner ||
         (P.task && P.task.k === 'attack' && P.task.o === n))
       healthBar(n, 1.5 + n.t.sz * 1.4);
-    // name and level over every monster in view, coloured by the gap to yours
+    // the whole tag wears the threat colour: "Hill giant (28)", all in red
     if (npcPlates < 14 && Math.abs(n.rx - P.rx) < 40 && Math.abs(n.rz - P.rz) < 40) {
-      const lbl = n.t.n + ' <i style="color:' + lvlColour(n.t.lv, myCombat) + '">level ' + n.t.lv + '</i>';
+      const lbl = '<i style="color:' + lvlColour(n.t.lv, myCombat) + '">' + n.t.n + ' (' + n.t.lv + ')</i>';
       if (labelAt(n, 'plate', n.rx, n.ry + 1.5 + n.t.sz * 1.5, n.rz, lbl, 'plate')) npcPlates++;
     } else if (n.plate) { freePlate(n.plate); n.plate = null; }
   }
@@ -6295,7 +6390,10 @@ function frame(now) {
   for (const o of nearObjs) {
     if (!(o.t >= 3) || marks >= 16) continue;
     if (Math.abs(o.x - P.rx) > 42 || Math.abs(o.z - P.rz) > 42) continue;
-    if (labelAt(o, 'mk', o.x, o.y + MARK_H[o.t], o.z, markHtml(o), 'plate mk')) marks++;
+    if (labelAt(o, 'mk', o.x, o.y + MARK_H[o.t], o.z, markHtml(o), 'plate mk')) {
+      marks++;
+      o.mk.el._obj = o;                   // the icon clicks through to its object
+    }
   }
 
   animate(P, avatar.parts, dt);
@@ -6426,6 +6524,7 @@ function packSave() {
     eq: [eq.head, eq.body, eq.legs, eq.weapon, eq.shield, eq.ammo],
     inv: invp,
     bank: bank.map(s => [s.id, s.n]),
+    look: [P.look.skin, P.look.shirt, P.look.legs, P.look.face],
     xp: xps,
     home: [P.home.x, P.home.z]
   };
@@ -6449,6 +6548,11 @@ function applySave(b) {
   // pre-bank saves simply load an empty vault
   bank = (b.bank || []).filter(r => ITEMS[r[0]] && (r[1] | 0) > 0)
     .slice(0, BANK_N).map(r => ({ id: r[0], n: r[1] | 0 }));
+  const lk = b.look || [];
+  P.look.skin  = clamp(lk[0] | 0, 0, SKINS.length - 1);
+  P.look.shirt = clamp(lk[1] | 0, 0, SHIRTS.length - 1);
+  P.look.legs  = clamp(lk[2] | 0, 0, LEGSC.length - 1);
+  P.look.face  = clamp(lk[3] | 0, 0, FACES.length - 1);
   const e = b.eq || [];
   EQ_SLOTS.forEach((s, i) => { eq[s] = ITEMS[e[i]] ? e[i] : null; });
   P.maxhp = b.maxhp || lvl[SK.hitpoints]; P.hp = Math.min(P.maxhp, b.hp || P.maxhp);
@@ -6467,6 +6571,7 @@ function freshCharacter() {
   resetSkills();
   inv.fill(null);
   bank = [];
+  P.look.skin = P.look.shirt = P.look.legs = P.look.face = 0;   // the level-3 classic
   for (const s of EQ_SLOTS) eq[s] = null;
   P.maxhp = P.hp = lvl[SK.hitpoints];
   P.maxpray = P.pray = lvl[SK.prayer];
@@ -6928,6 +7033,21 @@ const POOL_FAR = Pool(FAR_GEO, 48, 1);
 /* Nameplates are pooled DOM, not sprites — text stays crisp and costs nothing
    in the renderer. */
 const plateWrap = el('plates'), platePool = [];
+/* Marker icons act exactly like clicking the thing they float over — left
+   click runs the top option, right click opens the menu. */
+plateWrap.addEventListener('click', e => {
+  if (ctxAte) { ctxAte = 0; return; }
+  const m = e.target.closest('.plate.mk');
+  if (!m || !m._obj) return;
+  const opts = optionsFor(m._obj);
+  if (opts.length) opts[0].f();
+});
+plateWrap.addEventListener('contextmenu', e => {
+  const m = e.target.closest('.plate.mk');
+  if (!m || !m._obj) return;
+  e.preventDefault();
+  openCtx(e.clientX, e.clientY, optionsFor(m._obj));
+});
 function takePlate() {
   for (const p of platePool) if (!p.live) { p.live = 1; p.el.style.display = ''; return p; }
   const d = document.createElement('div');
@@ -6956,7 +7076,7 @@ function labelAt(owner, key, x, y, z, text, cls) {
 }
 /* Marker art for the utility icons, one cached <img> per kind. Shops get
    their own glyph and colour, everything else is fixed. */
-const MARK_H = [0, 0, 0, 4.6, 2.9, 3.4, 3.1, 3.4, 3.0];   // float height by object type
+const MARK_H = [0, 0, 0, 4.6, 2.9, 3.4, 3.1, 3.4, 3.0, 3.4];   // float height by object type
 const _markCache = new Map();
 function markHtml(o) {
   const key = o.t === 5 ? 't5.' + o.k : 't' + o.t;
@@ -6967,6 +7087,7 @@ function markHtml(o) {
     : o.t === 4 ? drawIcon('hammer', '#d8dbe2', '#8a8f98')
     : o.t === 6 ? drawIcon('cfish', '#ffb04a', '#7a4a20')
     : o.t === 7 ? drawIcon('coins', '#ffd94a', '#9a7414')
+    : o.t === 9 ? drawIcon('hat', '#e87ac8', '#8a3a72')
     : drawIcon('star', '#fff2b0', '#c9a24a');
   h = '<img src="' + src + '" alt="">';
   _markCache.set(key, h);
