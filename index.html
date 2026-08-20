@@ -356,6 +356,11 @@
     font-size:10px;font-weight:700;color:#ffe9b8;text-shadow:1px 1px 0 #000;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis}
   .plate i{font-style:normal}
+  /* Utility markers: a bobbing icon over furnaces, anvils, shops, the bank —
+     the 2007 way of finding the town's plumbing at a glance. */
+  .plate.mk{margin:-12px 0 0}
+  .plate.mk img{width:22px;height:22px;image-rendering:pixelated;
+    filter:drop-shadow(1px 1px 0 rgba(0,0,0,.85))}
   /* Speech is its own element a world-unit higher up, because swapping the
      name out for the line hid whose line it was. Above every nameplate, so a
      crowd's names never print over someone's words. */
@@ -2650,8 +2655,14 @@ function emitShell(B, b) {
   }
   for (const sx of [-1, 1]) for (const sz of [-1, 1])
     B.add(BOX, x + sx * (hw - t / 2), y + FLOOR_TOP + h / 2, z + sz * (hd - t / 2), t * 1.3, h, t * 1.3, 0, CB);
-  if (b.bank) {                                          // the gold frieze that says vault
-    B.add(BOX, x, y + FLOOR_TOP + h - 0.3, z, w + 0.34, 0.3, d + 0.34, 0, C_GOLD);
+  if (b.bank) {
+    /* The gold frieze is four thin bands, not a slab — a solid box here
+       would cap the building with a ceiling that no roof toggle can lift. */
+    const fy = y + FLOOR_TOP + h - 0.3;
+    B.add(BOX, x, fy, z - hd - 0.02, w + 0.34, 0.3, 0.22, 0, C_GOLD);
+    B.add(BOX, x, fy, z + hd + 0.02, w + 0.34, 0.3, 0.22, 0, C_GOLD);
+    B.add(BOX, x - hw - 0.02, fy, z, 0.22, 0.3, d + 0.34, 0, C_GOLD);
+    B.add(BOX, x + hw + 0.02, fy, z, 0.22, 0.3, d + 0.34, 0, C_GOLD);
     const ox = b.door === 1 ? hw : b.door === 3 ? -hw : 0;
     const oz = b.door === 0 ? -hd : b.door === 2 ? hd : 0;
     for (const sg of [-1, 1])                            // door pilasters
@@ -2943,6 +2954,14 @@ function emitLandmark(B, L) {
     B.add(BOX, x - 2.9, y + 7.4, z - 1.32, 0.9, 1.2, 0.24, 0, C_DARK);
     B.add(PYR, x - 2.9, y + 10.2, z + 0.2, 3.4, 3.6, 3.4, 0, C_SLATE);
     B.add(BOX, x - 2.9, y + 1.3, z - 1.36, 1.2, 2.6, 0.3, 0, C_DARK);
+    // the altar on the porch, where bones are offered
+    B.add(BOX, x + 1, y + 0.55, z - 3.9, 2.0, 1.1, 0.9, 0, C_STONE2);
+    B.add(BOX, x + 1, y + 1.14, z - 3.9, 2.2, 0.14, 1.05, 0, C_STONE);
+    B.add(BOX, x + 1, y + 1.24, z - 3.9, 0.7, 0.1, 1.1, 0, C_BANNER);
+    for (const s of [-1, 1]) {
+      B.add(BOX, x + 1 + s * 0.85, y + 1.4, z - 3.9, 0.14, 0.4, 0.14, 0, C_CLOTH);
+      B.add(BOX, x + 1 + s * 0.85, y + 1.66, z - 3.9, 0.1, 0.14, 0.1, 0, [1, 0.78, 0.3]);
+    }
   } else if (L.t === 1) {                              // windmill
     B.add(CYL8, x, y + 2.6, z, 5.2, 5.2, 5.2, 0, C_STONE);
     B.add(CYL8, x, y + 6.4, z, 4.2, 2.6, 4.2, 0, C_WALL);
@@ -3290,19 +3309,11 @@ function layoutCity(v) {
     const az = back.z ? host.z + back.z * (host.hd - 1) : host.z - host.hd + 1;
     return { ax, az, bx: back.x ? ax : host.x + host.hw - 1, bz: back.z ? host.z + host.hd - 1 : az };
   };
-  if (v.rank >= 2) {                                   // a proper smithy, always
-    const host = byCentre.find(b => b.shop === null && b.hw >= 3 && b.hd >= 3);
-    if (host) {
-      host.forge = 1;
-      const c = corners(host), fy = host.y + FLOOR_TOP;
-      FIX.push({ t: 3, x: c.ax, z: c.az, y: fy, in: host });
-      FIX.push({ t: 4, x: c.bx, z: c.bz, y: fy, in: host });
-    }
-  } else if ((hash2(v.x, v.z, S + 43) % 100) < [30, 55][v.rank]) {
-    // an open-air smithy near the crossing, under the sky
-    for (let i = 0; i < 12 && !FIX.length; i++) {
+  // an open-air smithy near the crossing, under the sky
+  const outdoorSmithy = () => {
+    for (let i = 0; i < 14; i++) {
       const h = hash2(v.x + i * 53, v.z + i * 29, S + 44);
-      const a = (h & 1023) / 1024 * TAU, rr = 5 + (h >>> 10) % 6;
+      const a = (h & 1023) / 1024 * TAU, rr = 5 + (h >>> 10) % 7;
       const x = Math.round(v.x + Math.sin(a) * rr), z = Math.round(v.z + Math.cos(a) * rr);
       if (get(x, z) !== G_EMPTY || get(x + 1, z) !== G_EMPTY) continue;
       const y = heightAt(x, z);
@@ -3310,8 +3321,18 @@ function layoutCity(v) {
       force(x, z, G_BUILD); force(x + 1, z, G_BUILD);
       FIX.push({ t: 3, x, z, y, in: null });
       FIX.push({ t: 4, x: x + 1, z, y, in: null });
+      return;
     }
-  }
+  };
+  if (v.rank >= 2) {                                   // a proper smithy, always
+    const host = byCentre.find(b => b.shop === null && b.hw >= 3 && b.hd >= 2);
+    if (host) {
+      host.forge = 1;
+      const c = corners(host), fy = host.y + FLOOR_TOP;
+      FIX.push({ t: 3, x: c.ax, z: c.az, y: fy, in: host });
+      FIX.push({ t: 4, x: c.bx, z: c.bz, y: fy, in: host });
+    } else outdoorSmithy();                            // no roomy house spared one
+  } else if ((hash2(v.x, v.z, S + 43) % 100) < [30, 55][v.rank]) outdoorSmithy();
   if (v.rank >= 1 || (hash2(v.x, v.z, S + 46) & 7) < 5) {   // a range to cook on
     const host = byCentre.find(b => b.shop === null && !b.forge && b.hw >= 2 && b.hd >= 2);
     if (host) {
@@ -3701,7 +3722,12 @@ function buildStructures(rec, cx, cz) {
       rec.objs.push(o); rec.blk.push(o.key); forges.push(f);
     }
     if (v.keep && inChunk(v.keep.x, v.keep.z)) castle = v.keep;
-    if (v.lm && inChunk(v.lm.x, v.lm.z)) { lms.push(v.lm); for (const k of v.lm.blk) rec.blk.push(k); }
+    if (v.lm && inChunk(v.lm.x, v.lm.z)) {
+      lms.push(v.lm); for (const k of v.lm.blk) rec.blk.push(k);
+      if (v.lm.t === 0)                           // the church porch altar is usable
+        rec.objs.push({ t: 8, k: 0, x: v.lm.x + 1, z: v.lm.z - 4, y: v.lm.y,
+                        key: tk(v.lm.x + 1, v.lm.z - 4), n: 'Altar' });
+    }
     for (const fu of v.fur) if (inChunk(fu.x, fu.z)) {
       furn.push(fu);
       if (fu.t === 2) {                             // the fountain basin spans 3x3
@@ -3945,8 +3971,8 @@ function rayGround(ray) {
 }
 /* Picking is a sphere test per nearby thing. At a few hundred candidates that
    beats any spatial index, and it means props need no colliders of their own. */
-const PICK_R = [1.7, 1.15, 1.5, 2.4, 1.5, 1.1, 1.6, 1.1];  // tree, rock, spot, furnace, anvil, keeper, range, banker
-const PICK_Y = [2.4, 0.55, 0.05, 1.6, 0.9, 0.9, 1.0, 0.9];
+const PICK_R = [1.7, 1.15, 1.5, 2.4, 1.5, 1.1, 1.6, 1.1, 1.5];  // tree, rock, spot, furnace, anvil, keeper, range, banker, altar
+const PICK_Y = [2.4, 0.55, 0.05, 1.6, 0.9, 0.9, 1.0, 0.9, 0.8];
 function pickObject(ray) {
   const o = ray.origin, d = ray.direction;
   let bestT = 1e9, best = null;
@@ -4776,9 +4802,26 @@ function taskTick() {
 
   // Gathering rolls every four ticks, but the character swings twice in that
   // time — the tool never freezes mid-air waiting for the next roll.
-  P.acting = 1; P.actSpan = 2; P.pose = 0;         // gathering always swings
+  P.acting = 1; P.actSpan = 2; P.pose = t.k === 'pray' ? 3 : 0;
   if (--P.actT > 0) return;
   P.actT = ACT_TICKS;
+
+  if (t.k === 'pray') {
+    const bi = inv.findIndex(s => s && ITEMS[s.id].bury);
+    if (bi < 0) {
+      if (P.pray < P.maxpray) { P.pray = P.maxpray; dirty.orb = 1; say('You kneel at the altar, and your prayer is restored.'); }
+      else say('You have no bones to offer.');
+      P.task = null; return;
+    }
+    const id = inv[bi].id;
+    invRemove(id, 1);
+    gainXp('prayer', ITEMS[id].bury * 1.5);          // the altar honours them better
+    P.maxpray = lvl[SK.prayer];
+    P.pray = Math.min(P.maxpray, P.pray + 2);
+    dirty.orb = 1;
+    say('You offer the bones at the altar.');
+    return;
+  }
 
   if (t.k === 'chop') {
     const T = TREES[o.k], axe = bestTool('woodcutting');
@@ -5529,6 +5572,7 @@ function optionsFor(o) {
   else if (o.t === 5) opts.push({ t: 'Trade with', o: o.n, f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: startShop }; } });
   else if (o.t === 6) opts.push({ t: 'Cook at', o: 'Range', f: () => { flashTarget(o, 0); startTask(o, 'cook'); } });
   else if (o.t === 7) opts.push({ t: 'Bank at', o: o.n, f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openBank }; } });
+  else if (o.t === 8) opts.push({ t: 'Pray at', o: 'Altar', f: () => { flashTarget(o, 0); startTask(o, 'pray'); } });
   if (o.t !== undefined && o.t <= 2 && depleted.has(o.key)) return [];
   return opts;
 }
@@ -6033,6 +6077,14 @@ function animate(E, parts, dt) {
         p.armL.rotation.z = 0.06;
         p.torso.rotation.x = 0;
         p.torso.rotation.y = 0;
+      } else if (E.pose === 3) {
+        /* Prayer: both hands rise together and hold while the head bows,
+           dipping once each cycle — devotion, not a tool swing. */
+        const li = ph < 0.3 ? smoothstep(0, 1, ph / 0.3) : 1 - smoothstep(0, 1, (ph - 0.3) / 0.7) * 0.25;
+        p.armL.rotation.x = -1.95 * li; p.armR.rotation.x = -1.95 * li;
+        p.armL.rotation.z = 0.30 * li;  p.armR.rotation.z = -0.30 * li;
+        p.torso.rotation.x = 0.24 * li;
+        p.torso.rotation.y = 0;
       } else {
       const sw = ph < 0.6 ? smoothstep(0, 1, ph / 0.6) : 1 - smoothstep(0, 1, (ph - 0.6) / 0.4);
       p.armR.rotation.x = 0.25 - 2.6 * sw;
@@ -6193,6 +6245,14 @@ function frame(now) {
     } else if (n.plate) { freePlate(n.plate); n.plate = null; }
   }
 
+  // icon markers over the town's plumbing: furnace, anvil, shops, bank, altar
+  let marks = 0;
+  for (const o of nearObjs) {
+    if (!(o.t >= 3) || marks >= 16) continue;
+    if (Math.abs(o.x - P.rx) > 42 || Math.abs(o.z - P.rz) > 42) continue;
+    if (labelAt(o, 'mk', o.x, o.y + MARK_H[o.t], o.z, markHtml(o), 'plate mk')) marks++;
+  }
+
   animate(P, avatar.parts, dt);
   updateRemotes(dt, alpha);
   labelsEnd();
@@ -6208,9 +6268,9 @@ function frame(now) {
   if (markT > 0) { markT -= dt; marker.rotation.y += dt * 2.4; if (markT <= 0) marker.visible = false; }
   ringFrame(dt);
 
-  // indoors, pull the camera in and look down so walls stop clipping the view
-  const want = indoors ? Math.min(dist, 14) : dist;
-  const pt = indoors ? Math.max(pitch, 0.8) : pitch, cp = Math.cos(pt), sp = Math.sin(pt);
+  // the camera keeps its distance indoors — the roof lifts instead
+  const want = dist;
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
   const cy = Math.max(P.ry, 0);
   // Walk outward from the head along the boom and stop at the first point that
   // would sit inside a hill, then ease the boom toward that length: snapping in
@@ -6848,6 +6908,24 @@ function labelAt(owner, key, x, y, z, text, cls) {
     ((_pv.x * 0.5 + 0.5) * innerWidth) + 'px,' +
     ((-_pv.y * 0.5 + 0.5) * innerHeight) + 'px) translate(-50%,0)';
   return true;
+}
+/* Marker art for the utility icons, one cached <img> per kind. Shops get
+   their own glyph and colour, everything else is fixed. */
+const MARK_H = [0, 0, 0, 4.6, 2.9, 3.4, 3.1, 3.4, 3.0];   // float height by object type
+const _markCache = new Map();
+function markHtml(o) {
+  const key = o.t === 5 ? 't5.' + o.k : 't' + o.t;
+  let h = _markCache.get(key);
+  if (h) return h;
+  const src = o.t === 5 ? drawIcon(SHOP_KINDS[o.k].g, SHOP_KINDS[o.k].c, '#f0e6c8')
+    : o.t === 3 ? drawIcon('flame', '#ff8c2a', '#ffd9a0')
+    : o.t === 4 ? drawIcon('hammer', '#d8dbe2', '#8a8f98')
+    : o.t === 6 ? drawIcon('cfish', '#ffb04a', '#7a4a20')
+    : o.t === 7 ? drawIcon('coins', '#ffd94a', '#9a7414')
+    : drawIcon('star', '#fff2b0', '#c9a24a');
+  h = '<img src="' + src + '" alt="">';
+  _markCache.set(key, h);
+  return h;
 }
 /* 2007 coloured a monster's level by how far above yours it was: green means
    free experience, red means think again. */
