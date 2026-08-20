@@ -38,7 +38,12 @@ const cleanSeed = s => (String(s || '').trim().toLowerCase().slice(0, 32)) || 'l
    invisible from the browser: assets update instantly and the Worker does not,
    so the game looks new while the server is months old and silently dropping
    everything it does not understand. */
-const BUILD = 3;
+const BUILD = 4;
+
+/* The clients' shared clock, mirrored so world deadlines can be sanity-checked
+   and expired entries pruned. Same epoch, same 600 ms tick. */
+const W_EPOCH = 1735689600000;
+const wTick = () => Math.floor((Date.now() - W_EPOCH) / 600);
 
 /* The 2007 xp curve, server side, so /characters can summarise a blob without
    trusting the client to report its own combat level. */
@@ -71,6 +76,14 @@ export class World extends DurableObject {
     this.players = new Map();   // pid -> record
     this.pending = new Map();   // dedupe key -> message
     this.timer = null;
+
+    /* Shared world state: nodes depleted and monsters dead, each a key mapped
+       to the shared tick it comes back on. In memory only, self-expiring, and
+       bounded by what players near each other have touched lately — if the
+       object hibernates and loses them, the cost is a node reappearing a
+       little early, which nobody will ever prove. */
+    this.depleted = new Map();
+    this.monDead = new Map();
 
     // With the hibernation API this object can be evicted between messages and
     // rebuilt. Per-connection state therefore lives on the socket, not here.
@@ -113,6 +126,16 @@ export class World extends DurableObject {
 
     // extra fields appended, so older clients reading only [1] and [2] still work
     server.send(JSON.stringify([[0, pid, Date.now(), name, seed, BUILD]]));
+
+    /* A late arrival must see the stumps and absences everyone else does.
+       Snapshots go only to the joiner; live traffic covers everyone else. */
+    this.pruneWorld();
+    const snap = [];
+    for (const [k, d] of this.depleted) snap.push([20, k, d]);
+    for (const [k, d] of this.monDead) snap.push([22, k, d]);
+    for (let i = 0; i < snap.length; i += 100) {
+      try { server.send(JSON.stringify(snap.slice(i, i + 100))); } catch {}
+    }
 
     /* Interest management only runs inside flush(), and flush only runs when
        somebody queues traffic. Without this, a join is invisible to a room
@@ -174,6 +197,26 @@ export class World extends DurableObject {
       case 19: {                                  // an arrow was loosed, and where
         this.queue('19:' + me.pid + ':' + now,
           [19, me.pid, m[1] | 0, m[2] | 0, (m[3] | 0) & 0xffffff]);
+        break;
+      }
+
+      case 20:                                    // a node was depleted
+      case 22: {                                  // a monster was killed
+        const key = String(m[1] || '').slice(0, 48);
+        const due = m[2] | 0, gt = wTick();
+        if (!key || due <= gt || due > gt + 20000) return;
+        (m[0] === 20 ? this.depleted : this.monDead).set(key, due);
+        this.pruneWorld();
+        this.queue(m[0] + ':' + key, [m[0], key, due, me.pid]);
+        break;
+      }
+
+      case 21: {                                  // a live monster, owner-driven
+        const key = String(m[1] || '').slice(0, 48);
+        if (!key) return;
+        this.queue('21:' + key,
+          [21, key, m[2] | 0, m[3] | 0, (m[4] | 0) & 15, m[5] | 0,
+           String(m[6] || '').slice(0, 40), (m[7] | 0) & 255, me.pid]);
         break;
       }
 
@@ -290,6 +333,15 @@ export class World extends DurableObject {
 
   /* One-shot timer only, never a repeating alarm. A repeating alarm keeps the
      object awake forever and blocks hibernation, which is where the bill is. */
+  pruneWorld() {
+    const gt = wTick();
+    for (const [k, d] of this.depleted) if (d <= gt) this.depleted.delete(k);
+    for (const [k, d] of this.monDead) if (d <= gt) this.monDead.delete(k);
+    // a runaway client cannot grow these without bound: oldest entries fall off
+    while (this.depleted.size > 800) this.depleted.delete(this.depleted.keys().next().value);
+    while (this.monDead.size > 800) this.monDead.delete(this.monDead.keys().next().value);
+  }
+
   queue(key, msg) {
     this.pending.set(key, msg);
     if (!this.timer) this.timer = setTimeout(() => this.flush(), 40);
@@ -332,6 +384,17 @@ export class World extends DurableObject {
         if (m[0] === 12) {
           const dx = m[2] | 0, dz = m[3] | 0;
           if (m[1] !== p.pid && Math.abs(dx - p.x) <= VIEW && Math.abs(dz - p.z) <= VIEW) out.push(m);
+          continue;
+        }
+        /* World state is room-wide: a stump matters to whoever walks up next,
+           seen-set or not. Live monster frames only matter near the fight. */
+        if (m[0] === 20 || m[0] === 22) {
+          if (m[3] !== p.pid) out.push(m);
+          continue;
+        }
+        if (m[0] === 21) {
+          if (m[8] !== p.pid &&
+              Math.abs((m[2] | 0) - p.x) <= VIEW * 2 && Math.abs((m[3] | 0) - p.z) <= VIEW * 2) out.push(m);
           continue;
         }
         const owner = m[0] === 1 ? m[1][0][0] : m[1];
