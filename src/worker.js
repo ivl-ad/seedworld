@@ -171,6 +171,47 @@ export class World extends DurableObject {
         this.queue('3:' + me.pid, [3, me.pid, me.eq]);
         break;
 
+      case 13: {                                  // hitpoints, so onlookers can draw a bar
+        const hp = m[1] | 0, mx = m[2] | 0;
+        this.queue('13:' + me.pid, [13, me.pid, hp, mx]);
+        break;
+      }
+
+      /* Trading is two private conversations, not a broadcast: only the other
+         party hears an offer, and only they can answer it. */
+      case 14: {                                  // trade signal
+        const other = this.players.get(String(m[1] || ''));
+        if (other) {
+          try { other.ws.send(JSON.stringify([[14, me.pid, me.name, (m[2] | 0) & 7]])); } catch {}
+        }
+        return;
+      }
+
+      case 15: {                                  // trade offer
+        const other = this.players.get(String(m[1] || ''));
+        const offer = Array.isArray(m[2]) ? m[2].slice(0, 28).map(it => [
+          String((it && it[0]) || '').slice(0, 32), Math.max(0, (it && it[1] | 0) || 0)
+        ]) : [];
+        if (other) {
+          try { other.ws.send(JSON.stringify([[15, me.pid, offer]])); } catch {}
+        }
+        return;
+      }
+
+      case 11: {                                 // pvp hit, delivered to one player
+        const target = this.players.get(String(m[1] || ''));
+        if (target) {
+          try { target.ws.send(JSON.stringify([[11, me.pid, (m[2] | 0) & 255]])); } catch {}
+        }
+        return;
+      }
+
+      case 12: {                                  // died here, dropped this
+        const items = Array.isArray(m[3]) ? m[3].slice(0, 40) : [];
+        this.queue('12:' + me.pid + ':' + now, [12, me.pid, m[1] | 0, m[2] | 0, items]);
+        break;
+      }
+
       case 4: {                                  // chat
         const text = String(m[1] ?? '').slice(0, 120);
         if (text) this.queue('4:' + me.pid + ':' + now, [4, me.pid, text]);
