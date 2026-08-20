@@ -171,6 +171,12 @@ export class World extends DurableObject {
         this.queue('3:' + me.pid, [3, me.pid, me.eq]);
         break;
 
+      case 18: {                                  // a spell was cast, and at what
+        this.queue('18:' + me.pid + ':' + now,
+          [18, me.pid, (m[1] | 0) & 31, m[2] | 0, m[3] | 0]);
+        break;
+      }
+
       case 13: {                                  // hitpoints, so onlookers can draw a bar
         const hp = m[1] | 0, mx = m[2] | 0;
         this.queue('13:' + me.pid, [13, me.pid, hp, mx]);
