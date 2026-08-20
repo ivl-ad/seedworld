@@ -104,7 +104,9 @@
   .orb b{position:relative;font-size:11px;font-weight:700;text-shadow:1px 1px 0 #000}
   #orbRun.on{box-shadow:inset 0 0 0 1px #ffce6a}
 
-  #side{position:fixed;bottom:8px;right:8px;width:212px;z-index:6}
+  /* Above the modal backdrop (24): a shop or bank window must leave the
+     pack clickable — selling and storing click straight into it. */
+  #side{position:fixed;bottom:8px;right:8px;width:212px;z-index:25}
   #tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;margin-bottom:2px}
   .tab{padding:4px 0;text-align:center;font-size:8px;font-weight:700;letter-spacing:.06em;
     color:var(--dim);cursor:pointer;
@@ -119,6 +121,7 @@
   #invGrid{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(7,1fr);
     gap:1px;height:100%}
   .slot{position:relative;display:grid;place-items:center;border-radius:2px;cursor:pointer}
+  .slot.use{box-shadow:inset 0 0 0 2px var(--amber)}
   .slot.has:hover{background:rgba(255,255,255,.07)}
   .slot img{width:30px;height:30px;image-rendering:pixelated;pointer-events:none}
   .slot em{position:absolute;top:0;left:2px;font-style:normal;font-size:10px;font-weight:700;
@@ -1537,8 +1540,8 @@ ITEMS.bones.bury = 4.5;
 /* Settings the player can actually feel. Kept in one object so the dev
    console and the options tab both write to the same place. */
 const OPT = {
-  camSpeed: 2.0, viewRadius: 7, fog: 1, timers: 1, xpDrops: 1, roofs: 1, brightness: 1,
-  runMul: 1, retaliate: 1
+  camSpeed: 2.0, viewRadius: 7, fog: 1, timers: 1, xpDrops: 1, roofs: 1, hideRoofs: 0,
+  brightness: 1, runMul: 1, retaliate: 1
 };
 
 /* --------------------------- 6. ICONS ------------------------------- */
@@ -2591,6 +2594,7 @@ const C_DARK = [0.106, 0.098, 0.086], C_CLOTH = [0.741, 0.706, 0.612];
 const C_STONE = [0.545, 0.533, 0.502], C_STONE2 = [0.451, 0.439, 0.412];
 const C_SLATE = [0.286, 0.290, 0.325], C_BANNER = [0.549, 0.145, 0.176];
 const C_SIGN = [0.392, 0.286, 0.180], C_THATCH = [0.604, 0.514, 0.286];
+const C_GOLD = [0.804, 0.635, 0.239];
 const ROOFS = [C_ROOF, C_ROOF2, C_ROOF3, C_ROOF4];
 
 const tk = (x, z) => x * 4194304 + z;                 // tile key
@@ -2604,9 +2608,9 @@ const G_EMPTY = 0, G_ROAD = 1, G_PAVED = 2, G_BUILD = 3,
 function emitShell(B, b) {
   const x = b.x, z = b.z, y = b.y, w = b.w, d = b.d, h = b.h;
   const hw = w / 2, hd = d / 2, t = WALL_T;
-  // Stone townhouses and timber-framed cottages share one shell; only the
-  // colours and the framing differ.
-  const CW = b.stone ? C_STONE : C_WALL, CB = b.stone ? C_STONE2 : C_BEAM;
+  // Stone townhouses, timber cottages and the bank share one shell; only
+  // the colours, framing and trim differ.
+  const CW = b.stone || b.bank ? C_STONE : C_WALL, CB = b.stone || b.bank ? C_STONE2 : C_BEAM;
   // The plinth top must clear the floorboards. Landing both on exactly
   // FLOOR_TOP put two coplanar faces in the depth buffer, and the floor
   // strobed between them every time the camera moved.
@@ -2646,8 +2650,32 @@ function emitShell(B, b) {
   }
   for (const sx of [-1, 1]) for (const sz of [-1, 1])
     B.add(BOX, x + sx * (hw - t / 2), y + FLOOR_TOP + h / 2, z + sz * (hd - t / 2), t * 1.3, h, t * 1.3, 0, CB);
+  if (b.bank) {                                          // the gold frieze that says vault
+    B.add(BOX, x, y + FLOOR_TOP + h - 0.3, z, w + 0.34, 0.3, d + 0.34, 0, C_GOLD);
+    const ox = b.door === 1 ? hw : b.door === 3 ? -hw : 0;
+    const oz = b.door === 0 ? -hd : b.door === 2 ? hd : 0;
+    for (const sg of [-1, 1])                            // door pilasters
+      B.add(BOX, x + ox + (oz ? sg * 1.4 : 0), y + FLOOR_TOP + h / 2, z + oz + (ox ? sg * 1.4 : 0),
+            0.5, h, 0.5, 0, C_STONE2);
+  }
 
-  if (b.shop) emitShopFit(B, b); else emitHomeFit(B, b);
+  if (b.shop !== null) emitShopFit(B, b);
+  else if (b.bank) emitBankFit(B, b);
+  else emitHomeFit(B, b);
+}
+/* The banking hall: a teller counter with a gold rail, and the strongbox
+   against the back wall. */
+function emitBankFit(B, b) {
+  const x = b.x, z = b.z, y = b.y + FLOOR_TOP;
+  const horiz = (b.door === 0 || b.door === 2);
+  if (horiz) { B.add(BOX, x, y + 0.5, b.cz, b.w - 1.6, 1.0, 0.7, 0, C_STONE2);
+               B.add(BOX, x, y + 1.04, b.cz, b.w - 1.5, 0.08, 0.8, 0, C_GOLD); }
+  else       { B.add(BOX, b.cx, y + 0.5, z, 0.7, 1.0, b.d - 1.6, 0, C_STONE2);
+               B.add(BOX, b.cx, y + 1.04, z, 0.8, 0.08, b.d - 1.5, 0, C_GOLD); }
+  const sx = x + (b.door === 1 ? -1 : b.door === 3 ? 1 : 0) * (b.w / 2 - 0.8);
+  const sz = z + (b.door === 0 ? 1 : b.door === 2 ? -1 : 0) * (b.d / 2 - 0.8);
+  B.add(BOX, sx, y + 0.5, sz, 1.2, 1.0, 0.9, 0, C_DARK);           // the strongbox
+  B.add(BOX, sx, y + 1.02, sz, 1.26, 0.1, 0.96, 0, C_GOLD);
 }
 /* Furniture is pushed to the wall opposite the door, so it never blocks entry. */
 function emitHomeFit(B, b) {
@@ -2689,6 +2717,14 @@ function emitShopFit(B, b) {
    than costing a draw call of their own. */
 function emitForge(B, f) {
   const x = f.x, y = f.y, z = f.z, s = f.in ? 0.66 : 1;   // indoors it has to fit under a roof
+  if (f.t === 6) {                                        // the cooking range
+    B.add(BOX, x, y + 0.55 * s, z, 1.9 * s, 1.1 * s, 1.3 * s, 0, C_STONE2);
+    B.add(BOX, x, y + 1.16 * s, z, 2.1 * s, 0.14 * s, 1.5 * s, 0, C_DARK);        // hob
+    B.add(BOX, x, y + 0.55 * s, z + 0.68 * s, 1.3 * s, 0.7 * s, 0.1 * s, 0, C_DARK);
+    B.add(BOX, x, y + 0.45 * s, z + 0.74 * s, 1.0 * s, 0.44 * s, 0.06 * s, 0, [0.95, 0.45, 0.10]);
+    B.add(BOX, x - 0.6 * s, y + 1.9 * s, z - 0.3 * s, 0.5 * s, 1.5 * s, 0.5 * s, 0, C_STONE2);  // flue
+    return;
+  }
   if (f.t === 3) {
     B.add(BOX, x, y + 1.35 * s, z, 3.0 * s, 2.7 * s, 3.0 * s, 0, C_STONE);
     B.add(BOX, x, y + 2.78 * s, z, 3.3 * s, 0.3 * s, 3.3 * s, 0, C_STONE2);
@@ -2709,6 +2745,16 @@ function emitForge(B, f) {
    gets out of your way at once, the way 2007 hid the floors above you. */
 function emitRoof(B, b) {
   let base = b.y + FLOOR_TOP + b.h;
+  if (b.bank) {                                             // flat parapet and a gilt dome
+    B.add(BOX, b.x, base + 0.2, b.z, b.w + 0.9, 0.4, b.d + 0.9, 0, C_STONE2);
+    B.add(BOX, b.x, base + 0.65, b.z - (b.d + 0.5) / 2, b.w + 0.9, 0.55, 0.4, 0, C_STONE);
+    B.add(BOX, b.x, base + 0.65, b.z + (b.d + 0.5) / 2, b.w + 0.9, 0.55, 0.4, 0, C_STONE);
+    B.add(BOX, b.x - (b.w + 0.5) / 2, base + 0.65, b.z, 0.4, 0.55, b.d + 0.9, 0, C_STONE);
+    B.add(BOX, b.x + (b.w + 0.5) / 2, base + 0.65, b.z, 0.4, 0.55, b.d + 0.9, 0, C_STONE);
+    B.add(CYL8, b.x, base + 0.9, b.z, 1.9, 1.0, 1.9, 0, C_STONE);
+    B.add(BLOB, b.x, base + 1.95, b.z, 2.2, 1.6, 2.2, 0, C_GOLD);
+    return;
+  }
   if (b.st2) {                                              // jettied upper storey
     const uh = 2.8, CW = b.stone ? C_STONE : C_WALL, CB = b.stone ? C_STONE2 : C_BEAM;
     B.add(BOX, b.x, base + 0.14, b.z, b.w + 0.7, 0.28, b.d + 0.7, 0, CB);
@@ -3171,7 +3217,7 @@ function layoutCity(v) {
       st2: v.rank >= 2 && hw + hd >= 5 && ((hh >>> 12) & 7) < 3 ? 1 : 0,
       stone: v.rank >= 3 && ((hh >>> 15) & 3) === 0 ? 1 : 0,
       gable: ((hh >>> 17) & 3) !== 0 ? 1 : 0,
-      door, shop: null, forge: 0, roof: null, blk: null
+      door, shop: null, forge: 0, range: 0, bank: 0, roof: null, blk: null
     };
     b.dx = door === 1 ? px + hw : door === 3 ? px - hw : px;
     b.dz = door === 0 ? pz - hd : door === 2 ? pz + hd : pz;
@@ -3231,26 +3277,56 @@ function layoutCity(v) {
     if (b.hw < 2 || b.hd < 2) continue;
     b.shop = SHOP[shops[si++]].i;
   }
-  /* ---- and a smithy, if this place runs to one ---- */
+  /* ---- the working fixtures: smithy, cooking range, and the bank.
+     A town must be able to level you: rank 2 up always has furnace, anvil
+     and range; a village usually has a range and may keep an outdoor
+     smithy by the crossing. ---- */
   const FIX = [];
-  if ((hash2(v.x, v.z, S + 43) % 100) < [30, 46, 72, 92, 100][v.rank]) {
+  // where the back corners of a host building are, for indoor fixtures
+  const corners = host => {
+    const back = { x: host.door === 1 ? -1 : host.door === 3 ? 1 : 0,
+                   z: host.door === 0 ? 1 : host.door === 2 ? -1 : 0 };
+    const ax = back.x ? host.x + back.x * (host.hw - 1) : host.x - host.hw + 1;
+    const az = back.z ? host.z + back.z * (host.hd - 1) : host.z - host.hd + 1;
+    return { ax, az, bx: back.x ? ax : host.x + host.hw - 1, bz: back.z ? host.z + host.hd - 1 : az };
+  };
+  if (v.rank >= 2) {                                   // a proper smithy, always
     const host = byCentre.find(b => b.shop === null && b.hw >= 3 && b.hd >= 3);
     if (host) {
       host.forge = 1;
-      const kind = (hash2(v.x, v.z, S + 44) >>> 7) % 10;
-      const back = { x: host.door === 1 ? -1 : host.door === 3 ? 1 : 0,
-                     z: host.door === 0 ? 1 : host.door === 2 ? -1 : 0 };
-      const ax = back.x ? host.x + back.x * (host.hw - 1) : host.x - host.hw + 1;
-      const az = back.z ? host.z + back.z * (host.hd - 1) : host.z - host.hd + 1;
-      const bx = back.x ? ax : host.x + host.hw - 1;
-      const bz = back.z ? host.z + host.hd - 1 : az;
-      const fy = host.y + FLOOR_TOP;
-      if (kind < 6) FIX.push({ t: kind < 3 ? 3 : 4, x: ax, z: az, y: fy, in: host });
-      else { FIX.push({ t: 3, x: ax, z: az, y: fy, in: host });
-             FIX.push({ t: 4, x: bx, z: bz, y: fy, in: host }); }
+      const c = corners(host), fy = host.y + FLOOR_TOP;
+      FIX.push({ t: 3, x: c.ax, z: c.az, y: fy, in: host });
+      FIX.push({ t: 4, x: c.bx, z: c.bz, y: fy, in: host });
+    }
+  } else if ((hash2(v.x, v.z, S + 43) % 100) < [30, 55][v.rank]) {
+    // an open-air smithy near the crossing, under the sky
+    for (let i = 0; i < 12 && !FIX.length; i++) {
+      const h = hash2(v.x + i * 53, v.z + i * 29, S + 44);
+      const a = (h & 1023) / 1024 * TAU, rr = 5 + (h >>> 10) % 6;
+      const x = Math.round(v.x + Math.sin(a) * rr), z = Math.round(v.z + Math.cos(a) * rr);
+      if (get(x, z) !== G_EMPTY || get(x + 1, z) !== G_EMPTY) continue;
+      const y = heightAt(x, z);
+      if (y < 1.9) continue;
+      force(x, z, G_BUILD); force(x + 1, z, G_BUILD);
+      FIX.push({ t: 3, x, z, y, in: null });
+      FIX.push({ t: 4, x: x + 1, z, y, in: null });
+    }
+  }
+  if (v.rank >= 1 || (hash2(v.x, v.z, S + 46) & 7) < 5) {   // a range to cook on
+    const host = byCentre.find(b => b.shop === null && !b.forge && b.hw >= 2 && b.hd >= 2);
+    if (host) {
+      host.range = 1;
+      const c = corners(host);
+      FIX.push({ t: 6, x: c.ax, z: c.az, y: host.y + FLOOR_TOP, in: host });
     }
   }
   v.f = FIX;
+
+  /* ---- the bank: towns and cities always, villages often ---- */
+  if (v.rank >= 2 || (v.rank === 1 && (hash2(v.x, v.z, S + 47) & 7) < 3)) {
+    const host = byCentre.find(b => b.shop === null && !b.forge && !b.range && b.hw >= 2 && b.hd >= 2);
+    if (host) host.bank = 1;
+  }
 
   /* ---- street trees and gardens in whatever ground is left ---- */
   const trees = [];
@@ -3290,7 +3366,7 @@ function layoutCity(v) {
       else floorMap.set(k, b);
     }
     b.blk = blk;
-    if (b.shop !== null) {
+    if (b.shop !== null || b.bank) {
       const ix = b.door === 1 ? b.cx - 1 : b.door === 3 ? b.cx + 1 : b.cx;
       const iz = b.door === 0 ? b.cz + 1 : b.door === 2 ? b.cz - 1 : b.cz;
       b.keeper = { x: Math.abs(ix - b.x) <= b.hw - 1 ? ix : b.cx,
@@ -3620,7 +3696,8 @@ function buildStructures(rec, cx, cz) {
     villageBuildings(v);
     for (const bd of v.b) if (inChunk(bd.x, bd.z)) mine.push(bd);
     for (const f of v.f) if (inChunk(f.x, f.z)) {
-      const o = { t: f.t, k: 0, x: f.x, z: f.z, y: f.y, key: tk(f.x, f.z), n: f.t === 3 ? 'Furnace' : 'Anvil' };
+      const o = { t: f.t, k: 0, x: f.x, z: f.z, y: f.y, key: tk(f.x, f.z),
+                  n: f.t === 3 ? 'Furnace' : f.t === 4 ? 'Anvil' : 'Cooking range' };
       rec.objs.push(o); rec.blk.push(o.key); forges.push(f);
     }
     if (v.keep && inChunk(v.keep.x, v.keep.z)) castle = v.keep;
@@ -3661,6 +3738,8 @@ function buildStructures(rec, cx, cz) {
       rec.objs.push({ t: 5, k: b.shop, x: b.keeper.x, z: b.keeper.z, y: b.y + FLOOR_TOP,
                       key: tk(b.keeper.x, b.keeper.z), n: kd.n, b: b });
     }
+    if (b.bank) rec.objs.push({ t: 7, k: 0, x: b.keeper.x, z: b.keeper.z, y: b.y + FLOOR_TOP,
+                                key: tk(b.keeper.x, b.keeper.z), n: 'Banker', b: b });
   }
   const sm = shell.mesh();
   if (sm) { scene.add(sm); rec.extra.push(sm); }
@@ -3668,7 +3747,7 @@ function buildStructures(rec, cx, cz) {
     const rb = new Batch();
     emitRoof(rb, b);
     const m = rb.mesh();
-    if (m) { scene.add(m); b.roof = m; m.visible = (indoors !== b); rec.extra.push(m); rec.roofs.push(b); }
+    if (m) { scene.add(m); b.roof = m; m.visible = roofShown(b); rec.extra.push(m); rec.roofs.push(b); }
   }
 }
 function disposeChunk(rec) {
@@ -3689,6 +3768,9 @@ function disposeChunk(rec) {
 /* Near chunks already hold a per-tile height grid; reuse it instead of
    re-running twelve octaves of noise for every collision query. */
 let indoors = null;
+/* One rule for every roof: hidden wholesale by the setting, lifted over your
+   head when you are inside (if that setting is on), shown otherwise. */
+const roofShown = b => !OPT.hideRoofs && !(OPT.roofs && indoors === b);
 function tileH(x, z) {
   const rec = chunks.get(ck(Math.floor(x / CHUNK), Math.floor(z / CHUNK)));
   if (rec && rec.near) return recH(rec, x, z);
@@ -3863,8 +3945,8 @@ function rayGround(ray) {
 }
 /* Picking is a sphere test per nearby thing. At a few hundred candidates that
    beats any spatial index, and it means props need no colliders of their own. */
-const PICK_R = [1.7, 1.15, 1.5, 2.4, 1.5, 1.1];   // tree, rock, spot, furnace, anvil, keeper
-const PICK_Y = [2.4, 0.55, 0.05, 1.6, 0.9, 0.9];
+const PICK_R = [1.7, 1.15, 1.5, 2.4, 1.5, 1.1, 1.6, 1.1];  // tree, rock, spot, furnace, anvil, keeper, range, banker
+const PICK_Y = [2.4, 0.55, 0.05, 1.6, 0.9, 0.9, 1.0, 0.9];
 function pickObject(ray) {
   const o = ray.origin, d = ray.direction;
   let bestT = 1e9, best = null;
@@ -3897,6 +3979,24 @@ const inv = new Array(INV_N).fill(null);
 const EQ_SLOTS = ['head', 'body', 'legs', 'weapon', 'shield', 'ammo'];
 const eq = { head: null, body: null, legs: null, weapon: null, shield: null };
 const dirty = { inv: 1, eq: 1, sk: 1, orb: 1 };
+
+/* 2007's use-cursor: arm an item, then click what to use it on. Only raw
+   food arms it for now; a click on anything that is not a fire or a range
+   quietly disarms it. */
+let useSel = null;                       // { i, id, name } while armed
+function clearUse() { if (useSel) { useSel = null; dirty.inv = 1; hoverObj = undefined; } }
+
+/* The bank. Everything stacks in the bank whether it stacks in the pack or
+   not — the 2007 rule, and the whole reason banks matter. */
+const BANK_N = 48;
+let bank = [];                           // [{ id, n }] in deposit order
+function bankAdd(id, n) {
+  const s = bank.find(b => b.id === id);
+  if (s) { s.n += n; return n; }
+  if (bank.length >= BANK_N) return 0;
+  bank.push({ id, n });
+  return n;
+}
 
 function invFree() { let n = 0; for (let i = 0; i < INV_N; i++) if (!inv[i]) n++; return n; }
 function invCount(id) { let n = 0; for (let i = 0; i < INV_N; i++) if (inv[i] && inv[i].id === id) n += inv[i].n; return n; }
@@ -4709,6 +4809,9 @@ function taskTick() {
     if (!o.k && invCount('small_net') + invCount('fishing_rod') === 0) {
       say('You need a small net or a fishing rod.', 'bad'); P.task = null; return;
     }
+    if (o.k && !invCount('harpoon')) {
+      say('You need a harpoon to fish these waters.', 'bad'); P.task = null; return;
+    }
     if (Math.random() < rollChance(lvl[SK.fishing], f.lv, 2)) {
       if (!invAdd(f.raw, 1)) { say('Your inventory is too full.', 'bad'); P.task = null; return; }
       say('You catch a ' + f.n.toLowerCase() + '.');
@@ -4716,11 +4819,14 @@ function taskTick() {
       if ((hash2(P.tx, tickN, S) & 7) === 0) deplete(o, 14);      // spots move on
     }
   } else if (t.k === 'cook') {
-    const raw = FISH.find(f => invCount(f.raw) > 0);
+    // the used item first, then whatever else is raw in the pack
+    const raw = (t.raw && FISH.find(f => f.raw === t.raw && invCount(f.raw) > 0))
+             || FISH.find(f => invCount(f.raw) > 0);
     if (!raw) { say('You have nothing left to cook.'); P.task = null; return; }
     if (lvl[SK.cooking] < raw.cookLv) { say('You need Cooking level ' + raw.cookLv + ' to cook that.', 'bad'); P.task = null; return; }
     invRemove(raw.raw, 1);
-    if (Math.random() < clamp(0.55 - (lvl[SK.cooking] - raw.cookLv) * 0.022, 0, 0.55)) {
+    // a proper range burns less than an open fire, as it always did
+    if (Math.random() < clamp(0.55 - (lvl[SK.cooking] - raw.cookLv) * 0.022 - (o.t === 6 ? 0.06 : 0), 0, 0.55)) {
       invAdd('burnt_' + raw.k, 1);
       say('You accidentally burn the ' + raw.n.toLowerCase() + '.', 'bad');
     } else {
@@ -4800,7 +4906,46 @@ function eat(slotIdx) {
 /* ------------------------- 24. TRADING ------------------------------ */
 /* Shopkeepers buy at 42% and sell at 115%; the spread is what makes a
    gathering run worth walking back to town for. */
-let openShop = null;
+let openShop = null, bankOpen = 0;
+/* The bank window: the same modal the shops use. Deposits come from clicking
+   the pack (itemOptions turns into a deposit sheet), withdrawals from
+   clicking the vault rows. */
+function openBank() {
+  bankOpen = 1;
+  say('The banker pulls out your vault book.');
+  drawBank();
+}
+function drawBank() {
+  if (!bankOpen) return;
+  const h = ['<div class="grid">'];
+  bank.forEach((s, i) => {
+    const it = ITEMS[s.id];
+    h.push('<div class="mk" data-wd="' + i + '"><img src="' + icon(s.id) + '" alt=""><span>' +
+      it.name + '<u>' + fmt(s.n) + ' banked</u></span><b class="gp" data-wall="' + i + '">ALL</b></div>');
+  });
+  h.push('</div>');
+  modalTitle.textContent = 'Bank of Seedworld — ' + bank.length + '/' + BANK_N + ' slots';
+  modalBody.innerHTML = bank.length ? h.join('') : '<p style="opacity:.7">Your vault is empty.</p>';
+  modalFoot.textContent = 'Click to withdraw one, ALL for the stack. Click your pack to store things.';
+  modalEl.classList.add('on');
+  showTab('inv');
+}
+function bankDeposit(id, n) {
+  n = Math.min(n, invCount(id)); if (n <= 0) return;
+  if (!bankAdd(id, n)) { say('Your vault has no room for another kind of item.', 'bad'); return; }
+  invRemove(id, n);
+  markDirty();
+  drawBank();
+}
+function bankWithdraw(bi, n) {
+  const s = bank[bi]; if (!s) return;
+  const got = invAdd(s.id, Math.min(n, s.n));
+  if (!got) { say('Your inventory is too full.', 'bad'); return; }
+  s.n -= got;
+  if (s.n <= 0) bank.splice(bi, 1);
+  markDirty();
+  drawBank();
+}
 function shopBuy(id) {
   const it = ITEMS[id], price = buyPrice(it);
   if (coins() < price) { say("You don't have enough coins.", 'bad'); return; }
@@ -4851,16 +4996,20 @@ for (let i = 0; i < INV_N; i++) {
 }
 function drawInv() {
   dirty.inv = 0;
+  // an armed use-item must still exist where it was armed, or it disarms
+  if (useSel && (!inv[useSel.i] || inv[useSel.i].id !== useSel.id)) useSel = null;
   for (let i = 0; i < INV_N; i++) {
     const s = inv[i], e = slotEls[i];
+    e.classList.toggle('use', !!(useSel && useSel.i === i));
     if (!s) { if (e.dataset.id) { e.innerHTML = ''; e.className = 'slot'; e.dataset.id = ''; } continue; }
     const sig = s.id + ':' + s.n;
     if (e.dataset.id === sig) continue;
     e.dataset.id = sig;
-    e.className = 'slot has';
+    e.className = 'slot has' + (useSel && useSel.i === i ? ' use' : '');
     e.innerHTML = '<img src="' + icon(s.id) + '" alt="">' + (s.n > 1 ? '<em>' + (s.n > 99999 ? fmt(s.n) : s.n) + '</em>' : '');
   }
   if (openShop) drawShop();
+  if (bankOpen) drawBank();
 }
 const EQ_LAY = [null, 'head', 'ammo', 'weapon', 'body', 'shield', null, 'legs', null];
 const eqWrap = el('eqWrap');
@@ -4935,7 +5084,7 @@ function showModal(title, html, foot) {
   modalEl.classList.add('on');
   showTab('inv');
 }
-function closeOverlays() { modalEl.classList.remove('on'); openShop = null; makeRows = null; }
+function closeOverlays() { modalEl.classList.remove('on'); openShop = null; makeRows = null; bankOpen = 0; }
 el('modalX').onclick = closeOverlays;
 modalEl.onclick = e => { if (e.target === modalEl) closeOverlays(); };
 
@@ -4973,9 +5122,12 @@ function drawShop() {
   showTab('inv');
 }
 modalBody.addEventListener('click', e => {
-  const row = e.target.closest('[data-buy],[data-mk]');
+  const all = e.target.closest('[data-wall]');
+  if (all) { bankWithdraw(+all.dataset.wall, 1e9); return; }
+  const row = e.target.closest('[data-buy],[data-mk],[data-wd]');
   if (!row) return;
   if (row.dataset.buy) shopBuy(row.dataset.buy);
+  else if (row.dataset.wd !== undefined) bankWithdraw(+row.dataset.wd, 1);
   else {
     const r = makeRows && makeRows[+row.dataset.mk];
     if (r && r.ok) { makeFn(r); closeOverlays(); }
@@ -5072,6 +5224,7 @@ const OPT_ROWS = [
   { k: 'timers', n: 'Respawn clocks', tog: 1 },
   { k: 'xpDrops', n: 'Xp drops', tog: 1 },
   { k: 'roofs', n: 'Lift roofs indoors', tog: 1 },
+  { k: 'hideRoofs', n: 'Hide all roofs', tog: 1 },
   { k: 'brightness', n: 'Brightness', min: 0.7, max: 1.4, step: 0.1, fmt: v => Math.round(v * 100) + '%' }
 ];
 const optList = el('optList');
@@ -5096,7 +5249,9 @@ function applyOpts(r) {
   mat.color.setScalar(OPT.brightness);
   tintMat.color.setScalar(OPT.brightness);
   if (r && r.apply) { RADIUS = OPT.viewRadius; refresh(); }
-  if (!OPT.roofs && indoors && indoors.roof) indoors.roof.visible = true;
+  // every standing roof re-evaluates against the current rules
+  for (const rec of chunks.values())
+    for (const b of rec.roofs) if (b.roof) b.roof.visible = roofShown(b);
 }
 
 /* --- floating combat text, health bars and respawn clocks --- */
@@ -5335,6 +5490,14 @@ const hoverEl = el('hover'), ctxEl = el('ctx');
 function optionsFor(o) {
   const opts = [];
   if (!o) return opts;
+  /* An armed item turns a fire or a range into a use-target and hides the
+     usual menu, the way the 2007 use-cursor did. */
+  if (useSel && (o.fire || o.t === 6)) {
+    const u = useSel;
+    opts.push({ t: 'Use', o: u.name + ' → ' + (o.fire ? 'Fire' : 'Range'), cls: 'itm',
+      f: () => { clearUse(); flashTarget(o, 0); startTask(o, 'cook'); P.task.raw = u.id; } });
+    return opts;
+  }
   if (o.remote) {
     /* Left-clicking a player should never start a fight by accident, so the
        first option is the harmless one and attacking lives one menu down. */
@@ -5364,6 +5527,8 @@ function optionsFor(o) {
   else if (o.t === 3) opts.push({ t: 'Smelt at', o: 'Furnace', f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openSmelt }; } });
   else if (o.t === 4) opts.push({ t: 'Smith at', o: 'Anvil', f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openSmith }; } });
   else if (o.t === 5) opts.push({ t: 'Trade with', o: o.n, f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: startShop }; } });
+  else if (o.t === 6) opts.push({ t: 'Cook at', o: 'Range', f: () => { flashTarget(o, 0); startTask(o, 'cook'); } });
+  else if (o.t === 7) opts.push({ t: 'Bank at', o: o.n, f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openBank }; } });
   if (o.t !== undefined && o.t <= 2 && depleted.has(o.key)) return [];
   return opts;
 }
@@ -5382,7 +5547,20 @@ function itemOptions(i) {
     opts.push({ t: 'Examine', o: it.name, cls: 'itm', f: () => say(examine(it)) });
     return opts;
   }
+  /* At the bank the pack is a deposit sheet, same as the trade rule above. */
+  if (bankOpen) {
+    opts.push({ t: 'Store', o: it.name, cls: 'itm', f: () => bankDeposit(s.id, 1) });
+    const cnt = invCount(s.id);
+    if (cnt >= 5) opts.push({ t: 'Store 5', o: it.name, cls: 'itm', f: () => bankDeposit(s.id, 5) });
+    if (cnt > 1) opts.push({ t: 'Store all', o: it.name, cls: 'itm', f: () => bankDeposit(s.id, cnt) });
+    opts.push({ t: 'Examine', o: it.name, cls: 'itm', f: () => say(examine(it)) });
+    return opts;
+  }
   if (openShop && s.id !== 'coins') opts.push({ t: 'Sell', o: it.name, cls: 'itm', f: () => shopSell(i) });
+  if (it.raw) opts.push({ t: useSel && useSel.i === i ? 'Cancel use' : 'Use', o: it.name, cls: 'itm',
+    f: () => { if (useSel && useSel.i === i) clearUse();
+               else { useSel = { i, id: s.id, name: it.name }; dirty.inv = 1; hoverObj = undefined;
+                      say('Use the ' + it.name.toLowerCase() + ' on a fire or a cooking range.'); } } });
   if (it.equip) opts.push({ t: 'Wield', o: it.name, cls: 'itm', f: () => equip(i) });
   if (it.heal) opts.push({ t: 'Eat', o: it.name, cls: 'itm', f: () => eat(i) });
   if (it.bury) opts.push({ t: 'Bury', o: it.name, cls: 'itm', f: () => bury(s.id) });
@@ -5480,6 +5658,7 @@ function mapMarks() {
     if (depleted.has(o.key)) continue;
     if (o.t === 2) dot(o.x, o.z, '#7fd8ff', 2);
     else if (o.t === 5) dot(o.x, o.z, '#ffd34a', 4);
+    else if (o.t === 7) dot(o.x, o.z, '#ffffff', 4);       // the bank, worth spotting
     else if (o.t > 2) dot(o.x, o.z, '#ff7fd8', 3);
     else if (Math.abs(o.x - P.rx) < 34 && Math.abs(o.z - P.rz) < 34)
       dot(o.x, o.z, o.t ? '#c9a24a' : '#2f6b2a', 2);
@@ -5514,7 +5693,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') showTab('mg');
   if (e.code === 'KeyP') showTab('pr');
   if (e.code === 'Backquote') { e.preventDefault(); devEl.classList.contains('on') ? closeDev() : openDev(); }
-  if (e.code === 'Escape') { closeCtx(); closeOverlays(); closeDev(); }
+  if (e.code === 'Escape') { closeCtx(); closeOverlays(); closeDev(); clearUse(); }
   if (['KeyW','KeyA','KeyS','KeyD','Space','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].indexOf(e.code) >= 0) e.preventDefault();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -5552,6 +5731,8 @@ dom.addEventListener('pointerup', e => {
   if (trade && trade.open) return;                 // you are stood still, trading
   const ray = rayAt(e.clientX, e.clientY);
   const o = pickObject(ray);
+  // clicking anything but a use-target quietly puts the armed item away
+  if (useSel && !(o && (o.fire || o.t === 6))) clearUse();
   if (o) { const opts = optionsFor(o); if (opts.length) { opts[0].f(); return; } }
   const g = rayGround(ray);
   if (g) walkTo(g.x, g.z);
@@ -5874,7 +6055,7 @@ function animate(E, parts, dt) {
 
 /* Repopulate the instance pools from whatever is near enough to matter.
    Five draw calls cover every stump, fire, drop, ripple and shopkeeper. */
-const POOL_KEEP = Pool(KEEP_GEO, 8);
+const POOL_KEEP = Pool(KEEP_GEO, 10, 1);   // tinted: bankers wear cooler cloth
 function updatePools(t) {
   poolReset(POOL_STUMP); poolReset(POOL_FIRE); poolReset(POOL_DROP);
   poolReset(POOL_SPOT); poolReset(POOL_KEEP);
@@ -5884,8 +6065,9 @@ function updatePools(t) {
       if (depleted.has(o.key)) continue;
       const w = 0.85 + Math.sin(t * 2.2 + o.x * 0.7 + o.z * 0.4) * 0.16;
       poolPut(POOL_SPOT, o.x, 0.08, o.z, t * 0.5 + o.x, w, 1, w);
-    } else if (o.t === 5) {
-      poolPut(POOL_KEEP, o.x, o.y, o.z, o.b ? o.b.door * (Math.PI / 2) : 0, 1);
+    } else if (o.t === 5 || o.t === 7) {        // shopkeeper plain, banker in cooler cloth
+      poolPut(POOL_KEEP, o.x, o.y, o.z, o.b ? o.b.door * (Math.PI / 2) : 0, 1, 1, 1,
+              o.t === 7 ? 0x9fb4e8 : 0xffffff);
     }
   }
   for (const f of fires) poolPut(POOL_FIRE, f.x, f.y, f.z, t * 1.7, 1, 0.86 + Math.sin(t * 9 + f.x) * 0.14, 1);
@@ -5962,9 +6144,10 @@ function frame(now) {
   const was = indoors;
   indoors = insideAt(P.tx, P.tz);
   if (indoors !== was) {
-    if (was && was.roof) was.roof.visible = true;
-    if (indoors && indoors.roof && OPT.roofs) indoors.roof.visible = false;
-    el('inside').textContent = indoors ? (indoors.shop !== null ? SHOP_KINDS[indoors.shop].n : 'indoors') : 'outdoors';
+    if (was && was.roof) was.roof.visible = roofShown(was);
+    if (indoors && indoors.roof) indoors.roof.visible = roofShown(indoors);
+    el('inside').textContent = indoors ? (indoors.shop !== null ? SHOP_KINDS[indoors.shop].n
+                             : indoors.bank ? 'Bank of Seedworld' : 'indoors') : 'outdoors';
     el('inside').className = indoors ? 'in' : '';
   }
 
@@ -6137,6 +6320,7 @@ function packSave() {
     rstyle: P.rstyle, ammoN: P.ammoN,
     eq: [eq.head, eq.body, eq.legs, eq.weapon, eq.shield, eq.ammo],
     inv: invp,
+    bank: bank.map(s => [s.id, s.n]),
     xp: xps,
     home: [P.home.x, P.home.z]
   };
@@ -6157,6 +6341,9 @@ function applySave(b) {
     const i = row[0] | 0;
     if (i >= 0 && i < INV_N && ITEMS[row[1]]) inv[i] = { id: row[1], n: Math.max(1, row[2] | 0) };
   }
+  // pre-bank saves simply load an empty vault
+  bank = (b.bank || []).filter(r => ITEMS[r[0]] && (r[1] | 0) > 0)
+    .slice(0, BANK_N).map(r => ({ id: r[0], n: r[1] | 0 }));
   const e = b.eq || [];
   EQ_SLOTS.forEach((s, i) => { eq[s] = ITEMS[e[i]] ? e[i] : null; });
   P.maxhp = b.maxhp || lvl[SK.hitpoints]; P.hp = Math.min(P.maxhp, b.hp || P.maxhp);
@@ -6174,6 +6361,7 @@ function applySave(b) {
 function freshCharacter() {
   resetSkills();
   inv.fill(null);
+  bank = [];
   for (const s of EQ_SLOTS) eq[s] = null;
   P.maxhp = P.hp = lvl[SK.hitpoints];
   P.maxpray = P.pray = lvl[SK.prayer];
