@@ -313,6 +313,15 @@ export class World extends DurableObject {
       }
 
       for (const m of msgs) {
+        /* A death spills loot and teleports the corpse away in the same breath.
+           Judging that message by whether the dead player is still visible
+           loses it exactly when it matters, so ground items are delivered by
+           where they fell rather than by who dropped them. */
+        if (m[0] === 12) {
+          const dx = m[2] | 0, dz = m[3] | 0;
+          if (m[1] !== p.pid && Math.abs(dx - p.x) <= VIEW && Math.abs(dz - p.z) <= VIEW) out.push(m);
+          continue;
+        }
         const owner = m[0] === 1 ? m[1][0][0] : m[1];
         if (owner !== p.pid && p.seen.has(owner)) out.push(m);
       }
