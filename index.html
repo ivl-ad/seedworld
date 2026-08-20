@@ -126,6 +126,8 @@
     background:rgba(0,0,0,.28);border:1px solid #171209;border-radius:2px;position:relative}
   .eqslot img{width:30px;height:30px;image-rendering:pixelated}
   .eqslot span{position:absolute;font-size:8px;color:#6b5f47;letter-spacing:.06em}
+  .eqslot em{position:absolute;top:1px;right:2px;font-style:normal;font-size:9px;color:#ffe14a;
+    text-shadow:1px 1px 0 #000}
   .eqslot.f span{display:none}
   #eqStats{margin-top:7px;border-top:1px solid rgba(107,83,52,.55);padding-top:5px;
     display:grid;grid-template-columns:1fr auto;font-size:10px;gap:0 8px}
@@ -352,14 +354,14 @@
   #netdot.on{background:var(--jade)}
   /* nameplates: pooled DOM, so text stays crisp at any distance */
   #plates{position:fixed;inset:0;z-index:7;pointer-events:none;overflow:hidden}
-  .plate{position:absolute;margin:-10px 0 0 -60px;width:120px;text-align:center;
+  .plate{position:absolute;margin:-10px 0 0 0;width:max-content;max-width:240px;text-align:center;
     font-size:10px;font-weight:700;color:#ffe9b8;text-shadow:1px 1px 0 #000;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis}
   .plate i{font-style:normal}
   /* Speech is its own element a world-unit higher up, because swapping the
      name out for the line hid whose line it was. */
   .plate.say{color:#fff;background:rgba(18,14,9,.82);border:1px solid var(--bevel);
-    border-radius:3px;padding:1px 5px;width:max-content;max-width:210px;
+    border-radius:3px;padding:1px 5px;width:max-content;max-width:240px;
     margin-left:0;margin-top:-27px;
     overflow:hidden;text-overflow:ellipsis}
   #welcome{position:fixed;inset:0;z-index:60;display:grid;place-items:center;
@@ -473,6 +475,7 @@
         <i>Strength bonus</i><b id="bStr">0</b>
         <i>Defence bonus</i><b id="bDef">0</b>
         <i>Magic bonus</i><b id="bMag">0</b>
+        <i>Ranged bonus</i><b id="bRng">0</b>
         <i>Combat level</i><b id="bCmb">3</b>
       </div>
     </div>
@@ -1156,7 +1159,9 @@ function totalLevel() { let t = 0; for (let i = 0; i < NSK; i++) if (!SKILLS[i].
 function combatLevel() {
   const base = 0.25 * (lvl[SK.defence] + lvl[SK.hitpoints]);
   const melee = 0.325 * (lvl[SK.attack] + lvl[SK.strength]);
-  return Math.floor(base + melee) || 3;
+  const range = 0.325 * Math.floor(lvl[SK.ranged] * 1.5);
+  const mage  = 0.325 * Math.floor(lvl[SK.magic] * 1.5);
+  return Math.floor(base + Math.max(melee, range, mage)) || 3;
 }
 
 /* ---------------------------- 5. ITEMS ------------------------------ */
@@ -1203,6 +1208,70 @@ for (const t of TIERS) for (const p of PIECES) {
     // Price climbs with the square of the tier, the way the 2007 shops did:
     // bronze is pocket change, rune is a season's mining.
     val: Math.round((p.a + p.s + p.d * 1.6 + 6) * t.m * t.m * 1.2)
+  });
+}
+
+/* The 2007 split: a bow buys accuracy and reach, an arrow buys damage, which
+   is why rune arrows on a plain shortbow are still worth the trip. */
+const BOWS = [
+  { k: '',        n: '',        lv: 1,  ra: 8,  c: '#8a6438', c2: '#5b4123' },
+  { k: 'oak_',    n: 'Oak ',    lv: 5,  ra: 14, c: '#7d6030', c2: '#4e3c1d' },
+  { k: 'willow_', n: 'Willow ', lv: 20, ra: 20, c: '#6f8f3a', c2: '#465a24' },
+  { k: 'maple_',  n: 'Maple ',  lv: 30, ra: 29, c: '#a8632a', c2: '#6b3e1a' },
+  { k: 'yew_',    n: 'Yew ',    lv: 40, ra: 41, c: '#2f5a3c', c2: '#1c3824' },
+  { k: 'magic_',  n: 'Magic ',  lv: 50, ra: 55, c: '#6f6fc8', c2: '#43439b' }
+];
+/* Short draws fast and near, long draws slow and far. */
+const BOWFORM = [
+  { k: 'shortbow', n: 'shortbow', spd: 3, rng: 7, m: 1.00 },
+  { k: 'longbow',  n: 'longbow',  spd: 5, rng: 9, m: 1.35 }
+];
+for (const b of BOWS) for (const f of BOWFORM) {
+  defItem({
+    id: b.k + f.k, name: b.n ? b.n + f.n : cap(f.n), g: 'bow', c: b.c, c2: b.c2,
+    slot: 'weapon', equip: 1, bow: 1, spd: f.spd, rng: f.rng,
+    rat: Math.round(b.ra * f.m), atk: 0, str: 0, def: 0,
+    req: { ranged: b.lv },
+    val: Math.round(30 + b.ra * b.ra * 0.55 * f.m)
+  });
+}
+/* Arrows carry the strength, and stack. Their levels follow the metal. */
+const ARROWS = [
+  { k: 'bronze',  lv: 1,  rs: 7  }, { k: 'iron',    lv: 1,  rs: 10 },
+  { k: 'steel',   lv: 5,  rs: 16 }, { k: 'mithril', lv: 20, rs: 22 },
+  { k: 'adamant', lv: 30, rs: 31 }, { k: 'rune',    lv: 40, rs: 49 }
+];
+for (const a of ARROWS) {
+  const t = TIER[a.k];
+  defItem({
+    id: a.k + '_arrow', name: t.n + ' arrow', g: 'arrow', c: t.c, c2: t.c2,
+    slot: 'ammo', equip: 1, stack: 1, ammo: 1,
+    rst: a.rs, rat: Math.round(a.rs * 0.45),
+    req: { ranged: a.lv }, val: Math.max(1, Math.round(a.rs * 0.9))
+  });
+}
+/* Hide and leather: light defence, and the only armour that does not fight
+   the draw. */
+const HIDES = [
+  { k: 'leather',     n: 'Leather',      lv: 1,  df: 1,  ra: 2,  c: '#8a6438', c2: '#5b4123' },
+  { k: 'studded',     n: 'Studded',      lv: 20, df: 20, ra: 6,  c: '#6f4a28', c2: '#452c16' },
+  { k: 'green_dhide', n: "Green d'hide", lv: 40, df: 40, ra: 11, c: '#4a7a3a', c2: '#2c4d22' },
+  { k: 'blue_dhide',  n: "Blue d'hide",  lv: 50, df: 40, ra: 15, c: '#3a5f8a', c2: '#223a55' },
+  { k: 'red_dhide',   n: "Red d'hide",   lv: 60, df: 40, ra: 19, c: '#8a3a2a', c2: '#552218' },
+  { k: 'black_dhide', n: "Black d'hide", lv: 70, df: 40, ra: 23, c: '#2e2c30', c2: '#18171a' }
+];
+const HIDEPIECE = [
+  { k: 'coif',  n: 'coif',  g: 'hat',  slot: 'head', d: 3, m: 0.35 },
+  { k: 'body',  n: 'body',  g: 'robe', slot: 'body', d: 9, m: 1.00 },
+  { k: 'chaps', n: 'chaps', g: 'legs', slot: 'legs', d: 5, m: 0.55 }
+];
+for (const h of HIDES) for (const q of HIDEPIECE) {
+  defItem({
+    id: h.k + '_' + q.k, name: h.n + ' ' + q.n, g: q.g, c: h.c, c2: h.c2,
+    slot: q.slot, equip: 1, atk: 0, str: 0,
+    def: Math.round(q.d * (1 + h.ra * 0.09)), rat: Math.round(h.ra * q.m),
+    req: { ranged: h.lv, defence: h.df },
+    val: Math.round((q.d + h.ra * 1.4 + 6) * (1 + h.ra * 0.22))
   });
 }
 
@@ -1290,13 +1359,15 @@ const SHOP_KINDS = [
   { k: 'general',  n: 'General Store',   g: 'coins',  c: '#c9a24a',
     base: ['tinderbox', 'hammer', 'small_net', 'fishing_rod', 'bronze_hatchet', 'bronze_pickaxe',
            'logs', 'oak_logs', 'bronze_bar', 'copper_ore', 'tin_ore', 'shrimps',
-           'staff', 'wizard_hat', 'wizard_robe_top', 'wizard_robe_bottom'] },
+           'staff', 'wizard_hat', 'wizard_robe_top', 'wizard_robe_bottom',
+           'shortbow', 'leather_body'] },
   { k: 'smith',    n: 'Smithing Supply', g: 'hammer', c: '#8a5a3a', tools: 1 },
   { k: 'weapon',   n: 'Sword Shop',      g: 'scim',   c: '#9b2f24', weapons: 1 },
   { k: 'armour',   n: "Armour Shop",     g: 'body',   c: '#3b5ea8', armour: 1 },
   { k: 'food',     n: 'Fishing Shop',    g: 'cfish',  c: '#4f8fa8',
     base: ['small_net', 'fishing_rod', 'harpoon', 'shrimps', 'trout'] },
-  { k: 'magic',    n: 'Magic Guild',     g: 'staff',  c: '#6a5ab0', mage: 1 }
+  { k: 'magic',    n: 'Magic Guild',     g: 'staff',  c: '#6a5ab0', mage: 1 },
+  { k: 'archery',  n: 'Archery Shop',    g: 'bow',    c: '#5f7a3a', range: 1 }
 ];
 const SHOP = Object.create(null); SHOP_KINDS.forEach((s, i) => { s.i = i; SHOP[s.k] = s; });
 
@@ -1315,6 +1386,14 @@ function shopStock(kind, tier) {
   if (s.armour) for (let t = 0; t <= maxT; t++)
     for (const p of ['med_helm', 'platebody', 'platelegs', 'kiteshield']) push(TIERS[t].k + '_' + p, 4);
   if (s.k === 'food') for (const f of FISH) if (f.lv <= 40) push(f.done, 15);
+  if (s.range) {
+    // bows by wood, arrows by metal, hide by beast — all gated on settlement size
+    for (let i = 0; i <= Math.min(5, 1 + tier * 2); i++) {
+      push(BOWS[i].k + 'shortbow', 5); push(BOWS[i].k + 'longbow', 5);
+      for (const q of HIDEPIECE) push(HIDES[i].k + '_' + q.k, 4);
+    }
+    for (let i = 0; i <= Math.min(5, 1 + tier * 2); i++) push(ARROWS[i].k + '_arrow', 1000 + tier * 2000);
+  }
   if (s.mage) {
     push('staff', 10);
     for (let i = 0; i <= Math.min(2, tier); i++) {
@@ -1325,6 +1404,7 @@ function shopStock(kind, tier) {
   }
   // every general store keeps a rune box behind the counter
   if (s.k === 'general') for (const r of RUNES) push(r.id, 200 + tier * 300);
+  if (s.k === 'general') push('bronze_arrow', 500);
   return list;
 }
 /* Shops buy at a discount and sell at a markup — the spread is the point. */
@@ -1393,6 +1473,14 @@ const STYLES = [
   { n: 'Aggressive', d: 'Trains Strength',          g: 'fist',   xp: ['strength'], acc: 1.00, str: 1.12 },
   { n: 'Defensive',  d: 'Trains Defence',           g: 'shield', xp: ['defence'], acc: 1.00, str: 1.00, def: 1.12 },
   { n: 'Controlled', d: 'Trains all three, slower', g: 'scim',   xp: ['attack', 'strength', 'defence'], acc: 1.03, str: 1.03 }
+];
+
+/* Ranged keeps its own three. All of them train Ranged; what differs is where
+   the surplus goes and how fast the string comes back. */
+const RSTYLES = [
+  { n: 'Accurate',  d: 'Trains Ranged',             g: 'arrow',  xp: ['ranged'], acc: 1.10, str: 1.00 },
+  { n: 'Rapid',     d: 'Trains Ranged, faster',     g: 'bow',    xp: ['ranged'], acc: 1.00, str: 1.00, spd: -1 },
+  { n: 'Longrange', d: 'Trains Ranged and Defence', g: 'shield', xp: ['ranged', 'defence'], acc: 1.00, str: 1.00, rng: 2, def: 1.10 }
 ];
 
 /* Runes and strike spells. Air is cheap and weak, fire is dear and mean. */
@@ -1623,6 +1711,17 @@ const GLYPH = {
     g.strokeStyle = d;
     for (let i = 0; i < 3; i++) { g.beginPath(); g.moveTo(11 + i * 5, 11); g.lineTo(11 + i * 5, 17); g.stroke(); }
     g.fillStyle = c; g.beginPath(); g.arc(7, 19, 4, 0, TAU); g.fill(); g.stroke();
+  },
+  bow(g, c, d) {
+    g.strokeStyle = d; g.lineWidth = 3;
+    g.beginPath(); g.arc(9, 16, 11, -1.05, 1.05); g.stroke();
+    g.strokeStyle = c; g.lineWidth = 2;
+    g.beginPath(); g.arc(9, 16, 11, -1.05, 1.05); g.stroke();
+    g.strokeStyle = '#efe4c4'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(14.6, 6.4); g.lineTo(14.6, 25.6); g.stroke();
+    g.strokeStyle = d; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(12, 16); g.lineTo(27, 16);
+    g.moveTo(27, 16); g.lineTo(23, 13); g.moveTo(27, 16); g.lineTo(23, 19); g.stroke();
   },
   arrow(g, c, d) {
     g.strokeStyle = '#6b4a26'; g.lineWidth = 2;
@@ -1989,6 +2088,37 @@ marker.renderOrder = 6; marker.visible = false; marker.frustumCulled = false;
 scene.add(marker);
 let markT = 0;
 
+/* A ring around whatever you just clicked, red for a fight and cyan otherwise.
+   It follows a target that walks away, because half of them do. */
+const RING_GEO = merge([bakeW(new THREE.RingGeometry(0.62, 0.92, 24).rotateX(-Math.PI / 2))]);
+const ring = new THREE.Mesh(RING_GEO, new THREE.MeshBasicMaterial({
+  vertexColors: true, color: 0x4ad8ff, transparent: true, depthTest: false }));
+ring.renderOrder = 6; ring.visible = false; ring.frustumCulled = false;
+scene.add(ring);
+let ringT = 0, ringObj = null, ringSize = 1;
+function flashTarget(o, hostile) {
+  ringObj = o;
+  ringSize = o.npc ? 0.7 + (o.t && o.t.sz || 1) * 0.9
+           : o.remote ? 1.0 : o.drop ? 0.55 : o.t === 0 ? 1.5 : 1.1;
+  ring.material.color.setHex(hostile ? 0xd83a2a : 0x4ad8ff);
+  ring.visible = true; ringT = 1.1;
+  ringFrame(0);                                  // place it now, not next frame
+}
+function ringFrame(dt) {
+  if (ringT <= 0) return;
+  ringT -= dt;
+  const o = ringObj;
+  // gone means gone: a dead monster or a player who left takes its ring with it
+  if (ringT <= 0 || !o || (o.npc && o.dead) || (o.remote && !remotes.has(o.pid))) {
+    ring.visible = false; ringObj = null; return;
+  }
+  const x = o.rx !== undefined ? o.rx : o.x, z = o.rz !== undefined ? o.rz : o.z;
+  ring.position.set(x, Math.max(groundY(x, z), 0) + 0.08, z);
+  ring.scale.setScalar(ringSize * (1 + Math.sin((1.1 - ringT) * 9) * 0.10));
+  ring.material.opacity = Math.min(1, ringT * 1.6);
+  ring.rotation.y += dt * 1.6;
+}
+
 /* A spell is a bolt that flies the gap and bursts where it lands. Six meshes
    is more than anyone can have in the air at 5 ticks a cast. */
 const spellFx = new THREE.Mesh(DROP_GEO, new THREE.MeshBasicMaterial({
@@ -2033,6 +2163,18 @@ function remoteBolt(R, sp, tx, tz) {
     sx: R.rx, sy, sz: R.rz, t: 0,
     dur: clamp(Math.hypot(tx - R.rx, tz - R.rz) / BOLT_SPEED, 0.10, 0.9) });
 }
+function shootArrow(from, o, dmg, tint) {
+  const m = boltMesh.find(x => !x.visible);
+  if (!m) return;
+  m.material.color.setHex(tint);
+  m.material.opacity = 1;
+  m.visible = true;
+  const sx = from.rx !== undefined ? from.rx : from.tx;
+  const sz = from.rz !== undefined ? from.rz : from.tz;
+  const sy = (from.ry !== undefined ? from.ry : 0) + 1.25;
+  bolts.push({ m, sp: { tint }, o, dmg, arw: 1, sx, sy, sz, t: 0,
+    dur: clamp(Math.hypot((o.rx ?? o.x) - sx, (o.rz ?? o.z) - sz) / (BOLT_SPEED * 1.5), 0.08, 0.7) });
+}
 function boltFrame(dt) {
   for (let i = bolts.length - 1; i >= 0; i--) {
     const b = bolts[i];
@@ -2045,11 +2187,18 @@ function boltFrame(dt) {
     b.m.position.set(b.sx + (tx - b.sx) * k,
                      b.sy + (ty - b.sy) * k + Math.sin(k * Math.PI) * 1.1,
                      b.sz + (tz - b.sz) * k);
-    b.m.rotation.y += dt * 13; b.m.rotation.x += dt * 9;
-    b.m.scale.setScalar(0.85 + Math.sin(k * Math.PI) * 0.45);
+    if (b.arw) {
+      // a shaft, not an orb: thin, and pointing where it is going
+      b.m.rotation.set(0, Math.atan2(tx - b.sx, tz - b.sz), 0);
+      b.m.scale.set(0.16, 0.16, 1.5);
+    } else {
+      b.m.rotation.y += dt * 13; b.m.rotation.x += dt * 9;
+      b.m.scale.setScalar(0.85 + Math.sin(k * Math.PI) * 0.45);
+    }
     if (k >= 1) {
       b.m.visible = false;
-      spellBurst(tx, ty, tz, b.sp.tint);
+      b.m.scale.setScalar(1);
+      if (!b.arw) spellBurst(tx, ty, tz, b.sp.tint);
       if (b.dmg !== null) {
         hitsplat(tx, o.ry + 1.5, tz, b.dmg);
         if (!o.dead) healthBar(o);
@@ -2234,7 +2383,7 @@ const NPC_TYPES = [
     build: () => humanoid({ w: 0.66, h: 1.55, body: [0.38, 0.42, 0.32], skin: [0.5, 0.56, 0.42], arm: [0.34, 0.38, 0.3] }) },
   { k: 'bandit', n: 'Bandit', lv: 14, hp: 20, atk: 9, str: 9, def: 8, spd: 5, sz: 0.9, band: 1,
     build: () => humanoid({ w: 0.7, h: 1.6, body: [0.28, 0.24, 0.22], skin: [0.78, 0.6, 0.45], belt: [0.5, 0.14, 0.14] }) },
-  { k: 'skeleton', n: 'Skeleton', lv: 15, hp: 24, atk: 10, str: 10, def: 9, spd: 5, sz: 0.9, band: 1,
+  { k: 'skeleton', n: 'Skeleton', lv: 15, at: 'mr', rng: 5, arrow: 0xd8cfae, hp: 24, atk: 10, str: 10, def: 9, spd: 5, sz: 0.9, band: 1,
     build: () => skeletonGeo({ w: 0.66, h: 1.6 }) },
   { k: 'ghost', n: 'Ghost', lv: 19, hp: 26, atk: 12, str: 11, def: 12, spd: 5, sz: 0.95, band: 1,
     build: () => ghostGeo({ w: 0.72, h: 1.7, body: [0.62, 0.68, 0.74], head: [0.76, 0.8, 0.84] }) },
@@ -2260,9 +2409,9 @@ const NPC_TYPES = [
     build: () => humanoid({ w: 2.0, h: 3.8, body: [0.55, 0.5, 0.3], skin: [0.66, 0.6, 0.36], belt: [0.3, 0.22, 0.14] }) },
   { k: 'icegiant', n: 'Ice giant', lv: 53, hp: 110, atk: 34, str: 38, def: 34, spd: 6, sz: 2.2, band: 4, big: 1,
     build: () => humanoid({ w: 2.2, h: 4.6, body: [0.62, 0.76, 0.86], skin: [0.72, 0.85, 0.92], belt: [0.4, 0.55, 0.68] }) },
-  { k: 'troll', n: 'Mountain troll', lv: 69, hp: 132, atk: 44, str: 50, def: 40, spd: 6, sz: 2.2, band: 4, big: 1,
+  { k: 'troll', n: 'Mountain troll', lv: 69, at: 'mr', rng: 6, arrow: 0x8a8479, hp: 132, atk: 44, str: 50, def: 40, spd: 6, sz: 2.2, band: 4, big: 1,
     build: () => humanoid({ w: 2.2, h: 4.2, body: [0.44, 0.42, 0.4], skin: [0.52, 0.5, 0.46], horns: 1, belt: [0.3, 0.28, 0.26] }) },
-  { k: 'greendragon', n: 'Green dragon', lv: 79, rng: 6, bolt: 0x6fd04a, hp: 150, atk: 52, str: 56, def: 48, spd: 5, sz: 2.6, band: 4, big: 1,
+  { k: 'greendragon', n: 'Green dragon', lv: 79, at: 'mg', rng: 6, bolt: 0x6fd04a, hp: 150, atk: 52, str: 56, def: 48, spd: 5, sz: 2.6, band: 4, big: 1,
     build: () => dragonGeo({ w: 1.6, h: 2.6, body: [0.22, 0.38, 0.2], head: [0.28, 0.45, 0.24], wing: [0.17, 0.3, 0.16] }) },
   { k: 'lesserdemon', n: 'Lesser demon', lv: 82, hp: 158, atk: 56, str: 58, def: 50, spd: 5, sz: 2.3, band: 5, big: 1,
     build: () => humanoid({ w: 2.0, h: 4.4, body: [0.55, 0.16, 0.12], skin: [0.66, 0.2, 0.14],
@@ -2272,7 +2421,7 @@ const NPC_TYPES = [
   { k: 'greaterdemon', n: 'Greater demon', lv: 92, hp: 190, atk: 66, str: 70, def: 60, spd: 5, sz: 2.6, band: 5, big: 1,
     build: () => humanoid({ w: 2.4, h: 5.2, body: [0.35, 0.1, 0.14], skin: [0.5, 0.14, 0.16],
       horns: 1, wings: 1, wing: [0.2, 0.06, 0.08], belt: [0.16, 0.05, 0.06] }) },
-  { k: 'blackdragon', n: 'Black dragon', lv: 227, rng: 7, bolt: 0xc04adc, hp: 240, atk: 90, str: 96, def: 88, spd: 5, sz: 3.0, band: 6, big: 1,
+  { k: 'blackdragon', n: 'Black dragon', lv: 227, at: 'mg', rng: 7, bolt: 0xc04adc, hp: 240, atk: 90, str: 96, def: 88, spd: 5, sz: 3.0, band: 6, big: 1,
     build: () => dragonGeo({ w: 2.0, h: 3.2, body: [0.13, 0.12, 0.15], head: [0.19, 0.18, 0.22], wing: [0.09, 0.08, 0.11] }) }
 ];
 NPC_TYPES.forEach((t, i) => { t.geo = t.build(); t.i = i; });
@@ -2518,9 +2667,9 @@ function emitCityTree(B, t) {
 }
 
 /* ---------------------- 13. LAYING OUT A TOWN ----------------------- */
-const SHOP_FOR_RANK = [['general'], ['general','weapon'], ['general','weapon','smith','magic'],
-                       ['general','weapon','armour','smith','magic'],
-                       ['general','weapon','armour','smith','magic','food']];
+const SHOP_FOR_RANK = [['general'], ['general','weapon'], ['general','weapon','smith','archery'],
+                       ['general','weapon','armour','smith','magic','archery'],
+                       ['general','weapon','armour','smith','magic','archery','food']];
 function layoutCity(v) {
   const R = v.r, D = R * 2 + 1;
   const G = new Uint8Array(D * D);
@@ -3382,7 +3531,8 @@ function pickObject(ray) {
    here and a full pack every ninety seconds is not a game loop. */
 const INV_N = 28;
 const inv = new Array(INV_N).fill(null);
-const EQ_SLOTS = ['head', 'body', 'legs', 'weapon', 'shield'];
+// ammo last, so an old five-entry save still lands in the right slots
+const EQ_SLOTS = ['head', 'body', 'legs', 'weapon', 'shield', 'ammo'];
 const eq = { head: null, body: null, legs: null, weapon: null, shield: null };
 const dirty = { inv: 1, eq: 1, sk: 1, orb: 1 };
 
@@ -3451,18 +3601,32 @@ function equip(slotIdx) {
   const it = ITEMS[s.id];
   if (!it.equip) { say("You can't wear that.", 'bad'); return; }
   if (!canEquip(it)) return;
+  if (it.slot === 'ammo') {
+    /* Ammo equips as a whole stack, so the quiver carries a count. The slot we
+       just emptied always has room for whatever came out of it. */
+    const oldId = eq.ammo, oldN = P.ammoN;
+    eq.ammo = it.id; P.ammoN = s.n;
+    inv[slotIdx] = oldId ? { id: oldId, n: oldN } : null;
+    dirty.inv = dirty.eq = 1;
+    dressAvatar(); drawStyles(); markDirty(1);
+    return;
+  }
   const old = eq[it.slot];
   inv[slotIdx] = old ? { id: old, n: 1 } : null;
   eq[it.slot] = it.id;
   dirty.inv = dirty.eq = 1;
-  dressAvatar();
+  dressAvatar(); drawStyles();
   markDirty(1);                                    // gear changes flush at once
 }
 function unequip(slot) {
   const id = eq[slot]; if (!id) return;
   if (!invFree()) { say('Your inventory is too full.', 'bad'); return; }
+  if (slot === 'ammo') {
+    eq.ammo = null; invAdd(id, P.ammoN); P.ammoN = 0;
+    dirty.inv = dirty.eq = 1; dressAvatar(); drawStyles(); markDirty(1); return;
+  }
   eq[slot] = null; invAdd(id, 1);
-  dirty.eq = 1; dressAvatar();
+  dirty.eq = 1; dressAvatar(); drawStyles();
   markDirty(1);
 }
 
@@ -3486,7 +3650,7 @@ const P = {
   path: [], task: null, actT: 0, acting: 0, actSpan: 2,
   walkPhase: 0, bobPhase: 0, swingPhase: 0,          // per-entity, so remotes don't share them
   run: 1, energy: 100, hp: 10, maxhp: 10,
-  style: 0, spell: null, prayers: 0, pray: 10, maxpray: 10,
+  style: 0, rstyle: 1, ammoN: 0, spell: null, prayers: 0, pray: 10, maxpray: 10,
   afloat: 0, moved: 0, dead: 0,
   home: { x: 0, z: 0 }
 };
@@ -3528,13 +3692,45 @@ function dressAvatar() {
   p.helm.visible = !!headIt; p.hair.visible = !headIt;
   if (headIt) p.helm.material.color.set(headIt.c);
   p.wep.visible = !!wepIt;
+  P.bow = !!(wepIt && wepIt.bow);
   if (wepIt) p.wep.material.color.set(wepIt.c);
   p.shl.visible = !!shlIt;
   if (shlIt) p.shl.material.color.set(shlIt.c);
   sendEquip();
 }
-const atkSpeed = () => eq.weapon ? ITEMS[eq.weapon].spd : 4;
+const atkSpeed = () => {
+  const w = eq.weapon ? ITEMS[eq.weapon] : null;
+  // rapid shaves a tick off the draw; longrange trades nothing for reach
+  return w && w.bow ? Math.max(2, w.spd + (RSTYLES[P.rstyle].spd || 0)) : w ? w.spd : 4;
+};
+/* A strung bow with arrows in the quiver shoots; anything else swings. A
+   readied spell still beats both, the way autocast always did. */
+function bowItem() {
+  const w = eq.weapon ? ITEMS[eq.weapon] : null;
+  return w && w.bow ? w : null;
+}
+function ammoTint() {
+  const a = eq.ammo && ITEMS[eq.ammo];
+  return a ? parseInt(a.c.slice(1), 16) : 0xc3c8d0;
+}
+function bowRange() {
+  const w = bowItem();
+  if (!w || P.spell !== null || !eq.ammo || P.ammoN <= 0) return 0;
+  return w.rng + (RSTYLES[P.rstyle].rng || 0);
+}
+function rangedMax() {
+  const s = lvl[SK.ranged] * RSTYLES[P.rstyle].str;
+  return Math.max(1, Math.floor(0.5 + (s + 8) * (bonus('rst') + 64) / 640));
+}
+/* Spend one arrow. Run out and the bow is a stick, so say so once. */
+function spendArrow() {
+  if (--P.ammoN > 0) return;
+  P.ammoN = 0; eq.ammo = null;
+  say('You have run out of ammunition!', 'bad');
+  dirty.eq = 1; dressAvatar(); markDirty(1);
+}
 function maxHit() {
+  if (bowRange()) return rangedMax();              // the stats panel asks this too
   const s = lvl[SK.strength] * STYLES[P.style].str * prayerMul('str');
   return Math.max(1, Math.floor(0.5 + (s + 8) * (bonus('str') + 64) / 640));
 }
@@ -3712,20 +3908,33 @@ function spawnNpc(t, x, z, key) {
   scene.add(mesh);
   npcs.push({
     npc: 1, t, key, name: t.n, tx: x, tz: z, px: x, pz: z, rx: x, rz: z, ry: walkY(x, z),
-    home: { x, z }, hp: t.hp, maxhp: t.hp, face: 0, faceT: 0, mesh, atkT: 0,
+    home: { x, z }, hp: t.hp, maxhp: t.hp, face: 0, faceT: 0, mesh, atkT: 0, atkStyle: 'm',
     cd: 2 + (hash2(x, z, S) & 3), target: null, wander: 0, dead: 0
   });
 }
 /* Dragonfire, borrowing the spell bolt: the projectile machinery does not
    care who threw it. */
-function npcBolt(n) {
+/* Which of its attacks a monster reaches for this tick. Out of melee range it
+   has to use something that flies, or it has no attack at all. */
+function npcStyle(n, near) {
+  const at = n.t.at || 'm';
+  const far = at.replace('m', '');
+  if (near > 1) return far ? far[(Math.random() * far.length) | 0] : 'm';
+  return at[(Math.random() * at.length) | 0];
+}
+function npcBolt(n, style) {
   const m = boltMesh.find(x => !x.visible);
   if (!m) return;
-  m.material.color.setHex(n.t.bolt || 0xd05a2a);
+  const tint = style === 'r' ? (n.t.arrow || 0x9a8a6a) : (n.t.bolt || 0xd05a2a);
+  if (style === 'r') {
+    shootArrow({ rx: n.rx, ry: n.ry + n.t.sz * 0.9, rz: n.rz }, { rx: P.rx, ry: P.ry, rz: P.rz, dead: 1 }, null, tint);
+    return;
+  }
+  m.material.color.setHex(tint);
   m.material.opacity = 1;
   m.visible = true;
   const sy = n.ry + 0.6 + n.t.sz * 1.1;
-  bolts.push({ m, sp: { tint: n.t.bolt || 0xd05a2a },
+  bolts.push({ m, sp: { tint },
     o: { rx: P.rx, ry: P.ry, rz: P.rz, dead: 1 }, dmg: null,
     sx: n.rx, sy, sz: n.rz, t: 0,
     dur: clamp(Math.hypot(P.rx - n.rx, P.rz - n.rz) / BOLT_SPEED, 0.10, 0.9) });
@@ -3746,8 +3955,9 @@ function npcTick(n) {
       const c = hitChance(n.t.atk, 8, defLevel(), bonus('def'));
       // the same max-hit curve the player uses: a rat maxes 1, a guard 3
       const mx = Math.max(1, Math.round(1 + n.t.str * 0.16));
-      n.atkT = 1;                                // drives the lunge or the breath
-      if (n.t.rng > 1) npcBolt(n);
+      const st = npcStyle(n, near);
+      n.atkT = 1; n.atkStyle = st;               // drives the lunge or the throw
+      if (st !== 'm') npcBolt(n, st);
       hurtPlayer(Math.random() < c ? Math.floor(Math.random() * (mx + 1)) : 0);
       retaliate(n);
     }
@@ -3808,7 +4018,10 @@ function die(byPlayer) {
   let spill = null;
   if (byPlayer) {
     spill = [];
-    for (const sl of EQ_SLOTS) if (eq[sl]) { spill.push([eq[sl], 1]); eq[sl] = null; }
+    for (const sl of EQ_SLOTS) if (eq[sl]) {
+      spill.push([eq[sl], sl === 'ammo' ? P.ammoN : 1]); eq[sl] = null;
+    }
+    P.ammoN = 0;
     for (let i = 0; i < INV_N; i++) if (inv[i]) { spill.push([inv[i].id, inv[i].n]); inv[i] = null; }
     const dx = P.tx, dz = P.tz;
     for (const it of spill) dropItem(it[0], it[1], dx, dz);
@@ -3888,6 +4101,7 @@ function taskTick() {
 /* Reach scales with bulk: standing beside a hill giant means standing beside
    its shin, and demanding an adjacent tile made the big ones unfightable. */
   const reach = (t.k === 'attack' && P.spell !== null) ? MAGIC_RANGE
+              : (t.k === 'attack' && bowRange()) ? bowRange()
               : (t.k === 'attack' && o.npc && o.t.big) ? Math.max(1, Math.round(o.t.sz)) : 1;
   if (Math.max(Math.abs(P.tx - ox), Math.abs(P.tz - oz)) > reach) {
     if (!P.path.length) {                            // chase, or give up if it walked off a cliff
@@ -3917,10 +4131,23 @@ function taskTick() {
        in every way, and without a server-side simulation this is the closest
        honest arrangement. */
     const sp = P.spell !== null ? SPELLS[P.spell] : null;
+    const bw = sp ? null : bowItem();
     P.acting = 1; P.actSpan = sp ? 5 : atkSpeed();
     if (--P.actT > 0) return;
     P.actT = sp ? 5 : atkSpeed();
     let dmg;
+    if (bw && bowRange()) {
+      const st = RSTYLES[P.rstyle];
+      const c = hitChance(lvl[SK.ranged] * st.acc, bonus('rat'), 20, 30);
+      dmg = Math.random() < c ? Math.floor(Math.random() * (rangedMax() + 1)) : 0;
+      shootArrow(P, o, dmg, ITEMS[eq.ammo].c ? parseInt(ITEMS[eq.ammo].c.slice(1), 16) : 0xc3c8d0);
+      for (const k of st.xp) gainXp(k, Math.max(1, dmg * 4 / st.xp.length));
+      if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify([19, o.tx, o.tz, ammoTint()])); } catch {} }
+      spendArrow();
+      if (dmg > 0) gainXp('hitpoints', dmg * 1.33);
+      if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify([11, o.pid, dmg])); } catch {} }
+      return;
+    }
     if (sp) {
       if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return; }
       spendRunes(sp);
@@ -3949,10 +4176,24 @@ function taskTick() {
   if (t.k === 'attack') {
     // A readied spell replaces the swing entirely, the way autocast did.
     const sp = P.spell !== null ? SPELLS[P.spell] : null;
+    const bw = sp ? null : bowItem();
     P.acting = 1; P.actSpan = sp ? 5 : atkSpeed();
     if (--P.actT > 0) return;
     P.actT = sp ? 5 : atkSpeed();
     let dmg, c;
+    if (bw && bowRange()) {
+      const st = RSTYLES[P.rstyle];
+      c = hitChance(lvl[SK.ranged] * st.acc, bonus('rat'), o.t.def, o.t.db === undefined ? 8 : o.t.db);
+      dmg = Math.random() < c ? Math.floor(Math.random() * (rangedMax() + 1)) : 0;
+      o.hp -= dmg;
+      shootArrow(P, o, dmg, ammoTint());        // splat lands when the shaft does
+      if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify([19, o.tx, o.tz, ammoTint()])); } catch {} }
+      spendArrow();
+      for (const k of st.xp) if (dmg > 0) gainXp(k, dmg * 4 / st.xp.length);
+      if (dmg > 0) gainXp('hitpoints', dmg * 1.33);
+      if (o.hp <= 0) killNpc(o); else o.target = P;
+      return;
+    }
     if (sp) {
       if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return; }
       spendRunes(sp);
@@ -4173,7 +4414,7 @@ function drawInv() {
   }
   if (openShop) drawShop();
 }
-const EQ_LAY = [null, 'head', null, 'weapon', 'body', 'shield', null, 'legs', null];
+const EQ_LAY = [null, 'head', 'ammo', 'weapon', 'body', 'shield', null, 'legs', null];
 const eqWrap = el('eqWrap');
 EQ_LAY.forEach(s => {
   const d = document.createElement('div');
@@ -4188,12 +4429,14 @@ function drawEq() {
     const s = d.dataset.s; if (!s) continue;
     const id = eq[s];
     d.className = 'eqslot' + (id ? ' f' : '');
-    d.innerHTML = (id ? '<img src="' + icon(id) + '" alt="">' : '') + '<span>' + s.slice(0, 4) + '</span>';
+    d.innerHTML = (id ? '<img src="' + icon(id) + '" alt="">' : '') + '<span>' + s.slice(0, 4) + '</span>' +
+      (s === 'ammo' && id ? '<em>' + P.ammoN + '</em>' : '');
   }
   el('bAtk').textContent = '+' + bonus('atk');
   el('bStr').textContent = '+' + bonus('str');
   el('bDef').textContent = '+' + bonus('def');
   el('bMag').textContent = '+' + bonus('mag');
+  el('bRng').textContent = '+' + bonus('rat');
   el('bCmb').textContent = combatLevel();
 }
 const skGrid = el('skGrid'), skEls = [];
@@ -4306,8 +4549,10 @@ for (const t of document.querySelectorAll('.tab')) t.onclick = () => showTab(t.d
 /* --- combat options: which ledger the swing credits --- */
 const styleList = el('styleList');
 function drawStyles() {
-  styleList.innerHTML = STYLES.map((s, i) =>
-    '<div class="sty' + (P.style === i ? ' on' : '') + '" data-s="' + i + '">' +
+  // a bow has no swing to choose, so the tab offers the draw instead
+  const list = bowItem() ? RSTYLES : STYLES, cur = bowItem() ? P.rstyle : P.style;
+  styleList.innerHTML = list.map((s, i) =>
+    '<div class="sty' + (cur === i ? ' on' : '') + '" data-s="' + i + '">' +
     '<img src="' + drawIcon(s.g, '#c9a24a', '#efe4c4') + '" alt=""><span>' + s.n + '<u>' + s.d + '</u></span></div>').join('');
   el('cbWep').textContent = eq.weapon ? ITEMS[eq.weapon].name : 'Unarmed';
   el('cbSpd').textContent = atkSpeed() + ' ticks';
@@ -4316,8 +4561,9 @@ function drawStyles() {
 }
 styleList.addEventListener('click', e => {
   const d = e.target.closest('[data-s]'); if (!d) return;
-  P.style = +d.dataset.s;
-  say('Combat style: ' + STYLES[P.style].n + '. ' + STYLES[P.style].d + '.');
+  const i = +d.dataset.s;
+  if (bowItem()) { P.rstyle = i; say('Ranged style: ' + RSTYLES[i].n + '. ' + RSTYLES[i].d + '.'); }
+  else { P.style = i; say('Combat style: ' + STYLES[i].n + '. ' + STYLES[i].d + '.'); }
   drawStyles();
 });
 
@@ -4645,9 +4891,9 @@ function optionsFor(o) {
     /* Left-clicking a player should never start a fight by accident, so the
        first option is the harmless one and attacking lives one menu down. */
     opts.push({ t: 'Trade with', o: o.name, f: () => tradeRequest(o) });
-    opts.push({ t: 'Attack', o: o.name, f: () => { showMark(o.tx, o.tz, 1); startTask(o, 'attack'); } });
+    opts.push({ t: 'Attack', o: o.name, f: () => { flashTarget(o, 1); startTask(o, 'attack'); } });
   }
-  else if (o.npc)  opts.push({ t: 'Attack', o: o.name + ' <span class="lvl">(level ' + o.t.lv + ')</span>', f: () => { showMark(o.tx, o.tz, 1); startTask(o, 'attack'); } });
+  else if (o.npc)  opts.push({ t: 'Attack', o: o.name + ' <span class="lvl">(level ' + o.t.lv + ')</span>', f: () => { flashTarget(o, 1); startTask(o, 'attack'); } });
   else if (o.drop) {
     /* A death spills a whole inventory onto one tile. Offering them one at a
        time, nearest first, makes recovering your own gear a guessing game. */
@@ -4655,18 +4901,18 @@ function optionsFor(o) {
     heap.sort((a, b) => (a === o ? -1 : b === o ? 1 : 0));
     for (const d of heap.slice(0, 10))
       opts.push({ t: 'Take', o: (d.n > 1 ? d.n + ' x ' : '') + d.name, cls: 'itm',
-                  f: () => { showMark(d.x, d.z); P.task = { k: 'take', o: d }; } });
+                  f: () => { flashTarget(d, 0); P.task = { k: 'take', o: d }; } });
     if (heap.length > 1)
       opts.push({ t: 'Take all', o: heap.length + ' items', cls: 'itm',
-                  f: () => { showMark(o.x, o.z); P.task = { k: 'take', o, all: 1 }; } });
+                  f: () => { flashTarget(o, 0); P.task = { k: 'take', o, all: 1 }; } });
   }
-  else if (o.fire) opts.push({ t: 'Cook at', o: 'Fire', f: () => { showMark(o.x, o.z); startTask(o, 'cook'); } });
-  else if (o.t === 0) opts.push({ t: 'Chop down', o: o.n, f: () => { showMark(o.x, o.z); startTask(o, 'chop'); } });
-  else if (o.t === 1) opts.push({ t: 'Mine', o: o.n, f: () => { showMark(o.x, o.z); startTask(o, 'mine'); } });
-  else if (o.t === 2) opts.push({ t: o.k ? 'Harpoon' : 'Net', o: 'Fishing spot', f: () => { showMark(o.x, o.z); startTask(o, 'fish'); } });
-  else if (o.t === 3) opts.push({ t: 'Smelt at', o: 'Furnace', f: () => { showMark(o.x, o.z); P.task = { k: 'ui', o, fn: openSmelt }; } });
-  else if (o.t === 4) opts.push({ t: 'Smith at', o: 'Anvil', f: () => { showMark(o.x, o.z); P.task = { k: 'ui', o, fn: openSmith }; } });
-  else if (o.t === 5) opts.push({ t: 'Trade with', o: o.n, f: () => { showMark(o.x, o.z); P.task = { k: 'ui', o, fn: startShop }; } });
+  else if (o.fire) opts.push({ t: 'Cook at', o: 'Fire', f: () => { flashTarget(o, 0); startTask(o, 'cook'); } });
+  else if (o.t === 0) opts.push({ t: 'Chop down', o: o.n, f: () => { flashTarget(o, 0); startTask(o, 'chop'); } });
+  else if (o.t === 1) opts.push({ t: 'Mine', o: o.n, f: () => { flashTarget(o, 0); startTask(o, 'mine'); } });
+  else if (o.t === 2) opts.push({ t: o.k ? 'Harpoon' : 'Net', o: 'Fishing spot', f: () => { flashTarget(o, 0); startTask(o, 'fish'); } });
+  else if (o.t === 3) opts.push({ t: 'Smelt at', o: 'Furnace', f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openSmelt }; } });
+  else if (o.t === 4) opts.push({ t: 'Smith at', o: 'Anvil', f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openSmith }; } });
+  else if (o.t === 5) opts.push({ t: 'Trade with', o: o.n, f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: startShop }; } });
   if (o.t !== undefined && o.t <= 2 && depleted.has(o.key)) return [];
   return opts;
 }
@@ -5109,17 +5355,31 @@ function animate(E, parts, dt) {
       E.swingPhase += dt * 1000 / (E.actSpan * TICK);
       if (E.swingPhase >= 1) E.swingPhase -= 1;
       const ph = E.swingPhase;
+      if (E.bow) {
+        /* A bow is drawn, not swung: the front arm holds steady on the target
+           the whole time and only the string hand travels, snapping home in
+           the last fifth of the cycle. */
+        const dr = ph < 0.8 ? smoothstep(0, 1, ph / 0.8) : 1 - (ph - 0.8) / 0.2;
+        p.armL.rotation.x = -1.48;
+        p.armR.rotation.x = -1.48 + dr * 0.30;
+        p.armL.rotation.z = 0.10;
+        p.armR.rotation.z = -0.10 - dr * 0.55;
+        p.torso.rotation.y = -0.40;
+        p.torso.rotation.x = 0;
+      } else {
       const sw = ph < 0.6 ? smoothstep(0, 1, ph / 0.6) : 1 - smoothstep(0, 1, (ph - 0.6) / 0.4);
       p.armR.rotation.x = 0.25 - 2.6 * sw;
       p.armL.rotation.x = 0.15 - 0.9 * sw;
       p.torso.rotation.y = sw * 0.3;
       p.torso.rotation.x = sw * -0.12;
+      p.armL.rotation.z = 0.06; p.armR.rotation.z = -0.06;
+      }
     } else {
       E.swingPhase = 0;
       p.armR.rotation.x = -s * 0.85; p.armL.rotation.x = s * 0.85;
       p.torso.rotation.y = 0; p.torso.rotation.x = 0;
     }
-    p.armL.rotation.z = 0.06; p.armR.rotation.z = -0.06;
+    if (!(E.acting && !moving)) { p.armL.rotation.z = 0.06; p.armR.rotation.z = -0.06; }
     if (rig) rig.position.y = moving ? Math.abs(Math.sin(E.walkPhase)) * 0.045 : 0;
   }
 }
@@ -5235,7 +5495,7 @@ function frame(now) {
     if (n.atkT > 0) {
       n.atkT = Math.max(0, n.atkT - dt * 3.2);
       const k = Math.sin((1 - n.atkT) * Math.PI);
-      if (n.t.rng > 1) {                         // breathing: rear up, do not charge
+      if (n.atkStyle && n.atkStyle !== 'm') {    // throwing: rear up, do not charge
         n.mesh.position.set(n.rx, n.ry + k * 0.35, n.rz);
         n.mesh.rotation.x = -k * 0.22;
       } else {
@@ -5270,6 +5530,7 @@ function frame(now) {
 
   water.position.set(P.rx, 0, P.rz);
   if (markT > 0) { markT -= dt; marker.rotation.y += dt * 2.4; if (markT <= 0) marker.visible = false; }
+  ringFrame(dt);
 
   // indoors, pull the camera in and look down so walls stop clipping the view
   const want = indoors ? Math.min(dist, 14) : dist;
@@ -5380,7 +5641,8 @@ function packSave() {
     tx: P.tx, tz: P.tz,
     hp: P.hp, maxhp: P.maxhp, pray: Math.round(P.pray), maxpray: P.maxpray,
     energy: Math.round(P.energy), run: P.run, style: P.style, prayers: P.prayers,
-    eq: [eq.head, eq.body, eq.legs, eq.weapon, eq.shield],
+    rstyle: P.rstyle, ammoN: P.ammoN,
+    eq: [eq.head, eq.body, eq.legs, eq.weapon, eq.shield, eq.ammo],
     inv: invp,
     xp: xps,
     home: [P.home.x, P.home.z]
@@ -5407,6 +5669,9 @@ function applySave(b) {
   P.maxhp = b.maxhp || lvl[SK.hitpoints]; P.hp = Math.min(P.maxhp, b.hp || P.maxhp);
   P.maxpray = b.maxpray || lvl[SK.prayer]; P.pray = Math.min(P.maxpray, b.pray ?? P.maxpray);
   P.energy = b.energy ?? 100; P.run = b.run ?? 1; P.style = b.style | 0; P.prayers = b.prayers | 0;
+  P.rstyle = Math.min(2, Math.max(0, b.rstyle | 0));
+  // an empty quiver with arrows still in the slot would fire forever
+  P.ammoN = eq.ammo ? Math.max(1, b.ammoN | 0) : 0;
   if (b.home) { P.home.x = b.home[0] | 0; P.home.z = b.home[1] | 0; }
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
   return b;
@@ -5609,6 +5874,12 @@ function onNet(m) {
       }
       break;
     }
+    case 19: {                                 // someone else loosed an arrow
+      const R = ensureRemote(m[1]);
+      if (R) shootArrow(R, { rx: m[2] | 0, ry: groundY(m[2] | 0, m[3] | 0), rz: m[3] | 0, dead: 1 },
+                        null, (m[4] | 0) || 0xc3c8d0);
+      break;
+    }
     case 18: {                                 // someone else cast a spell
       const R = ensureRemote(m[1]);
       const sp = SPELLS[m[2] | 0];
@@ -5643,7 +5914,8 @@ function onNet(m) {
       const R = ensureRemote(m[1]); if (!R) break;
       R.act = m[2] | 0;
       R.acting = R.act ? 1 : 0;
-      R.actSpan = R.act === 5 ? 4 : 2;
+      R.bow = R.act === 7;                     // 7 is a draw, and it reads as one
+      R.actSpan = R.act === 5 || R.act === 7 ? 4 : 2;
       break;
     }
     case 3: {                                  // equipment
@@ -5704,7 +5976,7 @@ const ACT_CODE = { chop: 1, mine: 2, fish: 3, cook: 4, smelt: 4, smith: 4, attac
 // 0 idle, 1 chop, 2 mine, 3 fish, 4 smith/cook, 5 attack, 6 cast
 function actCode() {
   if (!P.acting || !P.task) return 0;
-  if (P.task.k === 'attack') return P.spell !== null ? 6 : 5;
+  if (P.task.k === 'attack') return P.spell !== null ? 6 : bowRange() ? 7 : 5;
   return ACT_CODE[P.task.k] || 0;
 }
 function netSend() {
@@ -5829,9 +6101,9 @@ function labelAt(owner, key, x, y, z, text, cls) {
   if (q.cls !== cls) { q.cls = cls; q.el.className = cls; }
   // a bubble is as wide as its text, so it centres on itself rather than on a
   // fixed negative margin that only ever suited one length
-  const mid = cls.indexOf('say') >= 0 ? ' translate(-50%,0)' : '';
   q.el.style.transform = 'translate(' +
-    ((_pv.x * 0.5 + 0.5) * innerWidth) + 'px,' + ((-_pv.y * 0.5 + 0.5) * innerHeight) + 'px)' + mid;
+    ((_pv.x * 0.5 + 0.5) * innerWidth) + 'px,' +
+    ((-_pv.y * 0.5 + 0.5) * innerHeight) + 'px) translate(-50%,0)';
   return true;
 }
 /* 2007 coloured a monster's level by how far above yours it was: green means
