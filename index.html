@@ -260,8 +260,15 @@
     color:var(--dim);background:linear-gradient(180deg,#4b4133,#332b20);
     border:1px solid #171209;border-radius:2px;cursor:pointer;text-shadow:1px 1px 0 #000}
   #chatmin:hover{color:var(--amber)}
-  body.chatmin #chat{height:0;padding-top:0;padding-bottom:0;border-width:0;overflow:hidden}
-  body.chatmin #chatbar{bottom:26px}
+  /* Minimised means gone: log, input and frame. All that stays is the handle,
+     tucked into the corner rather than floating where the panel used to end. */
+  body.chatmin #chat{display:none}
+  body.chatmin #chatbar{display:none}
+  body.chatmin #chatwrap{width:auto}
+  body.chatmin #chatmin{position:fixed;left:12px;bottom:12px;top:auto;right:auto;
+    width:26px;height:22px;font-size:15px;
+    background:linear-gradient(180deg,#5d5140,#3a3024);color:var(--amber);
+    box-shadow:inset 0 0 0 1px var(--bevel),0 3px 10px rgba(0,0,0,.5)}
   #chat div{font-size:11px;line-height:1.42;text-shadow:1px 1px 0 #000;white-space:pre-wrap}
   #chat .g{color:#e9dcbe}
   #chat .lv{color:#0ff}
@@ -348,8 +355,13 @@
   .plate{position:absolute;margin:-10px 0 0 -60px;width:120px;text-align:center;
     font-size:10px;font-weight:700;color:#ffe9b8;text-shadow:1px 1px 0 #000;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis}
-  .plate.say{color:#fff;background:rgba(18,14,9,.78);border:1px solid var(--bevel);
-    border-radius:3px;padding:1px 3px;margin-top:-22px}
+  .plate i{font-style:normal}
+  /* Speech is its own element a world-unit higher up, because swapping the
+     name out for the line hid whose line it was. */
+  .plate.say{color:#fff;background:rgba(18,14,9,.82);border:1px solid var(--bevel);
+    border-radius:3px;padding:1px 4px;width:auto;max-width:190px;
+    margin-left:-95px;margin-top:-30px;
+    overflow:hidden;text-overflow:ellipsis}
   #welcome{position:fixed;inset:0;z-index:60;display:grid;place-items:center;
     background:radial-gradient(circle at 50% 40%,#1d2430,#0b0e14 70%);
     transition:opacity .4s}
@@ -538,10 +550,17 @@
           <select id="devSkill"></select>
           <input id="devLvl" type="number" min="1" max="99" value="99">
           <button id="devSet">Set</button>
-          <button id="devAll">Max all</button>
+          <button id="devAll">Set all</button>
           <button id="devReset">Reset</button>
         </div>
       </div>
+      <div class="dsec">
+        <h4>World</h4>
+        <div class="drow">
+          <button data-d="heal">Heal</button><button data-d="coins">+10k gp</button>
+          <button data-d="runes">Runes</button><button data-d="kit">Rune kit</button>
+          <button data-d="city">Nearest city</button><button data-d="clear">Empty pack</button>
+        </div>
       <div class="dsec">
         <h4>Items</h4>
         <div class="drow">
@@ -558,13 +577,6 @@
         </div>
         <div id="devMons"></div>
       </div>
-      <div class="dsec">
-        <h4>World</h4>
-        <div class="drow">
-          <button data-d="heal">Heal</button><button data-d="coins">+10k gp</button>
-          <button data-d="runes">Runes</button><button data-d="kit">Rune kit</button>
-          <button data-d="city">Nearest city</button><button data-d="clear">Empty pack</button>
-        </div>
         <div class="drow">
           <span class="dlab">Teleport</span>
           <input id="devTx" type="number" placeholder="x" value="0">
@@ -2009,6 +2021,18 @@ function castFx(o, sp, dmg) {
   m.visible = true;
   bolts.push({ m, sp, o, dmg, sx, sy, sz, t: 0, dur: clamp(d / BOLT_SPEED, 0.10, 0.9) });
 }
+/* Same flight as our own, but from their hands to wherever they aimed. */
+function remoteBolt(R, sp, tx, tz) {
+  const m = boltMesh.find(x => !x.visible);
+  if (!m) return;
+  const sy = R.ry + 1.3, ty = groundY(tx, tz) + 1.1;
+  m.material.color.setHex(sp.tint);
+  m.material.opacity = 1;
+  m.visible = true;
+  bolts.push({ m, sp, o: { rx: tx, ry: ty - 1.1, rz: tz, dead: 1 }, dmg: null,
+    sx: R.rx, sy, sz: R.rz, t: 0,
+    dur: clamp(Math.hypot(tx - R.rx, tz - R.rz) / BOLT_SPEED, 0.10, 0.9) });
+}
 function boltFrame(dt) {
   for (let i = bolts.length - 1; i >= 0; i--) {
     const b = bolts[i];
@@ -2026,8 +2050,10 @@ function boltFrame(dt) {
     if (k >= 1) {
       b.m.visible = false;
       spellBurst(tx, ty, tz, b.sp.tint);
-      hitsplat(tx, o.ry + 1.5, tz, b.dmg);
-      if (!o.dead) healthBar(o);
+      if (b.dmg !== null) {
+        hitsplat(tx, o.ry + 1.5, tz, b.dmg);
+        if (!o.dead) healthBar(o);
+      }
       bolts.splice(i, 1);
     }
   }
@@ -3719,6 +3745,7 @@ function npcTick(n) {
 }
 function killNpc(n) {
   n.dead = 1;
+  if (n.plate) { freePlate(n.plate); n.plate = null; }
   scene.remove(n.mesh);
   npcDead.set(n.key, tickN + 60);
   const i = npcs.indexOf(n); if (i >= 0) npcs.splice(i, 1);
@@ -3745,6 +3772,7 @@ function hurtPlayer(dmg, byPlayer) {
     try { ws.send(JSON.stringify([13, P.hp, P.maxhp])); } catch {}
   }
   if (P.hp <= 0) die(byPlayer);
+  healthBar(P);                                  // your own bar, over your head
 }
 /* 2007 hit back on its own unless you told it not to, and standing still while
    something chews on you is not a decision anyone makes on purpose. */
@@ -3865,6 +3893,7 @@ function taskTick() {
   }
   if (t.k === 'ui')   { P.task = null; t.fn(o); return; }
 
+  if (t.k === 'attack') healthBar(P);            // fighting shows your own health too
   if (t.k === 'attack' && o.remote) {
     /* Player versus player. Each client owns its own hitpoints: we roll the
        damage with our stats and send it, and the victim applies it to itself.
@@ -3882,6 +3911,11 @@ function taskTick() {
       const c = hitChance(lvl[SK.magic], bonus('mag'), lvl[SK.defence], 0);
       dmg = Math.random() < c ? Math.floor(Math.random() * (sp.max + Math.floor(bonus('mag') / 8) + 1)) : 0;
       castFx(o, sp, dmg);
+      // The victim draws the bolt from this, and without it a spell duel looks
+      // one-sided: you watch your own magic fly and theirs never leaves.
+      if (ws && ws.readyState === 1) {
+        try { ws.send(JSON.stringify([18, sp.i, o.tx, o.tz])); } catch {}
+      }
       gainXp('magic', sp.xp + dmg * 2);
       drawSpells();
     } else {
@@ -3911,6 +3945,11 @@ function taskTick() {
       dmg = Math.random() < c ? Math.floor(Math.random() * (mx + 1)) : 0;
       o.hp -= dmg;
       castFx(o, sp, dmg);                            // splat lands with the bolt
+      // observers cannot see a bolt they were never told about
+      if (ws && ws.readyState === 1) {
+        const ax = o.npc || o.remote ? o.tx : o.x, az = o.npc || o.remote ? o.tz : o.z;
+        try { ws.send(JSON.stringify([18, sp.i, ax, az])); } catch {}
+      }
       gainXp('magic', sp.xp + dmg * 2);
       if (dmg > 0) gainXp('hitpoints', dmg * 1.33);
       if (o.hp <= 0) killNpc(o); else o.target = P;
@@ -5165,6 +5204,8 @@ function frame(now) {
     el('inside').className = indoors ? 'in' : '';
   }
 
+  const myCombat = combatLevel();
+  let npcPlates = 0;
   for (const n of npcs) {
     n.rx = n.px + (n.tx - n.px) * alpha;
     n.rz = n.pz + (n.tz - n.pz) * alpha;
@@ -5175,6 +5216,11 @@ function frame(now) {
     n.mesh.position.set(n.rx, n.ry, n.rz);
     n.mesh.rotation.y = n.face;
     if (n.hp < n.maxhp) healthBar(n);
+    // name and level over every monster in view, coloured by the gap to yours
+    if (npcPlates < 14 && Math.abs(n.rx - P.rx) < 40 && Math.abs(n.rz - P.rz) < 40) {
+      const lbl = n.t.n + ' <i style="color:' + lvlColour(n.t.lv, myCombat) + '">level ' + n.t.lv + '</i>';
+      if (labelAt(n, 'plate', n.rx, n.ry + 1.5 + n.t.sz * 1.5, n.rz, lbl, 'plate')) npcPlates++;
+    } else if (n.plate) { freePlate(n.plate); n.plate = null; }
   }
 
   animate(P, avatar.parts, dt);
@@ -5528,6 +5574,12 @@ function onNet(m) {
       }
       break;
     }
+    case 18: {                                 // someone else cast a spell
+      const R = ensureRemote(m[1]);
+      const sp = SPELLS[m[2] | 0];
+      if (R && sp) remoteBolt(R, sp, m[3] | 0, m[4] | 0);
+      break;
+    }
     case 13: {                                 // a remote's hitpoints
       const R = ensureRemote(m[1]);
       R.hp = m[2] | 0; R.maxhp = Math.max(1, m[3] | 0); R.hurt = tickN;
@@ -5688,6 +5740,7 @@ function dropRemote(pid) {
   const R = remotes.get(pid); if (!R) return;
   if (R.g) { giveRig(R.g); R.g = null; R.parts = null; }
   if (R.plate) { freePlate(R.plate); R.plate = null; }
+  if (R.bub) { freePlate(R.bub); R.bub = null; }
   R.lod = -1;
   remotes.delete(pid);
 }
@@ -5729,6 +5782,27 @@ function takePlate() {
 function freePlate(p) { p.live = 0; p.el.style.display = 'none'; }
 
 const _pv = new THREE.Vector3();
+/* One projected label, pooled. Returns false when the point is behind the
+   camera so the caller can release it. */
+function labelAt(owner, key, x, y, z, text, cls) {
+  _pv.set(x, y, z).project(camera);
+  if (_pv.z > 1) { if (owner[key]) { freePlate(owner[key]); owner[key] = null; } return false; }
+  let q = owner[key];
+  if (!q) q = owner[key] = takePlate();
+  q.claim = 1;
+  if (q.txt !== text) { q.txt = text; q.el.innerHTML = text; }
+  if (q.cls !== cls) { q.cls = cls; q.el.className = cls; }
+  q.el.style.transform = 'translate(' +
+    ((_pv.x * 0.5 + 0.5) * innerWidth) + 'px,' + ((-_pv.y * 0.5 + 0.5) * innerHeight) + 'px)';
+  return true;
+}
+/* 2007 coloured a monster's level by how far above yours it was: green means
+   free experience, red means think again. */
+function lvlColour(theirs, mine) {
+  const d = theirs - mine;
+  return d <= -10 ? '#00ff00' : d <= -3 ? '#7fff2f' : d <= 2 ? '#ffff00'
+       : d <= 9 ? '#ff9040' : '#ff3030';
+}
 function updateRemotes(dt, alpha) {
   if (!remotes.size) {
     if (POOL_FAR.used) { poolReset(POOL_FAR); poolFlush(POOL_FAR); }
@@ -5808,18 +5882,15 @@ function updateRemotes(dt, alpha) {
     // nameplate, capped so a crowd cannot flood the DOM
     if (R.bubbleT > 0) R.bubbleT -= dt;
     if (wantLod !== 2 && plates < 20) {
-      _pv.set(R.rx, R.ry + 2.5, R.rz).project(camera);
-      if (_pv.z < 1) {
-        if (!R.plate) R.plate = takePlate();
-        R.plate.claim = 1;
-        const txt = R.bubbleT > 0 ? R.bubble : R.name;
-        if (txt !== R.plate.txt) { R.plate.txt = txt; R.plate.el.textContent = txt; }
-        R.plate.el.className = 'plate' + (R.bubbleT > 0 ? ' say' : '');
-        R.plate.el.style.transform = 'translate(' +
-          ((_pv.x * 0.5 + 0.5) * innerWidth) + 'px,' + ((-_pv.y * 0.5 + 0.5) * innerHeight) + 'px)';
-        plates++;
-      } else if (R.plate) { freePlate(R.plate); R.plate = null; }
-    } else if (R.plate) { freePlate(R.plate); R.plate = null; }
+      const on = labelAt(R, 'plate', R.rx, R.ry + 2.5, R.rz, R.name, 'plate');
+      if (on) plates++;
+      if (R.bubbleT > 0) labelAt(R, 'bub', R.rx, R.ry + 4.2, R.rz, R.bubble, 'plate say');
+      else if (R.bub) { freePlate(R.bub); R.bub = null; }
+      if (!on && R.plate) { freePlate(R.plate); R.plate = null; }
+    } else {
+      if (R.plate) { freePlate(R.plate); R.plate = null; }
+      if (R.bub) { freePlate(R.bub); R.bub = null; }
+    }
   }
   poolFlush(POOL_FAR);
   // sweep: anything nobody claimed this frame is a leftover, so put it away
