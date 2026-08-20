@@ -354,8 +354,9 @@
     overflow:hidden;text-overflow:ellipsis}
   .plate i{font-style:normal}
   /* Speech is its own element a world-unit higher up, because swapping the
-     name out for the line hid whose line it was. */
-  .plate.say{color:#fff;background:rgba(18,14,9,.82);border:1px solid var(--bevel);
+     name out for the line hid whose line it was. Above every nameplate, so a
+     crowd's names never print over someone's words. */
+  .plate.say{z-index:1;color:#fff;background:rgba(18,14,9,.82);border:1px solid var(--bevel);
     border-radius:3px;padding:1px 5px;width:max-content;max-width:240px;
     margin-left:0;margin-top:-27px;
     overflow:hidden;text-overflow:ellipsis}
@@ -770,12 +771,14 @@ function microRelief(x, z) {
    plan, which reads both; then the roads between towns, which read the sites.
    Nothing later feeds back into anything earlier, so the whole world stays a
    pure function of the seed and no stage can collide with another. */
+/* wall: 2 = stone circuit, 1 = wood palisade possible (hash decides), 0 = open.
+   lm marks ranks grand enough to earn a landmark — church, mill or tower. */
 const RANKS = [
-  { n: 'hamlet',     R: 22,  land: 0.50, houses: 7,  wall: 0, keep: 0, shops: 1, grids: 0, ring: 0 },
-  { n: 'village',    R: 32,  land: 0.56, houses: 15, wall: 0, keep: 0, shops: 2, grids: 0, ring: 0 },
-  { n: 'town',       R: 48,  land: 0.64, houses: 30, wall: 0, keep: 0, shops: 3, grids: 1, ring: 1 },
-  { n: 'city',       R: 72,  land: 0.72, houses: 58, wall: 1, keep: 1, shops: 5, grids: 2, ring: 1 },
-  { n: 'metropolis', R: 100, land: 0.80, houses: 96, wall: 1, keep: 1, shops: 6, grids: 4, ring: 1 }
+  { n: 'hamlet',     R: 22,  land: 0.50, houses: 7,   wall: 0, keep: 0, shops: 1, grids: 0, ring: 0, lm: 0 },
+  { n: 'village',    R: 32,  land: 0.56, houses: 15,  wall: 1, keep: 0, shops: 2, grids: 0, ring: 0, lm: 1 },
+  { n: 'town',       R: 48,  land: 0.64, houses: 32,  wall: 1, keep: 0, shops: 3, grids: 1, ring: 1, lm: 1 },
+  { n: 'city',       R: 72,  land: 0.72, houses: 64,  wall: 2, keep: 1, shops: 5, grids: 2, ring: 1, lm: 1 },
+  { n: 'metropolis', R: 100, land: 0.80, houses: 104, wall: 2, keep: 1, shops: 6, grids: 4, ring: 1, lm: 1 }
 ];
 const TIER_N = RANKS.map(r => r.n);
 
@@ -852,7 +855,7 @@ function villageAt(cx, cz) {
           ax: 1 / Math.sqrt(asp), az: Math.sqrt(asp),
           cs: Math.cos(rot), sn: Math.sin(rot),
           G: null, b: null, f: null, keep: null, wall: null,
-          trees: null, spots: null, name: null
+          trees: null, spots: null, name: null, lm: null, fur: null
         };
       }
     }
@@ -1006,7 +1009,8 @@ const PAL = {
   scree: [0.549, 0.522, 0.471], snow:  [0.906, 0.929, 0.945],
   old:   [0.741, 0.769, 0.784],
   dirt:  [0.475, 0.396, 0.271], road:  [0.545, 0.463, 0.322],
-  cobble:[0.494, 0.482, 0.451], flag: [0.549, 0.537, 0.506], lawn: [0.302, 0.475, 0.216]
+  cobble:[0.494, 0.482, 0.451], flag: [0.549, 0.537, 0.506], lawn: [0.302, 0.475, 0.216],
+  swamp: [0.271, 0.345, 0.224], till: [0.443, 0.345, 0.220]
 };
 const out = [0, 0, 0], mixOut = [0, 0, 0];
 function mix(a, b, t) {
@@ -1027,6 +1031,15 @@ function biomeAt(x, z) {
   }
   return _bm;
 }
+/* Farm strips ring every settlement, 2007-style: a coarse cell of the fringe
+   is either a field or it isn't, and a field ploughs in rows. Returns 0, or
+   1/2 for row direction. Pure function of tile, shared by paint and scatter. */
+function fieldAt(x, z, n) {
+  if (!n || n.d < n.v.r * 1.02 || n.d > n.v.r * 1.55) return 0;
+  const fx = Math.floor(x / 12), fz = Math.floor(z / 12);
+  const h = hash2(fx, fz, S + 107);
+  return (h & 7) < 3 ? 1 + (h >>> 3 & 1) : 0;
+}
 function colorAt(x, z, h, slope) {
   const moist = biomeAt(x, z), warm = _bw - h * 0.010;
   let c;
@@ -1040,6 +1053,7 @@ function colorAt(x, z, h, slope) {
   else if (h > 32)   c = slope > 1.2 ? PAL.scree : PAL.moss;
   else if (slope > 1.9) c = PAL.dark;                       // exposed cliff faces
   else if (slope > 1.2) c = mix(PAL.rock, PAL.moss, 0.45);
+  else if (moist > 0.34 && h < 7) c = mix(PAL.swamp, PAL.silt, 0.3); // lowland marsh
   else if (moist > 0.22)  c = PAL.lush;
   else if (moist > 0.05)  c = PAL.fern;
   else if (warm > 0.26)   c = PAL.dry;
@@ -1056,6 +1070,10 @@ function colorAt(x, z, h, slope) {
   else {
     const n = nearVillage(x, z);
     if (n && n.d < n.v.r * 0.95 && h > 1.4) c = mix(c, PAL.dirt, 0.30 * (1 - n.d / (n.v.r * 0.95)));
+    else if (h > 1.9 && h < 26 && slope < 0.7) {
+      const f = fieldAt(x, z, n);                           // ploughed farm strips
+      if (f) c = mix(c, (f === 1 ? Math.floor(z) : Math.floor(x)) & 1 ? PAL.till : PAL.dry, 0.55);
+    }
     if (h > 1.6 && slope < 1.5) {
       const hw = highwayAt(x, z);
       if (hw > 0.12) c = mix(c, PAL.road, Math.min(1, hw * 1.6));
@@ -1986,6 +2004,10 @@ const TRUNK = tint(new THREE.CylinderGeometry(0.5, 0.62, 1, 5, 1, true), WHITE);
 const SPIRE = tint(new THREE.ConeGeometry(0.5, 1, 6), WHITE);
 const CYL8  = tint(new THREE.CylinderGeometry(0.5, 0.5, 1, 8, 1, true), WHITE);
 const CONE8 = tint(new THREE.ConeGeometry(0.5, 1, 8), WHITE);
+/* Triangular prism, normalised to base y=0, ridge y=1, ridge running along X.
+   A 3-sided cylinder laid on its side is exactly a gabled roof. */
+const GABLE = tint(new THREE.CylinderGeometry(0.5, 0.5, 1, 3, 1).rotateZ(Math.PI / 2)
+  .rotateX(-Math.PI / 2).translate(0, 0.25, 0).scale(1, 1 / 0.75, 1 / 0.866), WHITE);
 const BARK = [0.290, 0.204, 0.129], BARK2 = [0.353, 0.267, 0.176];
 const STONE = [0.475, 0.463, 0.435], SHRUB = [0.263, 0.404, 0.208], REED = [0.482, 0.518, 0.298];
 
@@ -2568,7 +2590,7 @@ const C_ROOF3 = [0.298, 0.318, 0.365], C_ROOF4 = [0.451, 0.353, 0.180];
 const C_DARK = [0.106, 0.098, 0.086], C_CLOTH = [0.741, 0.706, 0.612];
 const C_STONE = [0.545, 0.533, 0.502], C_STONE2 = [0.451, 0.439, 0.412];
 const C_SLATE = [0.286, 0.290, 0.325], C_BANNER = [0.549, 0.145, 0.176];
-const C_SIGN = [0.392, 0.286, 0.180];
+const C_SIGN = [0.392, 0.286, 0.180], C_THATCH = [0.604, 0.514, 0.286];
 const ROOFS = [C_ROOF, C_ROOF2, C_ROOF3, C_ROOF4];
 
 const tk = (x, z) => x * 4194304 + z;                 // tile key
@@ -2582,6 +2604,9 @@ const G_EMPTY = 0, G_ROAD = 1, G_PAVED = 2, G_BUILD = 3,
 function emitShell(B, b) {
   const x = b.x, z = b.z, y = b.y, w = b.w, d = b.d, h = b.h;
   const hw = w / 2, hd = d / 2, t = WALL_T;
+  // Stone townhouses and timber-framed cottages share one shell; only the
+  // colours and the framing differ.
+  const CW = b.stone ? C_STONE : C_WALL, CB = b.stone ? C_STONE2 : C_BEAM;
   // The plinth top must clear the floorboards. Landing both on exactly
   // FLOOR_TOP put two coplanar faces in the depth buffer, and the floor
   // strobed between them every time the camera moved.
@@ -2592,11 +2617,16 @@ function emitShell(B, b) {
     const horiz = (s === 0 || s === 2), along = horiz ? w : d, ha = along / 2;
     const cx = s === 1 ? x + hw - t / 2 : s === 3 ? x - hw + t / 2 : x;
     const cz = s === 0 ? z - hd + t / 2 : s === 2 ? z + hd - t / 2 : z;
-    const seg = (c, yy, len, hh, col) => horiz
-      ? B.add(BOX, c, yy, cz, len, hh, t, 0, col)
-      : B.add(BOX, cx, yy, c, t, hh, len, 0, col);
+    const seg = (c, yy, len, hh, col, tt) => horiz
+      ? B.add(BOX, c, yy, cz, len, hh, tt || t, 0, col)
+      : B.add(BOX, cx, yy, c, tt || t, hh, len, 0, col);
     if (s !== b.door) {
-      seg(horiz ? x : z, y + FLOOR_TOP + h / 2, along, h, C_WALL);
+      seg(horiz ? x : z, y + FLOOR_TOP + h / 2, along, h, CW);
+      if (!b.stone && along > 2.6) {                        // exposed timber framing
+        seg(horiz ? x : z, y + FLOOR_TOP + h * 0.52, along, 0.22, CB, t + 0.08);
+        for (const q of [-0.27, 0.27])
+          seg((horiz ? x : z) + along * q, y + FLOOR_TOP + h / 2, 0.24, h, CB, t + 0.08);
+      }
       if ((hash2(b.x + s, b.z, S + 71) & 3) !== 0) {          // shuttered window
         const wy = y + FLOOR_TOP + 1.5;
         if (horiz) B.add(BOX, x, wy, cz, Math.min(1.4, w * 0.36), 1.0, t + 0.14, 0, C_DARK);
@@ -2605,17 +2635,17 @@ function emitShell(B, b) {
     } else {
       const gap = 1.0, base = horiz ? x : z, side = ha - gap;
       if (side > 0.05) {
-        seg(base - (ha + gap) / 2, y + FLOOR_TOP + h / 2, side, h, C_WALL);
-        seg(base + (ha + gap) / 2, y + FLOOR_TOP + h / 2, side, h, C_WALL);
+        seg(base - (ha + gap) / 2, y + FLOOR_TOP + h / 2, side, h, CW);
+        seg(base + (ha + gap) / 2, y + FLOOR_TOP + h / 2, side, h, CW);
       }
-      seg(base, y + FLOOR_TOP + 2.2 + (h - 2.2) / 2, gap * 2, h - 2.2, C_BEAM);
+      seg(base, y + FLOOR_TOP + 2.2 + (h - 2.2) / 2, gap * 2, h - 2.2, CB);
       const ox = s === 1 ? hw + 0.5 : s === 3 ? -hw - 0.5 : 0;
       const oz = s === 0 ? -hd - 0.5 : s === 2 ? hd + 0.5 : 0;
       B.add(BOX, x + ox, y + 0.03, z + oz, horiz ? 2.2 : 1.4, 0.34, horiz ? 1.4 : 2.2, 0, C_FOUND);
     }
   }
   for (const sx of [-1, 1]) for (const sz of [-1, 1])
-    B.add(BOX, x + sx * (hw - t / 2), y + FLOOR_TOP + h / 2, z + sz * (hd - t / 2), t * 1.3, h, t * 1.3, 0, C_BEAM);
+    B.add(BOX, x + sx * (hw - t / 2), y + FLOOR_TOP + h / 2, z + sz * (hd - t / 2), t * 1.3, h, t * 1.3, 0, CB);
 
   if (b.shop) emitShopFit(B, b); else emitHomeFit(B, b);
 }
@@ -2674,13 +2704,32 @@ function emitForge(B, f) {
     if (!f.in) B.add(BOX, x - 1.5, y + 0.5, z + 0.9, 0.7, 1.0, 0.7, 0, C_STONE2);  // quench barrel
   }
 }
-/* The roof is its own mesh so it can lift the instant you step inside. */
+/* The roof is its own mesh so it can lift the instant you step inside. A
+   second storey belongs to the roof mesh too — the whole top of the house
+   gets out of your way at once, the way 2007 hid the floors above you. */
 function emitRoof(B, b) {
-  const base = b.y + FLOOR_TOP + b.h;
+  let base = b.y + FLOOR_TOP + b.h;
+  if (b.st2) {                                              // jettied upper storey
+    const uh = 2.8, CW = b.stone ? C_STONE : C_WALL, CB = b.stone ? C_STONE2 : C_BEAM;
+    B.add(BOX, b.x, base + 0.14, b.z, b.w + 0.7, 0.28, b.d + 0.7, 0, CB);
+    B.add(BOX, b.x, base + 0.28 + uh / 2, b.z, b.w + 0.5, uh, b.d + 0.5, 0, CW);
+    for (const sd of [-1, 1]) for (const sz of [-1, 1])
+      B.add(BOX, b.x + sd * b.w * 0.22, base + 0.28 + uh * 0.55, b.z + sz * (b.d / 2 + 0.33),
+            0.9, 1.0, 0.2, 0, C_DARK);
+    base += 0.28 + uh;
+  }
   const ow = b.w + 0.9, od = b.d + 0.9;
   B.add(BOX, b.x, base + 0.09, b.z, ow, 0.18, od, 0, C_ROOF2);
-  const rh = 1.2 + Math.max(b.w, b.d) * 0.24;
-  B.add(PYR, b.x, base + 0.18 + rh / 2, b.z, ow / 0.7071, rh, od / 0.7071, 0, b.shop !== null ? C_ROOF2 : (b.roofC || C_ROOF));
+  const roofC = b.shop !== null ? C_ROOF2 : (b.roofC || C_ROOF);
+  let rh;
+  if (b.gable) {                                            // ridge along the long axis
+    rh = 1.3 + Math.min(b.w, b.d) * 0.30;
+    B.add(GABLE, b.x, base + 0.18, b.z, Math.max(ow, od) + 0.3, rh, Math.min(ow, od) + 0.1,
+          ow >= od ? 0 : Math.PI / 2, roofC);
+  } else {
+    rh = 1.2 + Math.max(b.w, b.d) * 0.24;
+    B.add(PYR, b.x, base + 0.18 + rh / 2, b.z, ow / 0.7071, rh, od / 0.7071, 0, roofC);
+  }
   if ((hash2(b.x, b.z, S + 74) & 1) === 0)                    // chimney
     B.add(BOX, b.x + b.w * 0.28, base + rh * 0.7, b.z - b.d * 0.28, 0.55, rh * 1.3, 0.55, 0, C_STONE2);
 }
@@ -2692,12 +2741,12 @@ function hexRgb(h) {
 }
 
 /* ------------------------- 12. THE CASTLE --------------------------- */
-/* Cities get a curtain-walled keep: four corner towers, a gatehouse facing
-   the town centre, and a solid hall in the middle you can walk into. The
-   courtyard is open ground, so guards patrol it and you can too. */
+/* Cities get a proper castle: a drum-towered gatehouse, mid-wall turrets, a
+   two-tiered great hall flying the banner, lean-to outbuildings and a well.
+   The courtyard is open ground, so guards patrol it and you can too. */
 function emitCastle(B, c) {
   const y = c.y, R = c.R;                      // R = half-width in tiles
-  const WH = 4.6, TH = 8.5;
+  const WH = 5.4, TH = 10 + (c.rank || 3);
   // courtyard flagstones
   B.add(BOX, c.x, y - 0.4, c.z, R * 2 + 1, 0.9, R * 2 + 1, 0, C_STONE2);
   // four curtain walls, split at the gate on side c.gate
@@ -2707,19 +2756,26 @@ function emitCastle(B, c) {
     const wz = s === 0 ? c.z - R : s === 2 ? c.z + R : c.z;
     const len = R * 2 + 1;
     if (s !== c.gate) {
-      B.add(BOX, wx, y + WH / 2, wz, horiz ? len : 1.5, WH, horiz ? 1.5 : len, 0, C_STONE);
+      B.add(BOX, wx, y + WH / 2, wz, horiz ? len : 1.6, WH, horiz ? 1.6 : len, 0, C_STONE);
+      // a square turret breaks the middle of each blank run
+      B.add(BOX, horiz ? c.x : wx, y + (WH + 2.2) / 2, horiz ? wz : c.z, 3.4, WH + 2.2, 3.4, 0, C_STONE);
+      B.add(PYR, horiz ? c.x : wx, y + WH + 3.2, horiz ? wz : c.z, 3.9, 2.0, 3.9, 0, C_SLATE);
     } else {
       const side = (len - 5) / 2, off = (5 + side) / 2;
       for (const sg of [-1, 1]) {
         const bx = horiz ? c.x + sg * off : wx, bz = horiz ? wz : c.z + sg * off;
-        B.add(BOX, bx, y + WH / 2, bz, horiz ? side : 1.5, WH, horiz ? 1.5 : side, 0, C_STONE);
+        B.add(BOX, bx, y + WH / 2, bz, horiz ? side : 1.6, WH, horiz ? 1.6 : side, 0, C_STONE);
       }
-      // gatehouse: two piers and a lintel, leaving three walkable tiles
+      // gatehouse: twin drum towers, a lintel, the portcullis wound up
       for (const sg of [-1, 1]) {
-        const bx = horiz ? c.x + sg * 2.4 : wx, bz = horiz ? wz : c.z + sg * 2.4;
-        B.add(BOX, bx, y + (WH + 1.6) / 2, bz, horiz ? 1.1 : 2.2, WH + 1.6, horiz ? 2.2 : 1.1, 0, C_STONE2);
+        const bx = horiz ? c.x + sg * 3.1 : wx, bz = horiz ? wz : c.z + sg * 3.1;
+        B.add(CYL8, bx, y + (WH + 3.4) / 2, bz, 3.4, WH + 3.4, 3.4, 0, C_STONE);
+        B.add(CYL8, bx, y + WH + 3.6, bz, 4.0, 0.5, 4.0, 0, C_STONE2);
+        B.add(CONE8, bx, y + WH + 5.2, bz, 4.1, 2.7, 4.1, 0, C_SLATE);
       }
-      B.add(BOX, wx, y + WH + 0.9, wz, horiz ? 5.4 : 2.2, 1.8, horiz ? 2.2 : 5.4, 0, C_STONE2);
+      B.add(BOX, wx, y + WH + 0.9, wz, horiz ? 6.6 : 2.0, 1.8, horiz ? 2.0 : 6.6, 0, C_STONE2);
+      B.add(BOX, wx, y + WH - 0.3, wz, horiz ? 3.4 : 0.25, 2.2, horiz ? 0.25 : 3.4, 0, C_DARK);
+      B.add(BOX, wx, y + WH + 2.7, wz, horiz ? 0.22 : 1.4, 1.7, horiz ? 1.4 : 0.22, 0, C_BANNER);
     }
     // battlements
     const n = Math.floor(len / 2);
@@ -2727,38 +2783,72 @@ function emitCastle(B, c) {
       const t = -len / 2 + i * 2;
       const bx = horiz ? c.x + t : wx, bz = horiz ? wz : c.z + t;
       if (s === c.gate && Math.abs(t) < 3) continue;
-      B.add(BOX, bx, y + WH + 0.45, bz, horiz ? 0.9 : 1.7, 0.9, horiz ? 1.7 : 0.9, 0, C_STONE2);
+      B.add(BOX, bx, y + WH + 0.45, bz, horiz ? 0.9 : 1.8, 0.9, horiz ? 1.8 : 0.9, 0, C_STONE2);
     }
   }
-  // corner towers
+  // corner towers, crenellated under their caps, arrow slits at half height
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     const tx = c.x + sx * R, tz = c.z + sz * R;
-    B.add(CYL8, tx, y + TH / 2, tz, 4.2, TH, 4.2, 0, C_STONE);
-    B.add(CYL8, tx, y + TH + 0.35, tz, 4.9, 0.7, 4.9, 0, C_STONE2);
-    B.add(CONE8, tx, y + TH + 2.2, tz, 5.0, 3.2, 5.0, 0, C_SLATE);
+    B.add(CYL8, tx, y + TH / 2, tz, 4.6, TH, 4.6, 0, C_STONE);
+    B.add(CYL8, tx, y + TH + 0.35, tz, 5.4, 0.7, 5.4, 0, C_STONE2);
+    for (let i = 0; i < 6; i++) {
+      const a = i / 6 * TAU;
+      B.add(BOX, tx + Math.sin(a) * 2.5, y + TH + 1.05, tz + Math.cos(a) * 2.5, 0.8, 0.7, 0.8, 0, C_STONE2);
+    }
+    B.add(CONE8, tx, y + TH + 2.7, tz, 5.0, 3.4, 5.0, 0, C_SLATE);
+    B.add(BOX, tx - sx * 2.28, y + TH * 0.55, tz, 0.34, 1.3, 0.5, 0, C_DARK);
   }
-  // the hall: solid stone, a door on the gate side, a banner over it
-  const k = c.hall;
-  B.add(BOX, k.x, y + k.h / 2, k.z, k.w, k.h, k.d, 0, C_STONE);
-  B.add(BOX, k.x, y + k.h + 0.4, k.z, k.w + 0.8, 0.8, k.d + 0.8, 0, C_STONE2);
-  for (let i = -2; i <= 2; i++) {
-    B.add(BOX, k.x + i * 2, y + k.h + 1.2, k.z - k.d / 2, 0.9, 0.9, 0.9, 0, C_STONE2);
-    B.add(BOX, k.x + i * 2, y + k.h + 1.2, k.z + k.d / 2, 0.9, 0.9, 0.9, 0, C_STONE2);
+  // the great hall: two stone tiers, turrets, the flag over all of it
+  const k = c.hall, h1 = k.h * 0.62, h2 = k.h * 0.38;
+  B.add(BOX, k.x, y + h1 / 2, k.z, k.w, h1, k.d, 0, C_STONE);
+  B.add(BOX, k.x, y + h1 + 0.35, k.z, k.w + 0.9, 0.7, k.d + 0.9, 0, C_STONE2);
+  B.add(BOX, k.x, y + h1 + h2 / 2, k.z, k.w * 0.68, h2, k.d * 0.68, 0, C_STONE);
+  B.add(BOX, k.x, y + k.h + 0.3, k.z, k.w * 0.68 + 0.8, 0.6, k.d * 0.68 + 0.8, 0, C_STONE2);
+  const nb = Math.floor(k.w / 4);
+  for (let i = -nb; i <= nb; i++) {
+    B.add(BOX, k.x + i * 2, y + h1 + 1.05, k.z - k.d / 2 - 0.2, 0.9, 0.7, 0.6, 0, C_STONE2);
+    B.add(BOX, k.x + i * 2, y + h1 + 1.05, k.z + k.d / 2 + 0.2, 0.9, 0.7, 0.6, 0, C_STONE2);
   }
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {   // corner turrets
     const tx = k.x + sx * k.w / 2, tz = k.z + sz * k.d / 2;
-    B.add(CYL8, tx, y + k.h * 0.6, tz, 2.2, k.h * 1.2, 2.2, 0, C_STONE2);
-    B.add(CONE8, tx, y + k.h * 1.2 + 1.1, tz, 2.6, 2.2, 2.6, 0, C_SLATE);
+    B.add(CYL8, tx, y + h1 * 0.65, tz, 2.4, h1 * 1.3, 2.4, 0, C_STONE2);
+    B.add(CONE8, tx, y + h1 * 1.3 + 1.2, tz, 2.8, 2.4, 2.8, 0, C_SLATE);
   }
+  for (let i = -1; i <= 1; i++) for (const sz of [-1, 1])  // hall windows
+    B.add(BOX, k.x + i * k.w * 0.3, y + h1 * 0.55, k.z + sz * k.d / 2, 0.8, 1.6, 0.3, 0, C_DARK);
+  B.add(BOX, k.x, y + k.h + 2.4, k.z, 0.22, 4.4, 0.22, 0, C_BEAM);     // flagpole
+  B.add(BOX, k.x + 1.05, y + k.h + 3.9, k.z, 1.9, 1.1, 0.14, 0, C_BANNER);
   const gx = c.gate === 1 ? 1 : c.gate === 3 ? -1 : 0, gz = c.gate === 0 ? -1 : c.gate === 2 ? 1 : 0;
-  B.add(BOX, k.x + gx * k.w / 2, y + 1.3, k.z + gz * k.d / 2, gx ? 0.3 : 1.8, 2.6, gz ? 0.3 : 1.8, 0, C_DARK);
-  B.add(BOX, k.x + gx * (k.w / 2 + 0.2), y + 4.6, k.z + gz * (k.d / 2 + 0.2), gx ? 0.2 : 1.6, 3.0, gz ? 0.2 : 1.6, 0, C_BANNER);
+  B.add(BOX, k.x + gx * k.w / 2, y + 1.5, k.z + gz * k.d / 2, gx ? 0.3 : 2.0, 3.0, gz ? 0.3 : 2.0, 0, C_DARK);
+  B.add(BOX, k.x + gx * (k.w / 2 + 0.2), y + h1 - 1.4, k.z + gz * (k.d / 2 + 0.2), gx ? 0.2 : 1.6, 3.0, gz ? 0.2 : 1.6, 0, C_BANNER);
+  // lean-to sheds against the back wall, and the courtyard well
+  for (const o of c.out) {
+    B.add(BOX, o.x, y + o.h / 2, o.z, o.w - 0.2, o.h, o.d - 0.2, 0, C_WALL);
+    B.add(GABLE, o.x, y + o.h, o.z, Math.max(o.w, o.d) + 0.7, 1.3, Math.min(o.w, o.d) + 0.7,
+          o.w >= o.d ? 0 : Math.PI / 2, C_ROOF2);
+  }
+  emitFurniture(B, { t: 1, x: c.well.x, z: c.well.z, y });
 }
 
-/* A stretch of curtain wall, one tile of it, with a tower where the arc
-   begins or every so often along its length. */
+/* A stretch of curtain wall, one tile of it — dressed stone round a city,
+   staked timber round a town — with a tower where an arc begins, flanking
+   every gate, and every so often along the length. */
 function emitWallCell(B, w) {
-  const y = w.y, H = 5.2;
+  const y = w.y;
+  if (w.k === 1) {                                     // wood palisade
+    B.add(BOX, w.x, y + 1.55, w.z, 2.05, 3.1, 0.9, 0, BARK2);
+    B.add(BOX, w.x, y + 2.9, w.z, 2.05, 0.3, 1.1, 0, BARK);
+    for (const s of [-0.6, 0, 0.6])
+      B.add(SPIRE, w.x + s, y + 3.4, w.z, 0.55, 0.9, 0.55, 0, BARK2);
+    if (w.tower) {                                     // timber watchtower
+      for (const sx of [-1, 1]) for (const sz of [-1, 1])
+        B.add(BOX, w.x + sx * 1.05, y + 2.1, w.z + sz * 1.05, 0.3, 4.2, 0.3, 0, C_BEAM);
+      B.add(BOX, w.x, y + 4.35, w.z, 2.9, 0.35, 2.9, 0, C_FLOOR);
+      B.add(PYR, w.x, y + 5.5, w.z, 3.3, 1.9, 3.3, 0, C_ROOF2);
+    }
+    return;
+  }
+  const H = 5.2;                                       // dressed stone
   B.add(BOX, w.x, y + H / 2, w.z, 2.0, H, 2.0, 0, C_STONE);
   B.add(BOX, w.x, y + H + 0.35, w.z, 2.3, 0.7, 2.3, 0, C_STONE2);
   if (((w.x + w.z) & 1) === 0) B.add(BOX, w.x, y + H + 0.95, w.z, 0.9, 0.9, 2.3, 0, C_STONE2);
@@ -2766,6 +2856,65 @@ function emitWallCell(B, w) {
     B.add(CYL8, w.x, y + H * 0.9, w.z, 3.6, H * 1.8, 3.6, 0, C_STONE);
     B.add(CYL8, w.x, y + H * 1.8 + 0.3, w.z, 4.2, 0.6, 4.2, 0, C_STONE2);
     B.add(CONE8, w.x, y + H * 1.8 + 1.9, w.z, 4.3, 2.8, 4.3, 0, C_SLATE);
+  }
+}
+/* Square furniture: a market stall, the town well, the city fountain. */
+function emitFurniture(B, f) {
+  const x = f.x, z = f.z, y = f.y;
+  if (f.t === 0) {                                     // market stall
+    const awn = (f.k & 1) ? C_BANNER : [0.239, 0.357, 0.545];
+    const q = (f.k >>> 2) & 1, rot = q * Math.PI / 2;   // half the stalls turn 90°
+    B.add(BOX, x, y + 0.55, z, 2.3, 1.1, 1.5, rot, C_FLOOR);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1])
+      B.add(BOX, x + sx * (q ? 0.65 : 1.05), y + 1.2, z + sz * (q ? 1.05 : 0.65), 0.16, 2.4, 0.16, 0, C_BEAM);
+    B.add(GABLE, x, y + 2.35, z, 3.0, 0.9, 2.2, rot, awn);
+    B.add(BLOB, x - 0.5, y + 1.32, z, 0.52, 0.4, 0.52, 0, [0.62, 0.49, 0.20]);
+    B.add(BLOB, x + 0.5, y + 1.32, z + 0.2, 0.46, 0.4, 0.46, 0, [0.30, 0.50, 0.20]);
+  } else if (f.t === 1) {                              // well
+    B.add(CYL8, x, y + 0.5, z, 2.0, 1.0, 2.0, 0, C_STONE);
+    B.add(CYL8, x, y + 0.62, z, 1.5, 0.9, 1.5, 0, C_DARK);
+    for (const s of [-1, 1]) B.add(BOX, x + s * 0.85, y + 1.5, z, 0.18, 2.0, 0.18, 0, C_BEAM);
+    B.add(GABLE, x, y + 2.45, z, 2.4, 0.7, 1.6, 0, C_ROOF2);
+  } else {                                             // fountain
+    B.add(CYL8, x, y + 0.45, z, 3.6, 0.9, 3.6, 0, C_STONE);
+    B.add(BOX, x, y + 0.8, z, 2.5, 0.16, 2.5, 0, [0.31, 0.55, 0.62]);
+    B.add(CYL8, x, y + 1.5, z, 0.8, 1.6, 0.8, 0, C_STONE2);
+    B.add(CYL8, x, y + 2.35, z, 1.7, 0.3, 1.7, 0, C_STONE);
+    B.add(BLOB, x, y + 2.8, z, 0.7, 0.8, 0.7, 0, C_STONE2);
+  }
+}
+/* Landmarks — the one building that tells you which town you are in.
+   Axis-aligned like everything 2007 ever built. */
+function emitLandmark(B, L) {
+  const x = L.x, z = L.z, y = L.y;
+  B.add(BOX, x, y - 1.9, z, L.R * 2 + 1.4, 4.4, L.R * 2 + 1.4, 0, C_FOUND);
+  if (L.t === 0) {                                     // stone church
+    B.add(BOX, x + 0.8, y + 2.6, z + 0.2, 6.4, 5.2, 6.0, 0, C_STONE);
+    B.add(GABLE, x + 0.8, y + 5.2, z + 0.2, 7.0, 2.6, 6.6, 0, C_SLATE);
+    for (const s of [-1, 1]) for (let i = 0; i < 3; i++)
+      B.add(BOX, x - 0.8 + i * 2.1, y + 3.1, z + 0.2 + s * 3.02, 0.7, 1.9, 0.24, 0, C_DARK);
+    B.add(BOX, x - 2.9, y + 4.3, z + 0.2, 3.0, 8.6, 3.0, 0, C_STONE2);
+    B.add(BOX, x - 2.9, y + 7.4, z - 1.32, 0.9, 1.2, 0.24, 0, C_DARK);
+    B.add(PYR, x - 2.9, y + 10.2, z + 0.2, 3.4, 3.6, 3.4, 0, C_SLATE);
+    B.add(BOX, x - 2.9, y + 1.3, z - 1.36, 1.2, 2.6, 0.3, 0, C_DARK);
+  } else if (L.t === 1) {                              // windmill
+    B.add(CYL8, x, y + 2.6, z, 5.2, 5.2, 5.2, 0, C_STONE);
+    B.add(CYL8, x, y + 6.4, z, 4.2, 2.6, 4.2, 0, C_WALL);
+    B.add(CONE8, x, y + 8.7, z, 4.8, 2.4, 4.8, 0, C_ROOF2);
+    B.add(BOX, x, y + 7.6, z - 2.4, 0.5, 0.5, 1.3, 0, C_BEAM);          // hub
+    B.add(BOX, x, y + 7.6, z - 3.0, 0.72, 8.6, 0.22, 0, C_CLOTH);       // sails
+    B.add(BOX, x, y + 7.6, z - 3.0, 8.6, 0.72, 0.22, 0, C_CLOTH);
+    B.add(BOX, x, y + 1.3, z - 2.5, 1.3, 2.6, 0.3, 0, C_DARK);
+  } else {                                             // wizard's tower
+    B.add(CYL8, x, y + 5.0, z, 5.0, 10.0, 5.0, 0, [0.36, 0.37, 0.46]);
+    B.add(CYL8, x, y + 10.2, z, 5.8, 0.5, 5.8, 0, C_STONE2);
+    B.add(CYL8, x, y + 11.6, z, 4.2, 2.4, 4.2, 0, [0.32, 0.33, 0.42]);
+    B.add(CONE8, x, y + 14.6, z, 5.2, 3.8, 5.2, 0, [0.24, 0.20, 0.40]);
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2 + Math.PI / 4;
+      B.add(BOX, x + Math.sin(a) * 2.45, y + 6.5, z + Math.cos(a) * 2.45, 0.6, 1.1, 0.6, 0, C_DARK);
+    }
+    B.add(BOX, x, y + 1.3, z - 2.45, 1.3, 2.6, 0.4, 0, C_DARK);
   }
 }
 /* Street trees. Decoration only — the choppable ones are scattered by the
@@ -2874,16 +3023,20 @@ function layoutCity(v) {
       if (a * a + b * b <= pr * pr) force(v.x + a, v.z + b, G_PAVED);
   }
 
-  /* ---- a partial curtain wall: arcs of it, not a full ring ---- */
+  /* ---- the wall: dressed stone round a city, a staked palisade round a
+     town that can afford one. Near-complete rings — 2007 walls were walls —
+     with towers at every gate and break. ---- */
   const wall = [];
-  if (RK.wall) {
-    const wr = R * 0.86;
+  const wk = RK.wall === 2 ? 2
+    : RK.wall === 1 && hash2(v.x, v.z, S + 94) % 100 < (v.rank === 2 ? 70 : 30) ? 1 : 0;
+  if (wk) {
+    const wr = R * (wk === 2 ? 0.86 : 0.80);
     const N = Math.max(48, Math.round(TAU * wr / 2));
     let prevOn = 0;
     for (let i = 0; i < N; i++) {
       const a = i / N * TAU;
-      // a low-frequency field decides which arcs were ever built
-      const on = fbm(Math.sin(a) * 2.2, Math.cos(a) * 2.2, S + 95, 2) > -0.12;
+      // a low-frequency field decides which short arcs were never built
+      const on = fbm(Math.sin(a) * 2.2, Math.cos(a) * 2.2, S + 95, 2) > -0.34;
       const x = Math.round(v.x + Math.sin(a) * wr), z = Math.round(v.z + Math.cos(a) * wr);
       if (!on) { prevOn = 0; continue; }
       const y = heightAt(x, z);
@@ -2895,8 +3048,9 @@ function layoutCity(v) {
         if (onRoad) { if (get(px, pz) === G_EMPTY) force(px, pz, G_GATE); }
         else force(px, pz, G_WALL);
       }
-      if (!onRoad) wall.push({ x, z, y, tower: prevOn === 0 || (i % 11) === 0 });
-      prevOn = 1;
+      if (!onRoad) wall.push({ x, z, y, k: wk, tower: prevOn === 0 || (i % (wk === 2 ? 11 : 9)) === 0 });
+      else { if (wall.length) wall[wall.length - 1].tower = 1; prevOn = 0; }  // towers flank the gate
+      if (!onRoad) prevOn = 1;
     }
   }
   v.wall = wall;
@@ -2904,7 +3058,7 @@ function layoutCity(v) {
   /* ---- the castle claims a block of its own ---- */
   if (RK.keep) {
     const h = hash2(v.x, v.z, S + 96);
-    const KR = 9 + v.rank + (h & 2);
+    const KR = 11 + v.rank * 2 + (h & 3);
     let best = null, bestScore = -1e9;
     for (let i = 0; i < 24; i++) {
       const a = (h >>> (i % 8) & 1023) / 1024 * TAU + i * 0.7;
@@ -2925,13 +3079,69 @@ function layoutCity(v) {
     }
     if (best) {
       const gate = (h >>> 5) & 3;
-      const hw = 3 + ((h >>> 7) & 1), hd = 3 + ((h >>> 9) & 1);
-      v.keep = { x: best.x, z: best.z, y: best.y, R: best.R, gate,
-                 hall: { x: best.x, z: best.z, w: hw * 2 + 1, d: hd * 2 + 1, h: 9.5 + v.rank, hw, hd } };
+      const hw = 4 + ((h >>> 7) & 1), hd = 3 + ((h >>> 9) & 1);
+      const gx = gate === 1 ? 1 : gate === 3 ? -1 : 0, gz = gate === 0 ? -1 : gate === 2 ? 1 : 0;
+      // lean-to sheds against the wall across from the gate, a well by the way in
+      const bR = best.R - 3, pp = (h >>> 11) & 1 ? 1 : -1;
+      const out = [-1, 1].map(sg => gz
+        ? { x: best.x + sg * Math.round(bR * 0.5), z: best.z - gz * bR, w: 5, d: 3, h: 2.9 }
+        : { x: best.x - gx * bR, z: best.z + sg * Math.round(bR * 0.5), w: 3, d: 5, h: 2.9 });
+      const well = gz ? { x: best.x + pp * 5, z: best.z + gz * (KR - 4) }
+                      : { x: best.x + gx * (KR - 4), z: best.z + pp * 5 };
+      v.keep = { x: best.x, z: best.z, y: best.y, R: best.R, gate, rank: v.rank, out, well,
+                 hall: { x: best.x, z: best.z, w: hw * 2 + 1, d: hd * 2 + 1, h: 10.5 + v.rank * 1.5, hw, hd } };
       for (let p = -best.R; p <= best.R; p++) for (let q = -best.R; q <= best.R; q++)
         force(best.x + p, best.z + q, G_KEEP);
     }
   }
+
+  /* ---- one landmark, so no two towns read the same: a stone church, a
+     windmill on the fields, or a wizard's tower ---- */
+  v.lm = null;
+  if (RK.lm) {
+    const h = hash2(v.x, v.z, S + 110);
+    const kind = v.rank >= 2 ? h % 3 : (h & 1);            // towers stay urban
+    const FR = 4;
+    for (let i = 0; i < 28 && !v.lm; i++) {
+      const a = ((h >>> 4) & 1023) / 1024 * TAU + i * 1.7;
+      const rr = R * (0.34 + (i % 5) * 0.10);
+      const x = Math.round(v.x + Math.sin(a) * rr), z = Math.round(v.z + Math.cos(a) * rr);
+      let lo = 1e9, hi = -1e9, bad = 0;
+      for (let p = -FR; p <= FR && !bad; p += 2) for (let q = -FR; q <= FR; q += 2) {
+        if (get(x + p, z + q) !== G_EMPTY) { bad = 1; break; }
+        const y = heightAt(x + p, z + q);
+        if (y < lo) lo = y; if (y > hi) hi = y;
+        if (y < 1.9) { bad = 1; break; }
+      }
+      if (bad || hi - lo > 2.0) continue;
+      for (let p = -FR; p <= FR; p++) for (let q = -FR; q <= FR; q++) force(x + p, z + q, G_BUILD);
+      v.lm = { t: kind, x, z, y: hi, R: FR };
+    }
+  }
+
+  /* ---- the square's furniture: stalls round a fountain or the town well ---- */
+  const fur = [];
+  if (v.rank >= 2) {
+    const pr = 3 + v.rank;
+    if (get(v.x, v.z) === G_PAVED)
+      fur.push({ t: v.rank >= 3 ? 2 : 1, x: v.x, z: v.z, y: heightAt(v.x, v.z) });
+    const ns = 2 + v.rank + (hash2(v.x, v.z, S + 108) & 3);
+    for (let i = 0; i < ns; i++) {
+      const a = (i + 0.3) / ns * TAU, rr = pr - 1.4;
+      const x = Math.round(v.x + Math.sin(a) * rr), z = Math.round(v.z + Math.cos(a) * rr);
+      if (get(x, z) !== G_PAVED) continue;
+      fur.push({ t: 0, x, z, y: heightAt(x, z), k: hash2(x, z, S + 109) });
+    }
+  } else if (v.rank === 1) {
+    for (const [a, b] of [[2, 2], [-2, 2], [2, -2], [-3, 0]]) {  // well off the crossing
+      const x = v.x + a, z = v.z + b;
+      if (get(x, z) !== G_EMPTY) continue;
+      force(x, z, G_PARK);
+      fur.push({ t: 1, x, z, y: heightAt(x, z) });
+      break;
+    }
+  }
+  v.fur = fur;
 
   /* ---- houses, planted along the streets that already exist ---- */
   const B = [];
@@ -2956,7 +3166,11 @@ function layoutCity(v) {
     const b = {
       x: px, z: pz, y: hi, hw, hd, w: hw * 2 + 1, d: hd * 2 + 1,
       h: 3.4 + (hw + hd) * 0.22 + ((hh >>> 26) & 15) / 15 * 1.6,
-      roofC: ROOFS[(hh >>> 3) & 3],
+      // villages thatch, towns tile; cities run to stone rows and second storeys
+      roofC: v.rank <= 1 && ((hh >>> 3) & 3) ? C_THATCH : ROOFS[(hh >>> 3) & 3],
+      st2: v.rank >= 2 && hw + hd >= 5 && ((hh >>> 12) & 7) < 3 ? 1 : 0,
+      stone: v.rank >= 3 && ((hh >>> 15) & 3) === 0 ? 1 : 0,
+      gable: ((hh >>> 17) & 3) !== 0 ? 1 : 0,
       door, shop: null, forge: 0, roof: null, blk: null
     };
     b.dx = door === 1 ? px + hw : door === 3 ? px - hw : px;
@@ -3097,7 +3311,17 @@ function layoutCity(v) {
     const k = c.hall;
     for (let a = -k.hw; a <= k.hw; a++) for (let b2 = -k.hd; b2 <= k.hd; b2++)
       blk.push(tk(k.x + a, k.z + b2));                   // the hall is solid
+    for (const o of c.out) {                             // sheds and the well are too
+      const ow = o.w >> 1, od = o.d >> 1;
+      for (let a = -ow; a <= ow; a++) for (let b2 = -od; b2 <= od; b2++) blk.push(tk(o.x + a, o.z + b2));
+    }
+    blk.push(tk(c.well.x, c.well.z));
     c.blk = blk;
+  }
+  if (v.lm) {
+    const L = v.lm, b2 = [];
+    for (let a = -L.R; a <= L.R; a++) for (let c2 = -L.R; c2 <= L.R; c2++) b2.push(tk(L.x + a, L.z + c2));
+    L.blk = b2;
   }
   for (const w of v.wall) w.key = tk(w.x, w.z);
   return B;
@@ -3281,7 +3505,7 @@ function scatterResources(rec, cx, cz, ring) {
     // Trees block the tile they stand on, so a 2007-dense wood would be an
     // impassable maze. Thinned to leave lanes between the trunks.
     let td = (0.010 + Math.max(0, moist + 0.10) * 0.13) * (1 - smoothstep(30, 47, y)) * dens;
-    if (inTown) td *= 0.05;
+    if (inTown || fieldAt(x, z, nv)) td *= 0.05;           // towns and farmland stay clear
     if ((h & 1023) / 1024 > td || slope > 2.6) continue;
     const k = treeKind(y, moist, h);
     const T = TREES[k];
@@ -3352,6 +3576,17 @@ function scatterDecor(rec, cx, cz, ring) {
     const slope = Math.abs(recH(rec, x + 1, z) - y) + Math.abs(recH(rec, x, z + 1) - y);
     const nv = nearVillage(x, z);
     if (nv && nv.d < nv.v.r * 0.95) continue;
+    if (y < 26 && slope < 0.7) {                           // crops on the farm rows
+      const f = fieldAt(x, z, nv);
+      if (f) {
+        if ((((f === 1 ? z : x) & 1) === 0) && ((h >> 4) & 3) !== 0) {
+          if ((h >> 8) & 1) B.add(SPIRE, jx, y + 0.55, jz, 0.30, 1.1, 0.30, rot, [0.66, 0.58, 0.26]);
+          else B.add(BLOB, jx, y + 0.22, jz, 0.62, 0.5, 0.62, rot, [0.28, 0.46, 0.18]);
+          n++;
+        }
+        continue;                                          // nothing wild on tilled ground
+      }
+    }
     const rocky = smoothstep(1.1, 2.6, slope) * 0.5 + smoothstep(34, 60, y) * 0.35;
     if (r2 < (0.008 + rocky * 0.14) * dens) {              // loose boulders
       const rs = 0.5 + ((h >>> 3) & 15) / 15 * 1.7;
@@ -3377,7 +3612,7 @@ function buildStructures(rec, cx, cz) {
   const gx = Math.floor(cx * CHUNK * INV_CELL), gz = Math.floor(cz * CHUNK * INV_CELL);
   const x0 = cx * CHUNK, x1 = x0 + CHUNK, z0 = cz * CHUNK, z1 = z0 + CHUNK;
   const inChunk = (x, z) => x >= x0 && x < x1 && z >= z0 && z < z1;
-  const mine = [], forges = [], walls = [], citytrees = [];
+  const mine = [], forges = [], walls = [], citytrees = [], lms = [], furn = [];
   let castle = null;
   for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
     const v = villageAt(gx + a, gz + b);
@@ -3389,6 +3624,13 @@ function buildStructures(rec, cx, cz) {
       rec.objs.push(o); rec.blk.push(o.key); forges.push(f);
     }
     if (v.keep && inChunk(v.keep.x, v.keep.z)) castle = v.keep;
+    if (v.lm && inChunk(v.lm.x, v.lm.z)) { lms.push(v.lm); for (const k of v.lm.blk) rec.blk.push(k); }
+    for (const fu of v.fur) if (inChunk(fu.x, fu.z)) {
+      furn.push(fu);
+      if (fu.t === 2) {                             // the fountain basin spans 3x3
+        for (let p = -1; p <= 1; p++) for (let q = -1; q <= 1; q++) rec.blk.push(tk(fu.x + p, fu.z + q));
+      } else rec.blk.push(tk(fu.x, fu.z));
+    }
     for (const w of v.wall) if (inChunk(w.x, w.z)) { walls.push(w); rec.blk.push(w.key); }
     for (const t of v.trees) if (inChunk(t.x, t.z)) { citytrees.push(t); rec.blk.push(tk(t.x, t.z)); }
   }
@@ -3399,10 +3641,12 @@ function buildStructures(rec, cx, cz) {
     if (m) { scene.add(m); rec.extra.push(m); }
     for (const k of castle.blk) rec.blk.push(k);
   }
-  if (walls.length || citytrees.length) {           // one mesh for the town's masonry and greenery
-    const W = new Batch();
+  if (walls.length || citytrees.length || lms.length || furn.length) {
+    const W = new Batch();                          // one mesh for the town's masonry and greenery
     for (const w of walls) emitWallCell(W, w);
     for (const t of citytrees) emitCityTree(W, t);
+    for (const L of lms) emitLandmark(W, L);
+    for (const fu of furn) emitFurniture(W, fu);
     const wm = W.mesh();
     if (wm) { scene.add(wm); rec.extra.push(wm); }
   }
@@ -4000,7 +4244,7 @@ function refreshNpcs() {
         let x, z, t;
         villageBuildings(v);
         if (v.keep && i < 2 + v.rank) {                    // castle garrison
-          const c = v.keep, sp = 4 + ((h >>> 3) & 7);
+          const c = v.keep, sp = 6 + ((h >>> 3) & 7);      // clear of the bigger hall
           x = c.x + (((h & 1) ? 1 : -1) * sp); z = c.z + ((((h >>> 1) & 1) ? 1 : -1) * sp);
           t = NPC_BY.guard;
         } else if (v.spots && v.spots.length && (h & 1)) {
