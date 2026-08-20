@@ -2219,6 +2219,100 @@ function part(geo, hex, x, y, z) {
 }
 const SKIN = 0xd8a878, TUNIC = 0x6a5a3f, PANTS = 0x4a4030, HAIR = 0x4a3524;
 
+/* ------------- weapons you can tell apart at a glance -------------
+   The inventory icons are already vector outlines in a 32x32 box, so the same
+   points that draw the picture cut the mesh. Icon space runs y downward with
+   the grip near the bottom; weapon space puts the grip at the origin and the
+   business end along -Y, which is one translate and one scale away. How it is
+   held is then one rotation per family: blades hang, staves stand, bows lie
+   across. Colours are baked in rather than tinted, so a scimitar keeps its
+   brown grip instead of turning bronze all the way down. */
+const WSC = 1 / 19, WDEP = 2.2;                    // icon pixels to world, and thickness
+function xtr(pts, rgb, gx, gy) {
+  const sh = new THREE.Shape();
+  sh.moveTo(pts[0], pts[1]);
+  for (let i = 2; i < pts.length; i += 2) sh.lineTo(pts[i], pts[i + 1]);
+  sh.closePath();
+  const g = new THREE.ExtrudeGeometry(sh, { depth: WDEP, bevelEnabled: false });
+  g.translate(-gx, -gy, -WDEP / 2);
+  g.scale(WSC, WSC, WSC);
+  return shade(g, rgb);
+}
+const xrect = (x, y, w, h, rgb, gx, gy) =>
+  xtr([x, y, x + w, y, x + w, y + h, x, y + h], rgb, gx, gy);
+const xcirc = (cx, cy, r, rgb, gx, gy) => {
+  const o = [];
+  for (let i = 0; i < 14; i++) { const a = i / 14 * TAU; o.push(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+  return xtr(o, rgb, gx, gy);
+};
+/* the scimitar edge and the pickaxe head are quadratics in the icon, so they
+   are quadratics here too, sampled */
+function qpts(x0, y0, cx, cy, x1, y1, k) {
+  const o = [];
+  for (let i = 0; i <= k; i++) {
+    const t = i / k, u = 1 - t;
+    o.push(u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1);
+  }
+  return o;
+}
+const WOOD = [0.42, 0.29, 0.15], STRING = [0.94, 0.90, 0.78];
+/* grip anchor per family: the point that sits in the hand */
+const WGRIP = { sword: [16, 26], dagger: [16, 25], scim: [8, 28], axe: [11.5, 26],
+                pick: [16, 26], staff: [16, 26], bow: [20, 16] };
+const WHOLD = { staff: Math.PI, bow: Math.PI / 2 };   // rotation.x; blades keep 0
+const WEAPON = {
+  sword: (c, d, x, y) => [
+    xtr([16, 2, 19.5, 9, 19.5, 20, 12.5, 20, 12.5, 9], c, x, y),
+    xrect(9, 20, 14, 3, d, x, y), xrect(14.5, 23, 3, 6, WOOD, x, y),
+    xrect(13, 28.5, 6, 2, d, x, y)],
+  dagger: (c, d, x, y) => [
+    xtr([16, 5, 19, 11, 19, 19, 13, 19, 13, 11], c, x, y),
+    xrect(10, 19, 12, 3, d, x, y), xrect(14.5, 22, 3, 6, WOOD, x, y)],
+  scim: (c, d, x, y) => [
+    xtr(qpts(7, 26, 6, 8, 24, 4, 7).concat(qpts(24, 4, 16, 14, 12, 26, 7)), c, x, y),
+    xrect(5, 25, 10, 3, d, x, y), xrect(6, 28, 4, 3.5, WOOD, x, y)],
+  axe: (c, d, x, y) => [
+    xtr([19.48, 3.31, 23.13, 4.95, 12.12, 29.60, 8.47, 27.97], WOOD, x, y),
+    xtr([9, 4, 22, 7, 24, 15, 12, 15, 8, 9], c, x, y),
+    xtr([11, 6, 21, 8.5, 22, 13, 13, 13], d, x, y)],
+  pick: (c, d, x, y) => [
+    xrect(14, 8, 4, 22, WOOD, x, y),
+    xtr(qpts(2, 12, 16, 2, 30, 12, 7).concat(qpts(30, 12, 16, 7, 2, 12, 7)), c, x, y),
+    xrect(12, 7, 8, 4, d, x, y)],
+  // the icon draws the shaft on the diagonal; held, it wants to be upright
+  staff: (c, d, x, y) => [
+    xrect(14.6, 7, 2.8, 23, WOOD, x, y), xcirc(16, 6, 5, c, x, y),
+    xcirc(14.4, 4.6, 2, d, x, y), xrect(11, 10.4, 10, 1.8, d, x, y)],
+  bow: (c, d, x, y) => {
+    const out = [], inn = [];
+    for (let i = 0; i <= 12; i++) {
+      const a = -1.15 + i / 12 * 2.3;
+      out.push(9 + Math.cos(a) * 11.8, 16 + Math.sin(a) * 11.8);
+      inn.unshift(9 + Math.cos(a) * 9.6, 16 + Math.sin(a) * 9.6);
+    }
+    return [xtr(out.concat(inn), c, x, y),
+            xtr([12.9, 6.2, 13.6, 6.2, 13.6, 25.8, 12.9, 25.8], STRING, x, y),
+            xrect(18.6, 13.4, 3.2, 5.2, d, x, y)];        // the riser, where the hand goes
+  }
+};
+const _wepGeo = new Map();
+function wepGeo(id) {
+  let g = _wepGeo.get(id);
+  if (g) return g;
+  const it = ITEMS[id], b = WEAPON[it.g] || WEAPON.sword, a = WGRIP[it.g] || WGRIP.sword;
+  g = merge(b(hexRgb(it.c), hexRgb(it.c2 || it.c), a[0], a[1]));
+  _wepGeo.set(id, g);
+  return g;
+}
+/* One place both the local player and everyone else put a weapon in a hand. */
+function holdWeapon(mesh, it) {
+  mesh.visible = !!it;
+  if (!it) return;
+  mesh.geometry = wepGeo(it.id);
+  mesh.material.color.set('#ffffff');              // the shape carries its own colours
+  mesh.rotation.set(WHOLD[it.g] || 0, 0, 0);
+}
+
 function buildAvatar() {
   const g = new THREE.Group();
   const torso = part(bakeW(box(0.72, 0.72, 0.44)), TUNIC, 0, 1.05, 0);
@@ -2230,7 +2324,7 @@ function buildAvatar() {
   const legL = part(bakeW(shift(box(0.26, 0.72, 0.28), -0.36)), PANTS, 0.17, 0.72, 0);
   const legR = part(bakeW(shift(box(0.26, 0.72, 0.28), -0.36)), PANTS, -0.17, 0.72, 0);
   const helm = part(bakeW(box(0.52, 0.3, 0.52)), 0xffffff, 0, 1.79, 0); helm.visible = false;
-  const wep = part(bakeW(shift(box(0.12, 1.0, 0.3), -0.42)), 0xffffff, 0, -0.56, 0.06);
+  const wep = part(bakeW(shift(box(0.12, 1.0, 0.3), -0.42)), 0xffffff, 0, -0.60, 0.05);
   wep.visible = false; armR.add(wep);
   const shl = part(bakeW(shift(box(0.1, 0.66, 0.52), -0.3)), 0xffffff, 0, -0.5, 0);
   shl.visible = false; armL.add(shl);
@@ -3650,7 +3744,7 @@ const P = {
   path: [], task: null, actT: 0, acting: 0, actSpan: 2,
   walkPhase: 0, bobPhase: 0, swingPhase: 0,          // per-entity, so remotes don't share them
   run: 1, energy: 100, hp: 10, maxhp: 10,
-  style: 0, rstyle: 1, ammoN: 0, spell: null, prayers: 0, pray: 10, maxpray: 10,
+  style: 0, rstyle: 1, ammoN: 0, pose: 0, spell: null, prayers: 0, pray: 10, maxpray: 10,
   afloat: 0, moved: 0, dead: 0,
   home: { x: 0, z: 0 }
 };
@@ -3691,9 +3785,7 @@ function dressAvatar() {
   p.legR.material.color.set(legsIt ? legsIt.c : '#4a4030');
   p.helm.visible = !!headIt; p.hair.visible = !headIt;
   if (headIt) p.helm.material.color.set(headIt.c);
-  p.wep.visible = !!wepIt;
-  P.bow = !!(wepIt && wepIt.bow);
-  if (wepIt) p.wep.material.color.set(wepIt.c);
+  holdWeapon(p.wep, wepIt);
   p.shl.visible = !!shlIt;
   if (shlIt) p.shl.material.color.set(shlIt.c);
   sendEquip();
@@ -3967,7 +4059,12 @@ function npcTick(n) {
     if (Math.abs(nx - n.home.x) < 14 && Math.abs(nz - n.home.z) < 14 &&
         canStep(n.tx, n.tz, nx, nz) && !isWater(walkY(nx, nz))) { n.tx = nx; n.tz = nz; }
   }
-  if (n.tx !== n.px || n.tz !== n.pz) n.faceT = Math.atan2(n.tx - n.px, n.tz - n.pz);
+  /* Facing used to update only on movement, so anything that stopped to shoot
+     kept whatever heading its last step happened to leave it with — hence
+     dragons breathing fire at right angles to you. Something with a target
+     looks at the target, moving or not. */
+  if (n.target) n.faceT = Math.atan2(P.tx - n.tx, P.tz - n.tz);
+  else if (n.tx !== n.px || n.tz !== n.pz) n.faceT = Math.atan2(n.tx - n.px, n.tz - n.pz);
 }
 function killNpc(n) {
   n.dead = 1;
@@ -4133,6 +4230,7 @@ function taskTick() {
     const sp = P.spell !== null ? SPELLS[P.spell] : null;
     const bw = sp ? null : bowItem();
     P.acting = 1; P.actSpan = sp ? 5 : atkSpeed();
+    P.pose = sp ? 2 : (bw && bowRange()) ? 1 : 0;
     if (--P.actT > 0) return;
     P.actT = sp ? 5 : atkSpeed();
     let dmg;
@@ -4178,6 +4276,7 @@ function taskTick() {
     const sp = P.spell !== null ? SPELLS[P.spell] : null;
     const bw = sp ? null : bowItem();
     P.acting = 1; P.actSpan = sp ? 5 : atkSpeed();
+    P.pose = sp ? 2 : (bw && bowRange()) ? 1 : 0;
     if (--P.actT > 0) return;
     P.actT = sp ? 5 : atkSpeed();
     let dmg, c;
@@ -4228,7 +4327,7 @@ function taskTick() {
 
   // Gathering rolls every four ticks, but the character swings twice in that
   // time — the tool never freezes mid-air waiting for the next roll.
-  P.acting = 1; P.actSpan = 2;
+  P.acting = 1; P.actSpan = 2; P.pose = 0;         // gathering always swings
   if (--P.actT > 0) return;
   P.actT = ACT_TICKS;
 
@@ -5355,17 +5454,30 @@ function animate(E, parts, dt) {
       E.swingPhase += dt * 1000 / (E.actSpan * TICK);
       if (E.swingPhase >= 1) E.swingPhase -= 1;
       const ph = E.swingPhase;
-      if (E.bow) {
+      if (E.pose === 1) {
         /* A bow is drawn, not swung: the front arm holds steady on the target
            the whole time and only the string hand travels, snapping home in
-           the last fifth of the cycle. */
+           the last fifth of the cycle — and the shoulders give a little when
+           it does. */
         const dr = ph < 0.8 ? smoothstep(0, 1, ph / 0.8) : 1 - (ph - 0.8) / 0.2;
+        const loose = ph > 0.8 ? 1 - (ph - 0.8) / 0.2 : 0;
         p.armL.rotation.x = -1.48;
         p.armR.rotation.x = -1.48 + dr * 0.30;
         p.armL.rotation.z = 0.10;
         p.armR.rotation.z = -0.10 - dr * 0.55;
-        p.torso.rotation.y = -0.40;
+        p.torso.rotation.y = -0.40 + loose * 0.10;
         p.torso.rotation.x = 0;
+      } else if (E.pose === 2) {
+        /* A cast is a push, not a swing: the staff comes up and out, the free
+           hand rises to meet it, and the whole body leans into the release. */
+        const pu = ph < 0.55 ? smoothstep(0, 1, ph / 0.55)
+                             : 1 - smoothstep(0, 1, (ph - 0.55) / 0.45);
+        p.armR.rotation.x = -0.20 - 1.95 * pu;
+        p.armL.rotation.x = -0.10 - 0.85 * pu;
+        p.armR.rotation.z = -0.06 - 0.28 * pu;
+        p.armL.rotation.z = 0.06 + 0.28 * pu;
+        p.torso.rotation.x = pu * 0.12;
+        p.torso.rotation.y = 0;
       } else {
       const sw = ph < 0.6 ? smoothstep(0, 1, ph / 0.6) : 1 - smoothstep(0, 1, (ph - 0.6) / 0.4);
       p.armR.rotation.x = 0.25 - 2.6 * sw;
@@ -5914,8 +6026,8 @@ function onNet(m) {
       const R = ensureRemote(m[1]); if (!R) break;
       R.act = m[2] | 0;
       R.acting = R.act ? 1 : 0;
-      R.bow = R.act === 7;                     // 7 is a draw, and it reads as one
-      R.actSpan = R.act === 5 || R.act === 7 ? 4 : 2;
+      R.pose = R.act === 7 ? 1 : R.act === 6 ? 2 : 0;   // draw, cast, or swing
+      R.actSpan = R.act === 5 || R.act === 7 || R.act === 6 ? 4 : 2;
       break;
     }
     case 3: {                                  // equipment
@@ -6068,7 +6180,7 @@ function dressRemote(R) {
   p.legR.material.color.set(legs ? legs.c : '#4a4030');
   p.helm.visible = !!head; p.hair.visible = !head;
   if (head) p.helm.material.color.set(head.c);
-  p.wep.visible = !!wep; if (wep) p.wep.material.color.set(wep.c);
+  holdWeapon(p.wep, wep);
   p.shl.visible = !!shl; if (shl) p.shl.material.color.set(shl.c);
 }
 
