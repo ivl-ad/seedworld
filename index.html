@@ -121,7 +121,7 @@
   #invGrid{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(7,1fr);
     gap:1px;height:100%}
   .slot{position:relative;display:grid;place-items:center;border-radius:2px;cursor:pointer}
-  .slot.use{box-shadow:inset 0 0 0 2px var(--amber)}
+  .slot.use{box-shadow:inset 0 0 0 2px #fff}
   .slot.has:hover{background:rgba(255,255,255,.07)}
   .slot img{width:30px;height:30px;image-rendering:pixelated;pointer-events:none}
   .slot em{position:absolute;top:0;left:2px;font-style:normal;font-size:10px;font-weight:700;
@@ -3309,30 +3309,37 @@ function layoutCity(v) {
     const az = back.z ? host.z + back.z * (host.hd - 1) : host.z - host.hd + 1;
     return { ax, az, bx: back.x ? ax : host.x + host.hw - 1, bz: back.z ? host.z + host.hd - 1 : az };
   };
-  // an open-air smithy near the crossing, under the sky
-  const outdoorSmithy = () => {
+  /* Furnace and anvil are separate trades in separate premises: each finds
+     its own host building, or failing that its own patch of open ground by
+     the crossing. Villages roll for each independently. */
+  const outdoorFix = (t, so) => {
     for (let i = 0; i < 14; i++) {
-      const h = hash2(v.x + i * 53, v.z + i * 29, S + 44);
+      const h = hash2(v.x + i * 53 + so, v.z + i * 29 - so, S + 44);
       const a = (h & 1023) / 1024 * TAU, rr = 5 + (h >>> 10) % 7;
       const x = Math.round(v.x + Math.sin(a) * rr), z = Math.round(v.z + Math.cos(a) * rr);
-      if (get(x, z) !== G_EMPTY || get(x + 1, z) !== G_EMPTY) continue;
+      if (get(x, z) !== G_EMPTY) continue;
       const y = heightAt(x, z);
       if (y < 1.9) continue;
-      force(x, z, G_BUILD); force(x + 1, z, G_BUILD);
-      FIX.push({ t: 3, x, z, y, in: null });
-      FIX.push({ t: 4, x: x + 1, z, y, in: null });
+      force(x, z, G_BUILD);
+      FIX.push({ t, x, z, y, in: null });
       return;
     }
   };
-  if (v.rank >= 2) {                                   // a proper smithy, always
-    const host = byCentre.find(b => b.shop === null && b.hw >= 3 && b.hd >= 2);
-    if (host) {
-      host.forge = 1;
-      const c = corners(host), fy = host.y + FLOOR_TOP;
-      FIX.push({ t: 3, x: c.ax, z: c.az, y: fy, in: host });
-      FIX.push({ t: 4, x: c.bx, z: c.bz, y: fy, in: host });
-    } else outdoorSmithy();                            // no roomy house spared one
-  } else if ((hash2(v.x, v.z, S + 43) % 100) < [30, 55][v.rank]) outdoorSmithy();
+  const indoorFix = (t, minW) => {
+    const host = byCentre.find(b => b.shop === null && !b.forge && !b.range && b.hw >= minW && b.hd >= 2);
+    if (!host) return 0;
+    host.forge = 1;
+    const c = corners(host);
+    FIX.push({ t, x: c.ax, z: c.az, y: host.y + FLOOR_TOP, in: host });
+    return 1;
+  };
+  if (v.rank >= 2) {                                   // towns always run to both
+    if (!indoorFix(3, 3)) outdoorFix(3, 0);
+    if (!indoorFix(4, 2)) outdoorFix(4, 977);
+  } else {
+    if (hash2(v.x, v.z, S + 43) % 100 < [25, 45][v.rank]) outdoorFix(3, 0);
+    if (hash2(v.x, v.z, S + 48) % 100 < [25, 50][v.rank]) outdoorFix(4, 977);
+  }
   if (v.rank >= 1 || (hash2(v.x, v.z, S + 46) & 7) < 5) {   // a range to cook on
     const host = byCentre.find(b => b.shop === null && !b.forge && b.hw >= 2 && b.hd >= 2);
     if (host) {
@@ -4954,6 +4961,7 @@ let openShop = null, bankOpen = 0;
    the pack (itemOptions turns into a deposit sheet), withdrawals from
    clicking the vault rows. */
 function openBank() {
+  clearUse();
   bankOpen = 1;
   say('The banker pulls out your vault book.');
   drawBank();
@@ -5142,6 +5150,7 @@ function showMake(title, rows, fn) {
   showModal(title, h.join(''), 'Click an item to make one.');
 }
 function startShop(o) {
+  clearUse();
   const n = nearVillage(o.x, o.z);
   openShop = { kind: SHOP_KINDS[o.k].k, name: SHOP_KINDS[o.k].n, tier: n ? n.v.tier : 0 };
   openShop.stock = shopStock(openShop.kind, openShop.tier);
@@ -5533,12 +5542,29 @@ const hoverEl = el('hover'), ctxEl = el('ctx');
 function optionsFor(o) {
   const opts = [];
   if (!o) return opts;
-  /* An armed item turns a fire or a range into a use-target and hides the
-     usual menu, the way the 2007 use-cursor did. */
-  if (useSel && (o.fire || o.t === 6)) {
-    const u = useSel;
-    opts.push({ t: 'Use', o: u.name + ' → ' + (o.fire ? 'Fire' : 'Range'), cls: 'itm',
-      f: () => { clearUse(); flashTarget(o, 0); startTask(o, 'cook'); P.task.raw = u.id; } });
+  /* An armed item replaces the whole menu, the way the 2007 use-cursor did:
+     raw food meets a fire or range, bones meet the altar, ore meets the
+     furnace, a bar meets the anvil — and everything else gets the shrug. */
+  if (useSel) {
+    const u = useSel, uit = ITEMS[u.id];
+    let go = null, tn = null;
+    if ((o.fire || o.t === 6) && uit.raw) {
+      tn = o.fire ? 'Fire' : 'Range';
+      go = () => { flashTarget(o, 0); startTask(o, 'cook'); P.task.raw = u.id; };
+    } else if (o.t === 8 && uit.bury) {
+      tn = 'Altar'; go = () => { flashTarget(o, 0); startTask(o, 'pray'); };
+    } else if (o.t === 3 && uit.g === 'ore') {
+      tn = 'Furnace'; go = () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openSmelt }; };
+    } else if (o.t === 4 && uit.g === 'bar') {
+      tn = 'Anvil'; go = () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openSmith }; };
+    }
+    if (go) {
+      opts.push({ t: 'Use', o: u.name + ' → ' + tn, cls: 'itm', f: () => { clearUse(); go(); } });
+      return opts;
+    }
+    const on = o.n || o.name || (o.fire ? 'Fire' : o.drop ? ITEMS[o.id].name : 'that');
+    opts.push({ t: 'Use', o: u.name + ' → ' + on, cls: 'itm',
+      f: () => { say('Nothing interesting happens.'); clearUse(); } });
     return opts;
   }
   if (o.remote) {
@@ -5601,12 +5627,13 @@ function itemOptions(i) {
     return opts;
   }
   if (openShop && s.id !== 'coins') opts.push({ t: 'Sell', o: it.name, cls: 'itm', f: () => shopSell(i) });
-  if (it.raw) opts.push({ t: useSel && useSel.i === i ? 'Cancel use' : 'Use', o: it.name, cls: 'itm',
-    f: () => { if (useSel && useSel.i === i) clearUse();
-               else { useSel = { i, id: s.id, name: it.name }; dirty.inv = 1; hoverObj = undefined;
-                      say('Use the ' + it.name.toLowerCase() + ' on a fire or a cooking range.'); } } });
+  /* 2007's option order: gear wields, food eats, and everything else leads
+     with Use — the select-then-click verb that glues the game together. */
   if (it.equip) opts.push({ t: 'Wield', o: it.name, cls: 'itm', f: () => equip(i) });
   if (it.heal) opts.push({ t: 'Eat', o: it.name, cls: 'itm', f: () => eat(i) });
+  opts.push({ t: useSel && useSel.i === i ? 'Cancel use' : 'Use', o: it.name, cls: 'itm',
+    f: () => { if (useSel && useSel.i === i) clearUse();
+               else { useSel = { i, id: s.id, name: it.name }; dirty.inv = 1; hoverObj = undefined; } } });
   if (it.bury) opts.push({ t: 'Bury', o: it.name, cls: 'itm', f: () => bury(s.id) });
   if (it.fire) opts.push({ t: 'Light', o: it.name, cls: 'itm', f: () => lightLogs(s.id) });
   opts.push({ t: 'Drop', o: it.name, cls: 'itm', f: () => { dropItem(s.id, s.n, P.tx, P.tz); inv[i] = null; dirty.inv = 1; } });
@@ -5775,8 +5802,8 @@ dom.addEventListener('pointerup', e => {
   if (trade && trade.open) return;                 // you are stood still, trading
   const ray = rayAt(e.clientX, e.clientY);
   const o = pickObject(ray);
-  // clicking anything but a use-target quietly puts the armed item away
-  if (useSel && !(o && (o.fire || o.t === 6))) clearUse();
+  // bare ground with an item armed: put it away and walk, as 2007 did
+  if (useSel && !o) clearUse();
   if (o) { const opts = optionsFor(o); if (opts.length) { opts[0].f(); return; } }
   const g = rayGround(ray);
   if (g) walkTo(g.x, g.z);
@@ -5828,10 +5855,28 @@ dom.addEventListener('pointerup', endTouch);
 dom.addEventListener('pointercancel', endTouch);
 dom.style.touchAction = 'none';
 
+/* Item on item, 2007's short list: a tinderbox meets logs and that is the
+   whole chemistry set — anything else politely shrugs. Returns 1 when the
+   pair meant something, whether or not the attempt succeeded. */
+function combineItems(ai, bi) {
+  const A = inv[ai], B = inv[bi]; if (!A || !B) return 0;
+  const logs = ITEMS[A.id].fire ? A : ITEMS[B.id].fire ? B : null;
+  const tin = A.id === 'tinderbox' ? A : B.id === 'tinderbox' ? B : null;
+  if (logs && tin && logs !== tin) { lightLogs(logs.id); return 1; }
+  return 0;
+}
 invGrid.addEventListener('click', e => {
-  const s = e.target.closest('.slot'); if (!s) return;
+  const s = e.target.closest('.slot');
+  if (!s) { clearUse(); return; }                     // dead space in the pack
   const i = +s.dataset.i;
   if (trade && trade.open) { tradeAdd(i); return; }   // the pack feeds the trade window
+  if (useSel) {
+    const from = useSel.i;
+    if (from === i) { clearUse(); return; }           // second click puts it away
+    if (inv[i] && !combineItems(from, i)) say('Nothing interesting happens.');
+    clearUse();                                       // empty slot deselects silently
+    return;
+  }
   const opts = itemOptions(i);
   if (opts.length) opts[0].f();
 });
