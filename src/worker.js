@@ -166,10 +166,16 @@ export class World extends DurableObject {
 
       case 3:                                    // equipment
         me.eq = Array.isArray(m[1])
-          ? m[1].slice(0, 5).map(v => (v == null ? null : String(v).slice(0, 32)))
+          ? m[1].slice(0, 6).map(v => (v == null ? null : String(v).slice(0, 32)))
           : [];
         this.queue('3:' + me.pid, [3, me.pid, me.eq]);
         break;
+
+      case 19: {                                  // an arrow was loosed, and where
+        this.queue('19:' + me.pid + ':' + now,
+          [19, me.pid, m[1] | 0, m[2] | 0, (m[3] | 0) & 0xffffff]);
+        break;
+      }
 
       case 18: {                                  // a spell was cast, and at what
         this.queue('18:' + me.pid + ':' + now,
