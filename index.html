@@ -2019,34 +2019,201 @@ function buildAvatar() {
   return g;
 }
 
-/* NPCs merge into a single geometry each — they bob and turn, so there is
-   nothing to gain from splitting them into limbs. */
-function npcGeo(bodyC, headC, w, h, legs) {
+/* --------------------- 10b. THE BESTIARY ---------------------------- */
+/* Every creature is a merged geometry with the light already baked in, so a
+   monster costs exactly one draw call however many boxes it is made of. The
+   builders below take a palette and proportions rather than being written out
+   one at a time — a wolf and a bear are the same animal with different numbers.
+
+   `sz` is the pick radius in tiles and doubles as the reach for anything
+   larger than a person: a hill giant you have to stand next to is a hill giant
+   whose arms go through you. */
+function humanoid(o) {
+  const w = o.w, h = o.h, body = o.body, skin = o.skin || o.body;
   const l = [
-    shade(shift(box(w, h * 0.5, w * 0.62), h * 0.75), bodyC),
-    shade(shift(box(w * 0.62, w * 0.62, w * 0.62), h * 1.02), headC)
+    shade(shift(box(w, h * 0.46, w * 0.6), h * 0.74), body),                 // torso
+    shade(shift(box(w * 0.6, w * 0.58, w * 0.6), h * 1.0), skin),            // head
+    shade(shift(box(w * 0.3, h * 0.52, w * 0.3), h * 0.26).translate(w * 0.26, 0, 0), body),
+    shade(shift(box(w * 0.3, h * 0.52, w * 0.3), h * 0.26).translate(-w * 0.26, 0, 0), body)
   ];
-  if (legs) l.push(
-    shade(shift(box(w * 0.3, h * 0.5, w * 0.3), h * 0.25).translate(w * 0.25, 0, 0), bodyC),
-    shade(shift(box(w * 0.3, h * 0.5, w * 0.3), h * 0.25).translate(-w * 0.25, 0, 0), bodyC));
+  if (o.arms !== 0) l.push(
+    shade(shift(box(w * 0.26, h * 0.44, w * 0.26), h * 0.72).translate(w * 0.63, 0, 0), o.arm || body),
+    shade(shift(box(w * 0.26, h * 0.44, w * 0.26), h * 0.72).translate(-w * 0.63, 0, 0), o.arm || body));
+  if (o.horns) for (const s of [-1, 1])
+    l.push(shade(shift(new THREE.ConeGeometry(w * 0.12, h * 0.26, 4), h * 1.28)
+      .translate(s * w * 0.22, 0, 0), o.horn || [0.9, 0.88, 0.82]));
+  if (o.ears) for (const s of [-1, 1])
+    l.push(shade(shift(new THREE.ConeGeometry(w * 0.1, w * 0.4, 4), h * 1.02)
+      .rotateZ(s * 1.1).translate(s * w * 0.38, 0, 0), skin));
+  if (o.wings) for (const s of [-1, 1])
+    l.push(shade(box(w * 0.1, h * 0.6, h * 0.5).translate(s * w * 0.72, h * 0.85, -w * 0.3)
+      .rotateY(s * 0.5), o.wing || [0.22, 0.14, 0.14]));
+  if (o.belt) l.push(shade(shift(box(w * 1.04, h * 0.08, w * 0.64), h * 0.6), o.belt));
   return merge(l);
 }
+function quadruped(o) {
+  const w = o.w, h = o.h, L = o.len || w * 1.7, body = o.body;
+  const l = [
+    shade(shift(box(w, h * 0.5, L), h * 0.62), body),                        // barrel
+    shade(shift(box(w * 0.62, h * 0.44, w * 0.66), h * 0.8).translate(0, 0, L * 0.56), o.head || body)
+  ];
+  for (const sx of [-1, 1]) for (const sz of [-1, 1])
+    l.push(shade(shift(box(w * 0.24, h * 0.5, w * 0.24), h * 0.25)
+      .translate(sx * w * 0.34, 0, sz * L * 0.34), o.leg || body));
+  if (o.tail) l.push(shade(shift(box(w * 0.16, w * 0.16, L * 0.5), h * 0.68)
+    .translate(0, 0, -L * 0.66), o.tail));
+  if (o.horns) for (const s of [-1, 1])
+    l.push(shade(shift(new THREE.ConeGeometry(w * 0.11, h * 0.3, 4), h * 1.0)
+      .translate(s * w * 0.24, 0, L * 0.5), [0.92, 0.9, 0.84]));
+  if (o.snout) l.push(shade(shift(box(w * 0.34, h * 0.2, w * 0.4), h * 0.72)
+    .translate(0, 0, L * 0.86), o.head || body));
+  return merge(l);
+}
+/* Eight legs radiating from a low body reads as a spider at any size. */
+function spiderGeo(o) {
+  const w = o.w, body = o.body;
+  const l = [
+    shade(shift(new THREE.OctahedronGeometry(w * 0.55, 0), w * 0.5).translate(0, 0, -w * 0.3), body),
+    shade(shift(new THREE.OctahedronGeometry(w * 0.34, 0), w * 0.46).translate(0, 0, w * 0.42), o.head || body)
+  ];
+  for (let i = 0; i < 8; i++) {
+    const s = i < 4 ? 1 : -1, a = 0.5 + (i % 4) * 0.42;
+    l.push(shade(box(w * 0.09, w * 0.09, w * 1.0)
+      .rotateX(0.5).rotateY(s * a).translate(s * w * 0.42, w * 0.34, w * 0.1 - (i % 4) * w * 0.22), o.leg || body));
+  }
+  return merge(l);
+}
+/* A long neck, a tail, and wings you can see from behind. */
+function dragonGeo(o) {
+  const w = o.w, h = o.h, body = o.body;
+  const l = [
+    shade(shift(box(w, h * 0.5, w * 1.9), h * 0.62), body),
+    shade(shift(box(w * 0.44, h * 0.4, w * 0.9), h * 1.0).translate(0, 0, w * 1.05), body),   // neck
+    shade(shift(box(w * 0.5, h * 0.34, w * 0.7), h * 1.16).translate(0, 0, w * 1.6), o.head || body),
+    shade(shift(box(w * 0.3, h * 0.14, w * 0.34), h * 1.06).translate(0, 0, w * 2.0), o.head || body)
+  ];
+  for (const sx of [-1, 1]) for (const sz of [-1, 1])
+    l.push(shade(shift(box(w * 0.26, h * 0.5, w * 0.3), h * 0.25)
+      .translate(sx * w * 0.4, 0, sz * w * 0.66), body));
+  for (const s of [-1, 1]) {
+    l.push(shade(box(w * 0.1, h * 0.9, w * 1.5)
+      .translate(s * w * 0.7, h * 1.05, -w * 0.2).rotateY(s * 0.35), o.wing || body));
+    l.push(shade(shift(new THREE.ConeGeometry(w * 0.12, h * 0.34, 4), h * 1.34)
+      .translate(s * w * 0.16, 0, w * 1.62), [0.92, 0.9, 0.84]));
+  }
+  for (let i = 0; i < 4; i++)
+    l.push(shade(shift(box(w * (0.4 - i * 0.07), h * 0.16, w * 0.5), h * 0.66)
+      .translate(0, 0, -w * (1.0 + i * 0.42)), body));
+  return merge(l);
+}
+/* Bones: everything thin, nothing filled in. */
+function skeletonGeo(o) {
+  const w = o.w, h = o.h, c = [0.87, 0.86, 0.79];
+  const l = [
+    shade(shift(box(w * 0.5, w * 0.5, w * 0.46), h * 1.0), c),
+    shade(shift(box(w * 0.12, h * 0.4, w * 0.12), h * 0.56), c)
+  ];
+  for (let i = 0; i < 4; i++)
+    l.push(shade(shift(box(w * 0.66, h * 0.05, w * 0.4), h * 0.86 - i * h * 0.09), c));
+  for (const s of [-1, 1]) {
+    l.push(shade(shift(box(w * 0.14, h * 0.44, w * 0.14), h * 0.68).translate(s * w * 0.42, 0, 0), c));
+    l.push(shade(shift(box(w * 0.16, h * 0.5, w * 0.16), h * 0.25).translate(s * w * 0.2, 0, 0), c));
+  }
+  return merge(l);
+}
+/* A ghost has no legs and a hem that trails off. */
+function ghostGeo(o) {
+  const w = o.w, h = o.h, c = o.body;
+  return merge([
+    shade(shift(new THREE.ConeGeometry(w * 0.7, h * 0.8, 7), h * 0.4), c),
+    shade(shift(box(w * 0.56, w * 0.54, w * 0.52), h * 0.94), o.head || c),
+    shade(shift(box(w * 0.2, h * 0.34, w * 0.2), h * 0.66).translate(w * 0.5, 0, 0), c),
+    shade(shift(box(w * 0.2, h * 0.34, w * 0.2), h * 0.66).translate(-w * 0.5, 0, 0), c)
+  ]);
+}
+
+/* Levels and hitpoints follow the 2007 tables closely; attack, strength and
+   defence are scaled from the level so the existing accuracy formula produces
+   fights of roughly the right length. Nothing here is aggressive to a player
+   who leaves it alone — `agg` only decides whether it retaliates from range. */
 const NPC_TYPES = [
-  { k: 'rat',    n: 'Giant rat', lv: 3,  hp: 3,  atk: 1,  str: 1,  def: 1,  spd: 4,
+  /* ---- livestock and vermin: what a level 3 can actually beat ---- */
+  { k: 'chicken', n: 'Chicken', lv: 1, hp: 2, atk: 1, str: 1, def: 0, db: 0, spd: 7, sz: 0.7, band: 0,
+    build: () => quadruped({ w: 0.34, h: 0.5, len: 0.5, body: [0.92, 0.9, 0.86],
+      head: [0.9, 0.86, 0.8], leg: [0.85, 0.62, 0.2], tail: [0.95, 0.93, 0.9] }) },
+  { k: 'rat', n: 'Giant rat', lv: 3, hp: 3, atk: 1, str: 1, def: 1, db: 0, spd: 6, sz: 0.8, band: 0,
     build: () => merge([
       shade(shift(box(0.62, 0.36, 1.0), 0.22), [0.42, 0.33, 0.25]),
       shade(shift(box(0.34, 0.3, 0.34), 0.34).translate(0, 0, 0.6), [0.5, 0.4, 0.3]),
       shade(shift(box(0.08, 0.08, 0.7), 0.2).translate(0, 0, -0.8), [0.6, 0.45, 0.4])]) },
-  { k: 'goblin', n: 'Goblin',    lv: 5,  hp: 9,  atk: 3,  str: 3,  def: 2,  spd: 5,
-    build: () => npcGeo([0.36, 0.5, 0.26], [0.45, 0.62, 0.3], 0.6, 1.25, 1) },
-  { k: 'bandit', n: 'Bandit',    lv: 14, hp: 20, atk: 9,  str: 9,  def: 8,  spd: 5,
-    build: () => npcGeo([0.28, 0.24, 0.22], [0.78, 0.6, 0.45], 0.7, 1.6, 1) },
-  { k: 'guard',  n: 'Guard',     lv: 21, hp: 32, atk: 15, str: 14, def: 16, spd: 5,
-    build: () => npcGeo([0.42, 0.44, 0.5], [0.78, 0.6, 0.45], 0.76, 1.7, 1) }
+  { k: 'cow', n: 'Cow', lv: 2, hp: 5, atk: 1, str: 1, def: 1, db: 0, spd: 7, sz: 1.1, band: 0,
+    build: () => quadruped({ w: 0.9, h: 1.15, len: 1.6, body: [0.88, 0.86, 0.82],
+      head: [0.3, 0.26, 0.24], leg: [0.3, 0.26, 0.24], tail: [0.3, 0.26, 0.24], horns: 1, snout: 1 }) },
+  { k: 'spider', n: 'Giant spider', lv: 2, hp: 4, atk: 1, str: 1, def: 1, db: 0, spd: 6, sz: 0.9, band: 0,
+    build: () => spiderGeo({ w: 0.8, body: [0.24, 0.18, 0.2], head: [0.36, 0.14, 0.14], leg: [0.16, 0.12, 0.13] }) },
+  { k: 'goblin', n: 'Goblin', lv: 5, hp: 5, atk: 1, str: 1, def: 1, db: 0, spd: 6, sz: 0.9, band: 0,
+    build: () => humanoid({ w: 0.6, h: 1.25, body: [0.36, 0.5, 0.26], skin: [0.45, 0.62, 0.3], ears: 1 }) },
+  { k: 'imp', n: 'Imp', lv: 7, hp: 7, atk: 2, str: 2, def: 2, db: 2, spd: 4, sz: 0.7, band: 0,
+    build: () => humanoid({ w: 0.44, h: 0.9, body: [0.62, 0.28, 0.2], skin: [0.72, 0.34, 0.24], horns: 1, ears: 1 }) },
+
+  /* ---- the middle of the game ---- */
+  { k: 'barbarian', n: 'Barbarian', lv: 10, hp: 14, atk: 5, str: 6, def: 4, db: 4, spd: 5, sz: 0.95, band: 1,
+    build: () => humanoid({ w: 0.72, h: 1.62, body: [0.55, 0.42, 0.28], skin: [0.8, 0.62, 0.46], belt: [0.28, 0.2, 0.14] }) },
+  { k: 'zombie', n: 'Zombie', lv: 13, hp: 20, atk: 7, str: 7, def: 6, db: 4, spd: 6, sz: 0.95, band: 1,
+    build: () => humanoid({ w: 0.66, h: 1.55, body: [0.38, 0.42, 0.32], skin: [0.5, 0.56, 0.42], arm: [0.34, 0.38, 0.3] }) },
+  { k: 'bandit', n: 'Bandit', lv: 14, hp: 20, atk: 9, str: 9, def: 8, spd: 5, sz: 0.9, band: 1,
+    build: () => humanoid({ w: 0.7, h: 1.6, body: [0.28, 0.24, 0.22], skin: [0.78, 0.6, 0.45], belt: [0.5, 0.14, 0.14] }) },
+  { k: 'skeleton', n: 'Skeleton', lv: 15, hp: 24, atk: 10, str: 10, def: 9, spd: 5, sz: 0.9, band: 1,
+    build: () => skeletonGeo({ w: 0.66, h: 1.6 }) },
+  { k: 'ghost', n: 'Ghost', lv: 19, hp: 26, atk: 12, str: 11, def: 12, spd: 5, sz: 0.95, band: 1,
+    build: () => ghostGeo({ w: 0.72, h: 1.7, body: [0.62, 0.68, 0.74], head: [0.76, 0.8, 0.84] }) },
+  { k: 'guard', n: 'Guard', lv: 21, hp: 32, atk: 15, str: 14, def: 16, spd: 5, sz: 0.95, band: 1,
+    build: () => humanoid({ w: 0.76, h: 1.7, body: [0.42, 0.44, 0.5], skin: [0.78, 0.6, 0.45], belt: [0.3, 0.3, 0.34] }) },
+  { k: 'scorpion', n: 'King scorpion', lv: 24, hp: 30, atk: 16, str: 15, def: 14, spd: 4, sz: 1.0, band: 1,
+    build: () => spiderGeo({ w: 1.0, body: [0.5, 0.34, 0.16], head: [0.6, 0.42, 0.2], leg: [0.42, 0.28, 0.14] }) },
+  { k: 'wolf', n: 'Wolf', lv: 25, hp: 32, atk: 18, str: 17, def: 14, spd: 4, sz: 1.0, band: 2,
+    build: () => quadruped({ w: 0.7, h: 1.0, len: 1.5, body: [0.42, 0.42, 0.45],
+      head: [0.34, 0.34, 0.37], leg: [0.3, 0.3, 0.33], tail: [0.46, 0.46, 0.49], snout: 1 }) },
+  { k: 'bear', n: 'Black bear', lv: 27, hp: 40, atk: 19, str: 20, def: 16, spd: 5, sz: 1.2, band: 2,
+    build: () => quadruped({ w: 1.05, h: 1.35, len: 1.8, body: [0.16, 0.14, 0.13],
+      head: [0.2, 0.18, 0.16], leg: [0.13, 0.11, 0.1], snout: 1 }) },
+  { k: 'hobgoblin', n: 'Hobgoblin', lv: 28, hp: 42, atk: 20, str: 20, def: 18, spd: 5, sz: 1.0, band: 2,
+    build: () => humanoid({ w: 0.86, h: 1.95, body: [0.4, 0.44, 0.3], skin: [0.5, 0.56, 0.32], ears: 1, belt: [0.3, 0.22, 0.16] }) },
+
+  /* ---- the big ones: physically large, and they hit like it ---- */
+  { k: 'hillgiant', n: 'Hill giant', lv: 28, hp: 70, atk: 20, str: 24, def: 18, spd: 6, sz: 1.9, band: 2, big: 1,
+    build: () => humanoid({ w: 1.9, h: 4.0, body: [0.62, 0.5, 0.36], skin: [0.74, 0.6, 0.45], belt: [0.34, 0.24, 0.16] }) },
+  { k: 'mossgiant', n: 'Moss giant', lv: 42, hp: 92, atk: 28, str: 32, def: 26, spd: 6, sz: 2.1, band: 3, big: 1,
+    build: () => humanoid({ w: 2.1, h: 4.3, body: [0.29, 0.4, 0.21], skin: [0.37, 0.48, 0.25], belt: [0.2, 0.28, 0.14] }) },
+  { k: 'ogre', n: 'Ogre', lv: 53, hp: 108, atk: 34, str: 40, def: 30, spd: 6, sz: 2.0, band: 3, big: 1,
+    build: () => humanoid({ w: 2.0, h: 3.8, body: [0.55, 0.5, 0.3], skin: [0.66, 0.6, 0.36], belt: [0.3, 0.22, 0.14] }) },
+  { k: 'icegiant', n: 'Ice giant', lv: 53, hp: 110, atk: 34, str: 38, def: 34, spd: 6, sz: 2.2, band: 4, big: 1,
+    build: () => humanoid({ w: 2.2, h: 4.6, body: [0.62, 0.76, 0.86], skin: [0.72, 0.85, 0.92], belt: [0.4, 0.55, 0.68] }) },
+  { k: 'troll', n: 'Mountain troll', lv: 69, hp: 132, atk: 44, str: 50, def: 40, spd: 6, sz: 2.2, band: 4, big: 1,
+    build: () => humanoid({ w: 2.2, h: 4.2, body: [0.44, 0.42, 0.4], skin: [0.52, 0.5, 0.46], horns: 1, belt: [0.3, 0.28, 0.26] }) },
+  { k: 'greendragon', n: 'Green dragon', lv: 79, hp: 150, atk: 52, str: 56, def: 48, spd: 5, sz: 2.6, band: 4, big: 1,
+    build: () => dragonGeo({ w: 1.6, h: 2.6, body: [0.22, 0.38, 0.2], head: [0.28, 0.45, 0.24], wing: [0.17, 0.3, 0.16] }) },
+  { k: 'lesserdemon', n: 'Lesser demon', lv: 82, hp: 158, atk: 56, str: 58, def: 50, spd: 5, sz: 2.3, band: 5, big: 1,
+    build: () => humanoid({ w: 2.0, h: 4.4, body: [0.55, 0.16, 0.12], skin: [0.66, 0.2, 0.14],
+      horns: 1, wings: 1, wing: [0.3, 0.1, 0.1], belt: [0.2, 0.08, 0.06] }) },
+  { k: 'firegiant', n: 'Fire giant', lv: 86, hp: 170, atk: 60, str: 64, def: 54, spd: 6, sz: 2.4, band: 5, big: 1,
+    build: () => humanoid({ w: 2.3, h: 4.8, body: [0.72, 0.34, 0.12], skin: [0.82, 0.46, 0.16], belt: [0.4, 0.16, 0.06] }) },
+  { k: 'greaterdemon', n: 'Greater demon', lv: 92, hp: 190, atk: 66, str: 70, def: 60, spd: 5, sz: 2.6, band: 5, big: 1,
+    build: () => humanoid({ w: 2.4, h: 5.2, body: [0.35, 0.1, 0.14], skin: [0.5, 0.14, 0.16],
+      horns: 1, wings: 1, wing: [0.2, 0.06, 0.08], belt: [0.16, 0.05, 0.06] }) },
+  { k: 'blackdragon', n: 'Black dragon', lv: 227, hp: 240, atk: 90, str: 96, def: 88, spd: 5, sz: 3.0, band: 6, big: 1,
+    build: () => dragonGeo({ w: 2.0, h: 3.2, body: [0.13, 0.12, 0.15], head: [0.19, 0.18, 0.22], wing: [0.09, 0.08, 0.11] }) }
 ];
-NPC_TYPES.forEach(t => t.geo = t.build());
+NPC_TYPES.forEach((t, i) => { t.geo = t.build(); t.i = i; });
+const NPC_BY = Object.create(null); NPC_TYPES.forEach(t => NPC_BY[t.k] = t);
+/* Which creatures belong at a given danger, so a chicken never guards a peak
+   and a black dragon never wanders into a starter village. */
+const DANGER = [[], [], [], [], [], [], []];
+NPC_TYPES.forEach(t => DANGER[t.band].push(t));
+
 /* Shopkeepers stand behind a counter and never fight. */
-const KEEP_GEO = npcGeo([0.55, 0.42, 0.28], [0.82, 0.66, 0.5], 0.66, 1.55, 1);
+function npcGeo(bodyC, headC, w, h) { return humanoid({ w, h, body: bodyC, skin: headC }); }
+const KEEP_GEO = npcGeo([0.55, 0.42, 0.28], [0.82, 0.66, 0.5], 0.66, 1.55);
 
 /* ================= STAGE 2 — THE PLAN OF A TOWN ====================
    A settlement is laid out once, lazily, the first time a chunk needs it,
@@ -3131,7 +3298,8 @@ function pickObject(ray) {
     if (depleted.has(ob.key)) continue;
     test(ob.x, ob.y + PICK_Y[ob.t], ob.z, PICK_R[ob.t], ob);
   }
-  for (const n of npcs) if (!n.dead) test(n.rx, n.ry + 0.8, n.rz, 1.05, n);
+  for (const n of npcs) if (!n.dead) test(n.rx, n.ry + (n.t.sz || 1) * 0.8, n.rz, (n.t.sz || 1) * 1.15, n);
+  for (const R of remotes.values()) test(R.rx, R.ry + 0.9, R.rz, 1.1, R);
   for (const dr of drops) test(dr.x, dr.y + 0.35, dr.z, 0.75, dr);
   for (const f of fires) test(f.x, f.y + 0.6, f.z, 1.1, f);
   return best;
@@ -3378,8 +3546,57 @@ function lightFire(x, z) {
    castle courtyard; the wilds outside get bandits. */
 const npcs = [];
 const npcDead = new Map();
-const NPC_CAP = 8;
+const NPC_CAP = 16;
 
+/* How dangerous the ground is. Distance from the origin does most of the work,
+   the way 2007 pushed its wilderness north, with peaks and deep wilds adding
+   to it. Bands are stable per region, so a place is remembered by what lives
+   there rather than rerolling every time you walk back. */
+function dangerAt(x, z) {
+  const d = Math.hypot(x, z);
+  const far = d / 1600;
+  const high = Math.max(0, (heightAt(x, z) - 30) / 30);
+  const noise = fbm(x * 0.00055, z * 0.00055, S + 111, 2) * 0.9;
+  let b = far + high + noise;
+  // The origin is where a defeated player wakes up with nothing, so it has to
+  // be survivable on arrival rather than whatever the noise happened to roll.
+  if (d < 320) b = Math.min(b, 0.4);
+  return clamp(Math.round(b), 0, 6);
+}
+function pickMonster(x, z, h) {
+  const d = dangerAt(x, z);
+  // mostly this band, sometimes one either side, so borders are not hard lines
+  const roll = (h >>> 9) % 10;
+  const band = clamp(d + (roll < 2 ? -1 : roll > 8 ? 1 : 0), 0, 6);
+  const list = DANGER[band].length ? DANGER[band] : (DANGER[d].length ? DANGER[d] : DANGER[0]);
+  return list[(h >>> 13) % list.length];
+}
+/* Creatures out in the world, on their own lattice so they do not depend on a
+   settlement existing. One roaming pack per 64-tile cell, seeded by the cell. */
+const WILD_CELL = 64;
+function spawnWild() {
+  const cx = Math.floor(P.tx / WILD_CELL), cz = Math.floor(P.tz / WILD_CELL);
+  for (let a = -1; a <= 1 && npcs.length < NPC_CAP; a++)
+    for (let b = -1; b <= 1 && npcs.length < NPC_CAP; b++) {
+      const gx = cx + a, gz = cz + b;
+      const h = hash2(gx, gz, S + 112);
+      if ((h % 100) > 58) continue;                    // a bit under half the cells hold something
+      const packed = 1 + (h >>> 7) % 4;
+      for (let i = 0; i < packed && npcs.length < NPC_CAP; i++) {
+        const key = 'w' + gx + '_' + gz + '_' + i;
+        if (npcDead.has(key) || npcs.some(q => q.key === key)) continue;
+        const hh = hash2(gx * 31 + i, gz * 17 - i, S + 113);
+        const x = gx * WILD_CELL + (hh % WILD_CELL);
+        const z = gz * WILD_CELL + ((hh >>> 8) % WILD_CELL);
+        if (Math.abs(x - P.tx) > 58 || Math.abs(z - P.tz) > 58) continue;
+        const y = walkY(x, z);
+        if (isWater(y) || y > 70 || blocked.has(tk(x, z)) || floorMap.has(tk(x, z))) continue;
+        const nv = nearVillage(x, z);
+        if (nv && nv.d < nv.v.r * 1.1) continue;        // towns keep their own guards
+        spawnNpc(pickMonster(x, z, hh), x, z, key);
+      }
+    }
+}
 function refreshNpcs() {
   for (let i = npcs.length - 1; i >= 0; i--) {
     const n = npcs[i];
@@ -3401,22 +3618,22 @@ function refreshNpcs() {
         if (v.keep && i < 2 + v.rank) {                    // castle garrison
           const c = v.keep, sp = 4 + ((h >>> 3) & 7);
           x = c.x + (((h & 1) ? 1 : -1) * sp); z = c.z + ((((h >>> 1) & 1) ? 1 : -1) * sp);
-          t = NPC_TYPES[3];
+          t = NPC_BY.guard;
         } else if (v.spots && v.spots.length && (h & 1)) {
           const sp = v.spots[(h >>> 6) % v.spots.length];  // townsfolk on the streets
           x = sp.x; z = sp.z;
-          t = NPC_TYPES[v.rank >= 3 ? 3 : (h >>> 17) & 1];
+          t = v.rank >= 3 ? NPC_BY.guard : ((h >>> 17) & 1 ? NPC_BY.barbarian : NPC_BY.goblin);
         } else {
           const ang = (h & 1023) / 1024 * TAU, rad = v.r * (0.9 + ((h >>> 10) & 63) / 64 * 0.6);
           x = Math.round(v.x + Math.cos(ang) * rad); z = Math.round(v.z + Math.sin(ang) * rad);
-          const far = Math.min(3, Math.hypot(v.x, v.z) / 900 | 0);
-          t = NPC_TYPES[Math.min(3, (h >>> 17) % (2 + far))];
+          t = pickMonster(x, z, h);                     // the outskirts belong to the wilds
         }
         if (Math.abs(x - P.tx) > 60 || Math.abs(z - P.tz) > 60) continue;
         if (isWater(walkY(x, z)) || blocked.has(tk(x, z))) continue;
         spawnNpc(t, x, z, key);
       }
     }
+  spawnWild();
 }
 function spawnNpc(t, x, z, key) {
   const mesh = new THREE.Mesh(t.geo, mat);
@@ -3443,7 +3660,7 @@ function npcTick(n) {
       n.cd = n.t.spd;
       const c = hitChance(n.t.atk, 8, defLevel(), bonus('def'));
       // the same max-hit curve the player uses: a rat maxes 1, a guard 3
-      const mx = Math.max(1, Math.floor(0.5 + (n.t.str + 8) * (n.t.str * 2 + 64) / 640));
+      const mx = Math.max(1, Math.round(1 + n.t.str * 0.16));
       hurtPlayer(Math.random() < c ? Math.floor(Math.random() * (mx + 1)) : 0);
     }
   } else if (--n.wander <= 0) {
@@ -3459,29 +3676,58 @@ function killNpc(n) {
   scene.remove(n.mesh);
   npcDead.set(n.key, tickN + 60);
   const i = npcs.indexOf(n); if (i >= 0) npcs.splice(i, 1);
-  dropItem('bones', 1, n.tx, n.tz);
+  const lv = n.t.lv;
+  dropItem(n.t.big ? 'big_bones' : 'bones', 1, n.tx, n.tz);
+  if (Math.random() < 0.75) dropItem('coins', 4 + (Math.random() * lv * 8 | 0), n.tx, n.tz);
+  // the tier you can loot tracks what you had to beat to get it
+  const tier = lv >= 80 ? 6 : lv >= 60 ? 5 : lv >= 40 ? 4 : lv >= 25 ? 3 : lv >= 12 ? 2 : 0;
   const roll = Math.random();
-  if (roll < 0.62) dropItem('coins', 4 + (Math.random() * n.t.lv * 6 | 0), n.tx, n.tz);
-  else if (roll < 0.78) dropItem(n.t.lv > 10 ? 'steel_dagger' : 'bronze_dagger', 1, n.tx, n.tz);
-  else if (roll < 0.84) dropItem(n.t.lv > 10 ? 'mithril_med_helm' : 'iron_med_helm', 1, n.tx, n.tz);
+  if (roll < 0.16) dropItem(TIERS[tier].k + '_med_helm', 1, n.tx, n.tz);
+  else if (roll < 0.26) dropItem(TIERS[tier].k + '_scimitar', 1, n.tx, n.tz);
+  else if (roll < 0.32) dropItem(TIERS[tier].k + '_platebody', 1, n.tx, n.tz);
+  else if (roll < 0.40) dropItem(['iron_ore', 'coal', 'mithril_ore', 'adamantite_ore'][Math.min(3, tier >> 1)], 2 + (Math.random() * 4 | 0), n.tx, n.tz);
+  else if (roll < 0.46 && lv > 20) dropItem(['air_rune', 'fire_rune', 'chaos_rune'][Math.random() * 3 | 0], 8 + (Math.random() * 20 | 0), n.tx, n.tz);
   say('You defeat the ' + n.name + '.', 'good');
   if (P.task && P.task.o === n) P.task = null;
 }
-function hurtPlayer(dmg) {
+let pvpOn = 0;
+function hurtPlayer(dmg, byPlayer) {
   P.hp = Math.max(0, P.hp - dmg);
   dirty.orb = 1;
   hitsplat(P.rx, P.ry + 1.6, P.rz, dmg);
-  if (P.hp <= 0) die();
+  if (P.hp <= 0) die(byPlayer);
 }
-function die() {
+function die(byPlayer) {
   P.dead = 1; P.task = null; P.path.length = 0;
-  markDirty(1);
   say('Oh dear, you are dead!', 'bad');
+
+  /* Killed by another player and you lose the lot, right where you fell. The
+     list goes out over the wire as well as onto our own ground, or the killer
+     would watch you die beside a pile only you can see. */
+  let spill = null;
+  if (byPlayer) {
+    spill = [];
+    for (const sl of EQ_SLOTS) if (eq[sl]) { spill.push([eq[sl], 1]); eq[sl] = null; }
+    for (let i = 0; i < INV_N; i++) if (inv[i]) { spill.push([inv[i].id, inv[i].n]); inv[i] = null; }
+    const dx = P.tx, dz = P.tz;
+    for (const it of spill) dropItem(it[0], it[1], dx, dz);
+    dirty.inv = dirty.eq = 1;
+    dressAvatar();
+    if (ws && ws.readyState === 1 && spill.length) {
+      try { ws.send(JSON.stringify([12, dx, dz, spill.slice(0, 40)])); } catch {}
+    }
+    say('You lost everything you were carrying.', 'bad');
+  }
+  markDirty(1);
+
   setTimeout(() => {
-    placePlayer(P.home.x, P.home.z);
+    // a pvp death sends you to the origin; anything else to your own bed
+    if (byPlayer) { focus.set(0, 0, 0); refresh(); pump(200); placePlayer(0, 0); rebuildNear(); refreshNpcs(); }
+    else placePlayer(P.home.x, P.home.z);
     P.hp = P.maxhp = lvl[SK.hitpoints]; P.dead = 0; P.energy = 100;
+    pvpOn = 0;
     dirty.orb = 1;
-    say('You wake up back where you started.');
+    say(byPlayer ? 'You wake up at the origin with nothing.' : 'You wake up back where you started.');
     markDirty(1);
     refresh(); pump(80);
   }, 1500);
@@ -3534,10 +3780,14 @@ function taskTick() {
   const o = t.o;
   if (o.dead || (o.key !== undefined && depleted.has(o.key) && t.k !== 'cook')) { P.task = null; return; }
   if (o.npc && !o.mesh.parent) { P.task = null; return; }
-  const ox = o.npc ? o.tx : o.x, oz = o.npc ? o.tz : o.z;
+  if (o.remote && !remotes.has(o.pid)) { P.task = null; return; }   // they left
+  const ox = (o.npc || o.remote) ? o.tx : o.x, oz = (o.npc || o.remote) ? o.tz : o.z;
   // A readied spell reaches ten tiles, as standard spells did; everything else
   // needs to be next to you. Walk until in range, then stop and start casting.
-  const reach = (t.k === 'attack' && P.spell !== null) ? MAGIC_RANGE : 1;
+/* Reach scales with bulk: standing beside a hill giant means standing beside
+   its shin, and demanding an adjacent tile made the big ones unfightable. */
+  const reach = (t.k === 'attack' && P.spell !== null) ? MAGIC_RANGE
+              : (t.k === 'attack' && o.npc && o.t.big) ? Math.max(1, Math.round(o.t.sz)) : 1;
   if (Math.max(Math.abs(P.tx - ox), Math.abs(P.tz - oz)) > reach) {
     if (!P.path.length) {                            // chase, or give up if it walked off a cliff
       const p = findPath(P.tx, P.tz, ox, oz, reach);
@@ -3552,6 +3802,37 @@ function taskTick() {
   if (t.k === 'take') { takeDrop(o); P.task = null; return; }
   if (t.k === 'ui')   { P.task = null; t.fn(o); return; }
 
+  if (t.k === 'attack' && o.remote) {
+    /* Player versus player. Each client owns its own hitpoints: we roll the
+       damage with our stats and send it, and the victim applies it to itself.
+       Letting an attacker write someone else's health directly would be worse
+       in every way, and without a server-side simulation this is the closest
+       honest arrangement. */
+    const sp = P.spell !== null ? SPELLS[P.spell] : null;
+    P.acting = 1; P.actSpan = sp ? 5 : atkSpeed();
+    if (--P.actT > 0) return;
+    P.actT = sp ? 5 : atkSpeed();
+    let dmg;
+    if (sp) {
+      if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return; }
+      spendRunes(sp);
+      const c = hitChance(lvl[SK.magic], bonus('mag'), lvl[SK.defence], 0);
+      dmg = Math.random() < c ? Math.floor(Math.random() * (sp.max + Math.floor(bonus('mag') / 8) + 1)) : 0;
+      castFx(o, sp, dmg);
+      gainXp('magic', sp.xp + dmg * 2);
+      drawSpells();
+    } else {
+      const st = STYLES[P.style];
+      const c = hitChance(lvl[SK.attack] * st.acc * prayerMul('atk'), bonus('atk'), 20, 30);
+      dmg = Math.random() < c ? Math.floor(Math.random() * (maxHit() + 1)) : 0;
+      hitsplat(o.rx, o.ry + 1.5, o.rz, dmg);
+      if (dmg > 0) for (const k of st.xp) gainXp(k, dmg * 4 / st.xp.length);
+    }
+    if (dmg > 0) gainXp('hitpoints', dmg * 1.33);
+    if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify([11, o.pid, dmg])); } catch {} }
+    return;
+  }
+
   if (t.k === 'attack') {
     // A readied spell replaces the swing entirely, the way autocast did.
     const sp = P.spell !== null ? SPELLS[P.spell] : null;
@@ -3562,7 +3843,7 @@ function taskTick() {
     if (sp) {
       if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return; }
       spendRunes(sp);
-      c = hitChance(lvl[SK.magic], bonus('mag'), o.t.def, 8);
+      c = hitChance(lvl[SK.magic], bonus('mag'), o.t.def, o.t.db === undefined ? 8 : o.t.db);
       const mx = sp.max + Math.floor(bonus('mag') / 8);
       dmg = Math.random() < c ? Math.floor(Math.random() * (mx + 1)) : 0;
       o.hp -= dmg;
@@ -3574,7 +3855,7 @@ function taskTick() {
       return;
     } else {
       const st = STYLES[P.style];
-      c = hitChance(lvl[SK.attack] * st.acc * prayerMul('atk'), bonus('atk'), o.t.def, 8);
+      c = hitChance(lvl[SK.attack] * st.acc * prayerMul('atk'), bonus('atk'), o.t.def, o.t.db === undefined ? 8 : o.t.db);
       dmg = Math.random() < c ? Math.floor(Math.random() * (maxHit() + 1)) : 0;
       if (dmg > 0) for (const k of st.xp) gainXp(k, dmg * 4 / st.xp.length);
     }
@@ -4204,7 +4485,13 @@ const hoverEl = el('hover'), ctxEl = el('ctx');
 function optionsFor(o) {
   const opts = [];
   if (!o) return opts;
-  if (o.npc)       opts.push({ t: 'Attack', o: o.name + ' <span class="lvl">(level ' + o.t.lv + ')</span>', f: () => { showMark(o.tx, o.tz, 1); startTask(o, 'attack'); } });
+  if (o.remote) {
+    /* Left-clicking a player should never start a fight by accident, so the
+       first option is to look at them and attacking lives one menu down. */
+    opts.push({ t: 'Trade with', o: o.name, f: () => say('You have nothing to trade yet.') });
+    opts.push({ t: 'Attack', o: o.name, f: () => { showMark(o.tx, o.tz, 1); startTask(o, 'attack'); } });
+  }
+  else if (o.npc)  opts.push({ t: 'Attack', o: o.name + ' <span class="lvl">(level ' + o.t.lv + ')</span>', f: () => { showMark(o.tx, o.tz, 1); startTask(o, 'attack'); } });
   else if (o.drop) opts.push({ t: 'Take', o: (o.n > 1 ? o.n + ' x ' : '') + o.name, cls: 'itm', f: () => { showMark(o.x, o.z); P.task = { k: 'take', o }; } });
   else if (o.fire) opts.push({ t: 'Cook at', o: 'Fire', f: () => { showMark(o.x, o.z); startTask(o, 'cook'); } });
   else if (o.t === 0) opts.push({ t: 'Chop down', o: o.n, f: () => { showMark(o.x, o.z); startTask(o, 'chop'); } });
@@ -5094,6 +5381,20 @@ function onNet(m) {
       trouble('Seedworld could not save your character. Your progress this ' +
               'session will not be kept.', 'server refused save: ' + (m[1] || 'unknown'));
       break;
+    case 11: {                                 // someone hit us
+      const R = ensureRemote(m[1]);
+      const dmg = clamp(m[2] | 0, 0, 60);       // clamp: the sender is not trusted
+      if (P.dead) break;
+      if (!pvpOn) { pvpOn = 1; say('You are under attack!', 'bad'); }
+      hurtPlayer(dmg, 1);
+      break;
+    }
+    case 12: {                                 // a player died near us and spilled
+      const R = remotes.get(m[1]);
+      say((R ? R.name : 'Someone') + ' has been defeated.', 'lv');
+      for (const it of (m[4] || [])) dropItem(it[0], it[1], m[2] | 0, m[3] | 0);
+      break;
+    }
     case 10:                                   // write confirmed
       ackPending = 0; ackWarned = 0;
       if (ackResolve) ackResolve(true);
@@ -5140,7 +5441,7 @@ function onNet(m) {
         break;
       }
       remotes.set(pid, {
-        pid, name: m[2] || 'Adventurer',
+        remote: 1, pid, name: m[2] || 'Adventurer',
         tx: m[3] | 0, tz: m[4] | 0, px: m[3] | 0, pz: m[4] | 0,
         rx: m[3] | 0, ry: 0, rz: m[4] | 0,
         face: 0, faceT: 0, afloat: 0, moved: 0, run: 1, energy: 100,
@@ -5218,7 +5519,7 @@ function ensureRemote(pid, x, z) {
   let R = remotes.get(pid);
   if (!R) {
     R = {
-      pid, name: 'Adventurer',
+      remote: 1, pid, name: 'Adventurer',
       tx: x | 0, tz: z | 0, px: x | 0, pz: z | 0, rx: x | 0, ry: 0, rz: z | 0,
       face: 0, faceT: 0, afloat: 0, moved: 0, run: 1, energy: 100,
       act: 0, acting: 0, actSpan: 2, eq: [], eqDirty: 1,
