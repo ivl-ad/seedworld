@@ -6604,7 +6604,7 @@ el('welSeed').addEventListener('keydown', e => { if (e.key === 'Enter') el('welG
    the world. Every await has an offline fallback: a missing backend must cost
    you your progress, not your game. */
 async function enterWorld(seed) {
-  seed = (seed || 'osrs').trim().toLowerCase().slice(0, 32) || 'osrs';
+  seed = (seed || 'lumbridge').trim().toLowerCase().slice(0, 32) || 'lumbridge';
   SEED = seed;
   el('welSeed').blur();
   el('welGo').disabled = true;
@@ -6996,7 +6996,7 @@ async function afterLogin() {
   setTimeout(() => { LOG.style.display = 'none'; }, 400);
   el('welWho').textContent = OFFLINE ? 'Playing offline — nothing will be saved'
     : 'Signed in as ' + (NAME || 'Adventurer');
-  el('welSeed').value = SEED || 'osrs';
+  el('welSeed').value = SEED || 'lumbridge';
   previewSeed(el('welSeed').value);
   if (!OFFLINE) await loadCharacterList();
   pollPopulation();
@@ -7026,7 +7026,7 @@ async function pollPopulation() {
      whole play session — a Worker request and a Durable Object wake each time,
      for a line nobody could see. Sign-out restarts it. */
   if (started) return;
-  const seed = (el('welSeed').value || 'osrs').trim().toLowerCase();
+  const seed = (el('welSeed').value || 'lumbridge').trim().toLowerCase();
   const line = el('welPop');
   const mine = haveChars.has(seed) ? ' · you have a character here' : ' · new character';
   if (OFFLINE) { line.textContent = 'Offline' + mine; return; }
@@ -7051,8 +7051,8 @@ async function pollPopulation() {
     } else if (!j) lmsg('Server unreachable — you can still play offline.', 'warn');
     else lmsg('That saved key has no account here.', 'bad');
   }
-  el('welSeed').value = 'osrs';
-  previewSeed('osrs');
+  el('welSeed').value = 'lumbridge';
+  previewSeed('lumbridge');
 })();
 requestAnimationFrame(frame);
 el('boot').classList.add('gone');
