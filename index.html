@@ -62,6 +62,25 @@
     letter-spacing:.14em;text-transform:uppercase;
     background:linear-gradient(180deg,#5a4c39,#3a3024);color:var(--bone)}
   #signout:hover{color:#fff;box-shadow:inset 0 0 0 1px var(--bevel-2)}
+  #tradeWrap{position:fixed;inset:0;z-index:78;display:none;place-items:center;
+    background:rgba(8,6,4,.5);padding-right:232px}
+  #tradeWrap.on{display:grid}
+  #tradeBox{width:min(430px,90vw);display:flex;flex-direction:column}
+  #tradeCols{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px 9px}
+  #tradeCols h4{margin:0 0 4px;font-size:9px;letter-spacing:.13em;color:var(--amber);
+    text-transform:uppercase}
+  .toffer{min-height:104px;display:grid;grid-template-columns:repeat(4,1fr);gap:2px;
+    align-content:start;background:rgba(0,0,0,.26);border:1px solid #171209;padding:3px}
+  .tcell{position:relative;display:grid;place-items:center;height:32px;cursor:pointer;border-radius:2px}
+  .tcell:hover{background:rgba(255,155,33,.18)}
+  .tcell img{width:26px;height:26px;image-rendering:pixelated}
+  .tcell em{position:absolute;top:0;left:1px;font-style:normal;font-size:9px;font-weight:700;
+    color:#ff0;text-shadow:1px 1px 0 #000}
+  .tnone{grid-column:1/-1;margin:6px 4px;font-size:9px;color:var(--dim);line-height:1.5}
+  #tradeFoot{display:flex;gap:6px;padding:0 9px 8px}
+  #tradeFoot button{flex:1}
+  .tnote{margin:0;padding:0 9px 9px;font-size:9px;line-height:1.5;color:#8d7e63}
+  @media (max-width:820px){ #tradeWrap{padding-right:0} }
   #bye{position:fixed;inset:0;z-index:80;display:none;place-items:center;
     background:rgba(8,6,4,.62)}
   #bye.on{display:grid}
@@ -389,6 +408,20 @@
   <button id="signout" title="Save your character and return to the world list">Sign out</button>
 </div>
 
+<div id="tradeWrap">
+  <div id="tradeBox" class="panel">
+    <div id="modalHead"><span id="tradeTitle">Trade</span><b id="tradeX">×</b></div>
+    <div id="tradeCols">
+      <div><h4 id="tradeMineHd">Your offer</h4><div id="tradeMine" class="toffer"></div></div>
+      <div><h4 id="tradeTheirsHd">Their offer</h4><div id="tradeTheirs" class="toffer"></div></div>
+    </div>
+    <div id="tradeFoot">
+      <button id="tradeOk">Accept trade</button><button id="tradeNo">Decline</button>
+    </div>
+    <p class="tnote">Click your pack to offer items · click an offered item to take it back.
+      Any change clears both ticks.</p>
+  </div>
+</div>
 <div id="bye">
   <div id="byeBox" class="panel">
     <h2 id="byeTitle">Saving your character</h2>
@@ -1380,7 +1413,7 @@ ITEMS.bones.bury = 4.5;
    console and the options tab both write to the same place. */
 const OPT = {
   camSpeed: 2.0, viewRadius: 7, fog: 1, timers: 1, xpDrops: 1, roofs: 1, brightness: 1,
-  runMul: 1
+  runMul: 1, retaliate: 1
 };
 
 /* --------------------------- 6. ICONS ------------------------------- */
@@ -3662,6 +3695,7 @@ function npcTick(n) {
       // the same max-hit curve the player uses: a rat maxes 1, a guard 3
       const mx = Math.max(1, Math.round(1 + n.t.str * 0.16));
       hurtPlayer(Math.random() < c ? Math.floor(Math.random() * (mx + 1)) : 0);
+      retaliate(n);
     }
   } else if (--n.wander <= 0) {
     n.wander = 3 + (Math.random() * 6 | 0);
@@ -3695,7 +3729,18 @@ function hurtPlayer(dmg, byPlayer) {
   P.hp = Math.max(0, P.hp - dmg);
   dirty.orb = 1;
   hitsplat(P.rx, P.ry + 1.6, P.rz, dmg);
+  if (ws && ws.readyState === 1) {
+    try { ws.send(JSON.stringify([13, P.hp, P.maxhp])); } catch {}
+  }
   if (P.hp <= 0) die(byPlayer);
+}
+/* 2007 hit back on its own unless you told it not to, and standing still while
+   something chews on you is not a decision anyone makes on purpose. */
+function retaliate(attacker) {
+  if (!OPT.retaliate || P.dead || !attacker) return;
+  if (P.task && P.task.k === 'attack') return;          // already fighting someone
+  if (P.task && (P.task.k === 'ui' || P.task.k === 'take')) return;
+  P.task = { k: 'attack', o: attacker }; P.actT = 0;
 }
 function die(byPlayer) {
   P.dead = 1; P.task = null; P.path.length = 0;
@@ -4256,6 +4301,7 @@ const OPT_ROWS = [
   { k: 'camSpeed', n: 'Camera speed', min: 0.6, max: 5, step: 0.4, fmt: v => v.toFixed(1) + 'x' },
   { k: 'viewRadius', n: 'View distance', min: 3, max: 9, step: 1, fmt: v => v + ' chunks', apply: 1 },
   { k: 'fog', n: 'Distance fog', tog: 1 },
+  { k: 'retaliate', n: 'Auto retaliate', tog: 1 },
   { k: 'timers', n: 'Respawn clocks', tog: 1 },
   { k: 'xpDrops', n: 'Xp drops', tog: 1 },
   { k: 'roofs', n: 'Lift roofs indoors', tog: 1 },
@@ -4487,8 +4533,8 @@ function optionsFor(o) {
   if (!o) return opts;
   if (o.remote) {
     /* Left-clicking a player should never start a fight by accident, so the
-       first option is to look at them and attacking lives one menu down. */
-    opts.push({ t: 'Trade with', o: o.name, f: () => say('You have nothing to trade yet.') });
+       first option is the harmless one and attacking lives one menu down. */
+    opts.push({ t: 'Trade with', o: o.name, f: () => tradeRequest(o) });
     opts.push({ t: 'Attack', o: o.name, f: () => { showMark(o.tx, o.tz, 1); startTask(o, 'attack'); } });
   }
   else if (o.npc)  opts.push({ t: 'Attack', o: o.name + ' <span class="lvl">(level ' + o.t.lv + ')</span>', f: () => { showMark(o.tx, o.tz, 1); startTask(o, 'attack'); } });
@@ -4727,7 +4773,9 @@ dom.style.touchAction = 'none';
 
 invGrid.addEventListener('click', e => {
   const s = e.target.closest('.slot'); if (!s) return;
-  const opts = itemOptions(+s.dataset.i);
+  const i = +s.dataset.i;
+  if (trade && trade.open) { tradeAdd(i); return; }   // the pack feeds the trade window
+  const opts = itemOptions(i);
   if (opts.length) opts[0].f();
 });
 invGrid.addEventListener('contextmenu', e => {
@@ -5335,6 +5383,7 @@ function connect() {
     if (ws !== sock) return;                   // a socket we already replaced
     clearInterval(pingTimer);
     if (netOK) say('Connection lost — still playing offline.', 'bad');
+    if (trade) tradeClose('The trade ended when the connection dropped.');
     netStatus(0);
     clearRemotes();
     ws = null;
@@ -5387,6 +5436,36 @@ function onNet(m) {
       if (P.dead) break;
       if (!pvpOn) { pvpOn = 1; say('You are under attack!', 'bad'); }
       hurtPlayer(dmg, 1);
+      retaliate(R);
+      break;
+    }
+    case 14: {                                 // trade signal
+      const pid = m[1], nm = m[2] || 'Adventurer', act = m[3] | 0;
+      if (act === 0) {                         // they want to trade
+        if (trade) { try { ws.send(JSON.stringify([14, pid, 2])); } catch {} break; }
+        trade = { pid, name: nm, mine: [], theirs: [], iOk: 0, theyOk: 0, open: 0 };
+        askTrade(nm);
+      } else if (act === 1) {                  // they accepted
+        if (trade && trade.pid === pid) { say(nm + ' accepted.', 'lv'); tradeOpen(); }
+      } else if (act === 2) {                  // called off
+        if (trade && trade.pid === pid) tradeClose(nm + ' called off the trade.');
+      } else if (act === 3) {                  // they confirmed
+        if (trade && trade.pid === pid) { trade.theyOk = 1; drawTrade(); tradeSettle(); }
+      }
+      break;
+    }
+    case 15: {                                 // their offer changed
+      if (trade && trade.pid === m[1]) {
+        trade.theirs = (m[2] || []).filter(e => ITEMS[e[0]] && e[1] > 0);
+        trade.iOk = 0; trade.theyOk = 0;       // a changed offer is a new offer
+        drawTrade();
+      }
+      break;
+    }
+    case 13: {                                 // a remote's hitpoints
+      const R = ensureRemote(m[1]);
+      R.hp = m[2] | 0; R.maxhp = Math.max(1, m[3] | 0); R.hurt = tickN;
+      if (R.hp < R.maxhp) healthBar(R);
       break;
     }
     case 12: {                                 // a player died near us and spilled
@@ -5442,6 +5521,7 @@ function onNet(m) {
       }
       remotes.set(pid, {
         remote: 1, pid, name: m[2] || 'Adventurer',
+        hp: 10, maxhp: 10, hurt: 0,
         tx: m[3] | 0, tz: m[4] | 0, px: m[3] | 0, pz: m[4] | 0,
         rx: m[3] | 0, ry: 0, rz: m[4] | 0,
         face: 0, faceT: 0, afloat: 0, moved: 0, run: 1, energy: 100,
@@ -5520,6 +5600,7 @@ function ensureRemote(pid, x, z) {
   if (!R) {
     R = {
       remote: 1, pid, name: 'Adventurer',
+      hp: 10, maxhp: 10, hurt: 0,
       tx: x | 0, tz: z | 0, px: x | 0, pz: z | 0, rx: x | 0, ry: 0, rz: z | 0,
       face: 0, faceT: 0, afloat: 0, moved: 0, run: 1, energy: 100,
       act: 0, acting: 0, actSpan: 2, eq: [], eqDirty: 1,
@@ -5800,6 +5881,118 @@ async function enterWorld(seed) {
 }
 
 let started = 0;
+/* ========================= 36a. TRADING ============================ */
+/* Two offers, two confirmations, and any change to either side clears both —
+   the whole point of a trade screen is that nothing moves until each person
+   has seen the final version of what they are agreeing to. */
+let trade = null;      // { pid, name, mine:[], theirs:[], iOk, theyOk, open }
+const TR = () => el('tradeWrap');
+
+function tradeSend(action) {
+  if (!trade || !ws || ws.readyState !== 1) return;
+  try { ws.send(JSON.stringify([14, trade.pid, action])); } catch {}
+}
+function tradeSendOffer() {
+  if (!trade || !ws || ws.readyState !== 1) return;
+  try { ws.send(JSON.stringify([15, trade.pid, trade.mine])); } catch {}
+}
+function tradeRequest(R) {
+  if (trade) { say('You are already trading.', 'bad'); return; }
+  if (!ws || ws.readyState !== 1) { say('You need to be online to trade.', 'bad'); return; }
+  trade = { pid: R.pid, name: R.name, mine: [], theirs: [], iOk: 0, theyOk: 0, open: 0 };
+  tradeSend(0);
+  say('Sending a trade offer to ' + R.name + '…');
+}
+function tradeOpen() {
+  trade.open = 1;
+  TR().classList.add('on');
+  showTab('inv');
+  drawTrade();
+}
+function tradeClose(msg) {
+  TR().classList.remove('on');
+  trade = null;
+  if (msg) say(msg);
+  dirty.inv = 1;
+}
+function tradeCancel(tell) {
+  if (!trade) return;
+  if (tell) tradeSend(2);
+  tradeClose('The trade was called off.');
+}
+/* Anything either side changes invalidates both confirmations. */
+function tradeTouch() {
+  trade.iOk = 0; trade.theyOk = 0;
+  tradeSendOffer();
+  drawTrade();
+}
+function tradeAdd(slot) {
+  const st = inv[slot]; if (!st || !trade || !trade.open) return;
+  const have = trade.mine.find(e => e[0] === st.id);
+  const max = st.n;
+  if (have) { if (have[1] >= max) return; have[1]++; }
+  else { if (trade.mine.length >= 12) { say('You cannot offer more than twelve stacks.', 'bad'); return; }
+         trade.mine.push([st.id, 1]); }
+  tradeTouch();
+}
+function tradeRemove(i) {
+  if (!trade || !trade.open) return;
+  const e = trade.mine[i]; if (!e) return;
+  if (--e[1] <= 0) trade.mine.splice(i, 1);
+  tradeTouch();
+}
+function tradeConfirm() {
+  if (!trade || !trade.open) return;
+  trade.iOk = 1;
+  tradeSend(3);
+  drawTrade();
+  tradeSettle();
+}
+/* Both sides run this on the same agreed pair of offers, so each moves its own
+   goods and neither has to be trusted to move the other's. */
+function tradeSettle() {
+  if (!trade || !trade.iOk || !trade.theyOk) return;
+  const give = trade.mine, take = trade.theirs;
+  // room check first: a full pack must fail before anything is removed
+  let freed = 0;
+  for (const [id, k] of give) { const it = ITEMS[id]; freed += it && it.stack ? (invCount(id) <= k ? 1 : 0) : k; }
+  let need = 0;
+  for (const [id, k] of take) { const it = ITEMS[id]; if (!it) continue; need += it.stack ? (invCount(id) ? 0 : 1) : k; }
+  if (need - freed > invFree()) {
+    say('You do not have room for that.', 'bad');
+    trade.iOk = 0; tradeSend(2); tradeClose('The trade was called off.');
+    return;
+  }
+  for (const [id, k] of give) invRemove(id, k);
+  for (const [id, k] of take) if (ITEMS[id]) invAdd(id, k);
+  const name = trade.name;
+  markDirty(1);
+  tradeClose('');
+  say('Trade with ' + name + ' complete.', 'lv');
+}
+function drawTrade() {
+  if (!trade) return;
+  const cell = (e, i, mine) =>
+    '<div class="tcell" ' + (mine ? 'data-rm="' + i + '"' : '') + '>' +
+    '<img src="' + icon(e[0]) + '" alt="">' + (e[1] > 1 ? '<em>' + e[1] + '</em>' : '') + '</div>';
+  el('tradeTitle').textContent = 'Trading with ' + trade.name;
+  el('tradeMine').innerHTML = trade.mine.map((e, i) => cell(e, i, 1)).join('') ||
+    '<p class="tnone">Click items in your pack to offer them.</p>';
+  el('tradeTheirs').innerHTML = trade.theirs.map((e, i) => cell(e, i, 0)).join('') ||
+    '<p class="tnone">Nothing offered yet.</p>';
+  el('tradeMineHd').textContent = 'Your offer' + (trade.iOk ? ' \u2713' : '');
+  el('tradeTheirsHd').textContent = trade.name + (trade.theyOk ? ' \u2713' : '');
+  const b = el('tradeOk');
+  b.textContent = trade.iOk ? 'Waiting for ' + trade.name : 'Accept trade';
+  b.disabled = !!trade.iOk;
+}
+el('tradeOk').onclick = tradeConfirm;
+el('tradeX').onclick = () => tradeCancel(1);
+el('tradeNo').onclick = () => tradeCancel(1);
+el('tradeMine').addEventListener('click', e => {
+  const c = e.target.closest('[data-rm]'); if (c) tradeRemove(+c.dataset.rm);
+});
+
 /* ===================== 36b. LEAVING PROPERLY ======================= */
 /* A refresh can lose the last few seconds: the browser often kills an in-flight
    socket send on unload, so the periodic flush is the only guarantee and it is
@@ -5864,6 +6057,16 @@ async function signOut() {
   el('byeBtns').append(keep, leave);
   byeBusy = 0;
 }
+function askTrade(nm) {
+  showBye('Trade request', nm + ' wishes to trade with you.');
+  const yes = document.createElement('button');
+  yes.textContent = 'Trade';
+  yes.onclick = () => { hideBye(); tradeSend(1); tradeOpen(); };
+  const no = document.createElement('button');
+  no.textContent = 'Decline';
+  no.onclick = () => { hideBye(); tradeSend(2); tradeClose(''); };
+  el('byeBtns').append(yes, no);
+}
 function signOutFailed() {
   showBye('Could not save', 'Still no response. You can keep playing and try ' +
           'again later, or leave and lose recent progress.');
@@ -5878,6 +6081,7 @@ function signOutFailed() {
 /* Back to the world list — not the login box. The account is still signed in;
    only the character is being put down. */
 function toWorldSelect() {
+  if (trade) tradeCancel(1);
   hideBye();
   started = 0;
   saveArmed = 0;                               // nothing may write until a world is entered again
