@@ -63,8 +63,11 @@
     background:linear-gradient(180deg,#5a4c39,#3a3024);color:var(--bone)}
   #signout:hover{color:#fff;box-shadow:inset 0 0 0 1px var(--bevel-2)}
   #tradeWrap{position:fixed;inset:0;z-index:78;display:none;place-items:center;
-    background:rgba(8,6,4,.5);padding-right:232px}
+    background:rgba(8,6,4,.5);padding-right:232px;pointer-events:none}
   #tradeWrap.on{display:grid}
+  /* the box takes clicks, the backdrop does not — the pack behind it is half
+     the interface and has to stay reachable */
+  #tradeBox{pointer-events:auto}
   #tradeBox{width:min(430px,90vw);display:flex;flex-direction:column}
   #tradeCols{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px 9px}
   #tradeCols h4{margin:0 0 4px;font-size:9px;letter-spacing:.13em;color:var(--amber);
@@ -5089,7 +5092,10 @@ function optionsFor(o) {
   if (o.remote) {
     /* Left-clicking a player should never start a fight by accident, so the
        first option is the harmless one and attacking lives one menu down. */
-    opts.push({ t: 'Trade with', o: o.name, f: () => tradeRequest(o) });
+    // every other interaction walks into range first; asking to trade from
+    // across a field was the odd one out
+    opts.push({ t: 'Trade with', o: o.name,
+      f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: tradeRequest }; } });
     opts.push({ t: 'Attack', o: o.name, f: () => { flashTarget(o, 1); startTask(o, 'attack'); } });
   }
   else if (o.npc)  opts.push({ t: 'Attack', o: o.name + ' <span class="lvl">(level ' + o.t.lv + ')</span>', f: () => { flashTarget(o, 1); startTask(o, 'attack'); } });
@@ -5118,6 +5124,18 @@ function optionsFor(o) {
 function itemOptions(i) {
   const s = inv[i]; if (!s) return [];
   const it = ITEMS[s.id], opts = [];
+  /* Mid-trade the pack is an offer sheet, not a toolbelt: eating or dropping
+     the thing you are negotiating over is never what was meant. */
+  if (trade && trade.open) {
+    const offered = () => { const e = trade.mine.find(q => q[0] === s.id); return e ? e[1] : 0; };
+    for (const k of [1, 5, 10]) if (s.n >= k)
+      opts.push({ t: 'Offer ' + k, o: it.name, cls: 'itm', f: () => tradeAdd(i, k) });
+    if (s.n > 1) opts.push({ t: 'Offer all', o: it.name, cls: 'itm', f: () => tradeAdd(i, s.n) });
+    if (offered()) opts.push({ t: 'Withdraw all', o: it.name, cls: 'itm',
+      f: () => tradeRemove(trade.mine.findIndex(q => q[0] === s.id), 1e9) });
+    opts.push({ t: 'Examine', o: it.name, cls: 'itm', f: () => say(examine(it)) });
+    return opts;
+  }
   if (openShop && s.id !== 'coins') opts.push({ t: 'Sell', o: it.name, cls: 'itm', f: () => shopSell(i) });
   if (it.equip) opts.push({ t: 'Wield', o: it.name, cls: 'itm', f: () => equip(i) });
   if (it.heal) opts.push({ t: 'Eat', o: it.name, cls: 'itm', f: () => eat(i) });
@@ -5285,6 +5303,7 @@ dom.addEventListener('pointerup', e => {
   if (!drag) return;
   drag = 0;
   if (dragged || e.button === 2) return;
+  if (trade && trade.open) return;                 // you are stood still, trading
   const ray = rayAt(e.clientX, e.clientY);
   const o = pickObject(ray);
   if (o) { const opts = optionsFor(o); if (opts.length) { opts[0].f(); return; } }
@@ -5293,6 +5312,7 @@ dom.addEventListener('pointerup', e => {
 });
 dom.addEventListener('contextmenu', e => {
   e.preventDefault();
+  if (trade && trade.open) return;
   const ray = rayAt(e.clientX, e.clientY);
   const opts = optionsFor(pickObject(ray));
   const g = rayGround(ray);
@@ -6660,18 +6680,21 @@ function tradeSendOffer() {
 function tradeRequest(R) {
   if (trade) { say('You are already trading.', 'bad'); return; }
   if (!ws || ws.readyState !== 1) { say('You need to be online to trade.', 'bad'); return; }
+  if (!remotes.has(R.pid)) { say(R.name + ' is no longer here.', 'bad'); return; }
   trade = { pid: R.pid, name: R.name, mine: [], theirs: [], iOk: 0, theyOk: 0, open: 0 };
   tradeSend(0);
   say('Sending a trade offer to ' + R.name + '…');
 }
 function tradeOpen() {
   trade.open = 1;
+  P.task = null; P.path.length = 0;               // you stand still while trading
   TR().classList.add('on');
   showTab('inv');
   drawTrade();
 }
 function tradeClose(msg) {
   TR().classList.remove('on');
+  closeCtx();
   trade = null;
   if (msg) say(msg);
   dirty.inv = 1;
@@ -6687,19 +6710,27 @@ function tradeTouch() {
   tradeSendOffer();
   drawTrade();
 }
-function tradeAdd(slot) {
+function tradeAdd(slot, k) {
   const st = inv[slot]; if (!st || !trade || !trade.open) return;
+  k = Math.max(1, k | 0 || 1);
+  /* A stack lives in one slot but an unstackable item is spread over several,
+     so the ceiling is what the pack holds in total, not what this slot does. */
+  const cap = ITEMS[st.id] && ITEMS[st.id].stack ? st.n : invCount(st.id);
   const have = trade.mine.find(e => e[0] === st.id);
-  const max = st.n;
-  if (have) { if (have[1] >= max) return; have[1]++; }
-  else { if (trade.mine.length >= 12) { say('You cannot offer more than twelve stacks.', 'bad'); return; }
-         trade.mine.push([st.id, 1]); }
+  if (have) {
+    if (have[1] >= cap) { say('You have no more ' + ITEMS[st.id].name.toLowerCase() + ' to offer.', 'bad'); return; }
+    have[1] = Math.min(cap, have[1] + k);
+  } else {
+    if (trade.mine.length >= 12) { say('You cannot offer more than twelve stacks.', 'bad'); return; }
+    trade.mine.push([st.id, Math.min(cap, k)]);
+  }
   tradeTouch();
 }
-function tradeRemove(i) {
+function tradeRemove(i, k) {
   if (!trade || !trade.open) return;
   const e = trade.mine[i]; if (!e) return;
-  if (--e[1] <= 0) trade.mine.splice(i, 1);
+  e[1] -= Math.max(1, k | 0 || 1);
+  if (e[1] <= 0) trade.mine.splice(i, 1);
   tradeTouch();
 }
 function tradeConfirm() {
@@ -6734,15 +6765,19 @@ function tradeSettle() {
 function drawTrade() {
   if (!trade) return;
   const cell = (e, i, mine) =>
-    '<div class="tcell" ' + (mine ? 'data-rm="' + i + '"' : '') + '>' +
-    '<img src="' + icon(e[0]) + '" alt="">' + (e[1] > 1 ? '<em>' + e[1] + '</em>' : '') + '</div>';
+    '<div class="tcell" ' + (mine ? 'data-rm="' + i + '"' : 'data-ex="' + i + '"') +
+    ' title="' + (ITEMS[e[0]] ? ITEMS[e[0]].name : e[0]) + ' x' + e[1] + '">' +
+    '<img src="' + icon(e[0]) + '" alt="">' +
+    (e[1] > 1 ? '<em>' + (e[1] > 99999 ? fmt(e[1]) : e[1]) + '</em>' : '') + '</div>';
+  const worth = list => list.reduce((a, e) =>
+    a + (ITEMS[e[0]] ? (e[0] === 'coins' ? e[1] : sellPrice(ITEMS[e[0]]) * e[1]) : 0), 0);
   el('tradeTitle').textContent = 'Trading with ' + trade.name;
   el('tradeMine').innerHTML = trade.mine.map((e, i) => cell(e, i, 1)).join('') ||
-    '<p class="tnone">Click items in your pack to offer them.</p>';
+    '<p class="tnone">Click your pack to offer an item. Right-click it for 5, 10 or all.</p>';
   el('tradeTheirs').innerHTML = trade.theirs.map((e, i) => cell(e, i, 0)).join('') ||
     '<p class="tnone">Nothing offered yet.</p>';
-  el('tradeMineHd').textContent = 'Your offer' + (trade.iOk ? ' \u2713' : '');
-  el('tradeTheirsHd').textContent = trade.name + (trade.theyOk ? ' \u2713' : '');
+  el('tradeMineHd').textContent = 'Your offer (' + fmt(worth(trade.mine)) + ' gp)' + (trade.iOk ? ' \u2713' : '');
+  el('tradeTheirsHd').textContent = trade.name + ' (' + fmt(worth(trade.theirs)) + ' gp)' + (trade.theyOk ? ' \u2713' : '');
   const b = el('tradeOk');
   b.textContent = trade.iOk ? 'Waiting for ' + trade.name : 'Accept trade';
   b.disabled = !!trade.iOk;
@@ -6751,7 +6786,23 @@ el('tradeOk').onclick = tradeConfirm;
 el('tradeX').onclick = () => tradeCancel(1);
 el('tradeNo').onclick = () => tradeCancel(1);
 el('tradeMine').addEventListener('click', e => {
-  const c = e.target.closest('[data-rm]'); if (c) tradeRemove(+c.dataset.rm);
+  const c = e.target.closest('[data-rm]'); if (c) tradeRemove(+c.dataset.rm, 1);
+});
+el('tradeMine').addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const c = e.target.closest('[data-rm]'); if (!c || !trade) return;
+  const i = +c.dataset.rm, en = trade.mine[i]; if (!en) return;
+  const nm = ITEMS[en[0]] ? ITEMS[en[0]].name : en[0], opts = [];
+  for (const k of [1, 5, 10]) if (en[1] >= k)
+    opts.push({ t: 'Withdraw ' + k, o: nm, cls: 'itm', f: () => tradeRemove(i, k) });
+  opts.push({ t: 'Withdraw all', o: nm, cls: 'itm', f: () => tradeRemove(i, 1e9) });
+  openCtx(e.clientX, e.clientY, opts);
+});
+/* Their side is theirs to change, but you should be able to read it. */
+el('tradeTheirs').addEventListener('click', e => {
+  const c = e.target.closest('[data-ex]'); if (!c || !trade) return;
+  const en = trade.theirs[+c.dataset.ex]; if (!en || !ITEMS[en[0]]) return;
+  say(en[1] + ' x ' + ITEMS[en[0]].name + ' — ' + examine(ITEMS[en[0]]));
 });
 
 /* ===================== 36b. LEAVING PROPERLY ======================= */
