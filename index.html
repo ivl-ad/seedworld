@@ -359,8 +359,8 @@
   /* Speech is its own element a world-unit higher up, because swapping the
      name out for the line hid whose line it was. */
   .plate.say{color:#fff;background:rgba(18,14,9,.82);border:1px solid var(--bevel);
-    border-radius:3px;padding:1px 4px;width:auto;max-width:190px;
-    margin-left:-95px;margin-top:-30px;
+    border-radius:3px;padding:1px 5px;width:max-content;max-width:210px;
+    margin-left:0;margin-top:-27px;
     overflow:hidden;text-overflow:ellipsis}
   #welcome{position:fixed;inset:0;z-index:60;display:grid;place-items:center;
     background:radial-gradient(circle at 50% 40%,#1d2430,#0b0e14 70%);
@@ -2262,7 +2262,7 @@ const NPC_TYPES = [
     build: () => humanoid({ w: 2.2, h: 4.6, body: [0.62, 0.76, 0.86], skin: [0.72, 0.85, 0.92], belt: [0.4, 0.55, 0.68] }) },
   { k: 'troll', n: 'Mountain troll', lv: 69, hp: 132, atk: 44, str: 50, def: 40, spd: 6, sz: 2.2, band: 4, big: 1,
     build: () => humanoid({ w: 2.2, h: 4.2, body: [0.44, 0.42, 0.4], skin: [0.52, 0.5, 0.46], horns: 1, belt: [0.3, 0.28, 0.26] }) },
-  { k: 'greendragon', n: 'Green dragon', lv: 79, hp: 150, atk: 52, str: 56, def: 48, spd: 5, sz: 2.6, band: 4, big: 1,
+  { k: 'greendragon', n: 'Green dragon', lv: 79, rng: 6, bolt: 0x6fd04a, hp: 150, atk: 52, str: 56, def: 48, spd: 5, sz: 2.6, band: 4, big: 1,
     build: () => dragonGeo({ w: 1.6, h: 2.6, body: [0.22, 0.38, 0.2], head: [0.28, 0.45, 0.24], wing: [0.17, 0.3, 0.16] }) },
   { k: 'lesserdemon', n: 'Lesser demon', lv: 82, hp: 158, atk: 56, str: 58, def: 50, spd: 5, sz: 2.3, band: 5, big: 1,
     build: () => humanoid({ w: 2.0, h: 4.4, body: [0.55, 0.16, 0.12], skin: [0.66, 0.2, 0.14],
@@ -2272,7 +2272,7 @@ const NPC_TYPES = [
   { k: 'greaterdemon', n: 'Greater demon', lv: 92, hp: 190, atk: 66, str: 70, def: 60, spd: 5, sz: 2.6, band: 5, big: 1,
     build: () => humanoid({ w: 2.4, h: 5.2, body: [0.35, 0.1, 0.14], skin: [0.5, 0.14, 0.16],
       horns: 1, wings: 1, wing: [0.2, 0.06, 0.08], belt: [0.16, 0.05, 0.06] }) },
-  { k: 'blackdragon', n: 'Black dragon', lv: 227, hp: 240, atk: 90, str: 96, def: 88, spd: 5, sz: 3.0, band: 6, big: 1,
+  { k: 'blackdragon', n: 'Black dragon', lv: 227, rng: 7, bolt: 0xc04adc, hp: 240, atk: 90, str: 96, def: 88, spd: 5, sz: 3.0, band: 6, big: 1,
     build: () => dragonGeo({ w: 2.0, h: 3.2, body: [0.13, 0.12, 0.15], head: [0.19, 0.18, 0.22], wing: [0.09, 0.08, 0.11] }) }
 ];
 NPC_TYPES.forEach((t, i) => { t.geo = t.build(); t.i = i; });
@@ -3712,9 +3712,23 @@ function spawnNpc(t, x, z, key) {
   scene.add(mesh);
   npcs.push({
     npc: 1, t, key, name: t.n, tx: x, tz: z, px: x, pz: z, rx: x, rz: z, ry: walkY(x, z),
-    home: { x, z }, hp: t.hp, maxhp: t.hp, face: 0, faceT: 0, mesh,
+    home: { x, z }, hp: t.hp, maxhp: t.hp, face: 0, faceT: 0, mesh, atkT: 0,
     cd: 2 + (hash2(x, z, S) & 3), target: null, wander: 0, dead: 0
   });
+}
+/* Dragonfire, borrowing the spell bolt: the projectile machinery does not
+   care who threw it. */
+function npcBolt(n) {
+  const m = boltMesh.find(x => !x.visible);
+  if (!m) return;
+  m.material.color.setHex(n.t.bolt || 0xd05a2a);
+  m.material.opacity = 1;
+  m.visible = true;
+  const sy = n.ry + 0.6 + n.t.sz * 1.1;
+  bolts.push({ m, sp: { tint: n.t.bolt || 0xd05a2a },
+    o: { rx: P.rx, ry: P.ry, rz: P.rz, dead: 1 }, dmg: null,
+    sx: n.rx, sy, sz: n.rz, t: 0,
+    dur: clamp(Math.hypot(P.rx - n.rx, P.rz - n.rz) / BOLT_SPEED, 0.10, 0.9) });
 }
 function npcTick(n) {
   if (n.dead) return;
@@ -3722,7 +3736,7 @@ function npcTick(n) {
   const near = Math.max(Math.abs(n.tx - P.tx), Math.abs(n.tz - P.tz));
   if (n.target && (near > 12 || P.dead)) n.target = null;
   if (n.target) {
-    if (near > 1) {
+    if (near > (n.t.rng || 1)) {
       const dx = Math.sign(P.tx - n.tx), dz = Math.sign(P.tz - n.tz);
       if (canStep(n.tx, n.tz, n.tx + dx, n.tz + dz) && !isWater(walkY(n.tx + dx, n.tz + dz))) { n.tx += dx; n.tz += dz; }
       else if (canStep(n.tx, n.tz, n.tx + dx, n.tz)) n.tx += dx;
@@ -3732,6 +3746,8 @@ function npcTick(n) {
       const c = hitChance(n.t.atk, 8, defLevel(), bonus('def'));
       // the same max-hit curve the player uses: a rat maxes 1, a guard 3
       const mx = Math.max(1, Math.round(1 + n.t.str * 0.16));
+      n.atkT = 1;                                // drives the lunge or the breath
+      if (n.t.rng > 1) npcBolt(n);
       hurtPlayer(Math.random() < c ? Math.floor(Math.random() * (mx + 1)) : 0);
       retaliate(n);
     }
@@ -5204,6 +5220,7 @@ function frame(now) {
     el('inside').className = indoors ? 'in' : '';
   }
 
+  labelsBegin();
   const myCombat = combatLevel();
   let npcPlates = 0;
   for (const n of npcs) {
@@ -5213,7 +5230,24 @@ function frame(now) {
     let d = n.faceT - n.face;
     while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU;
     n.face += d * Math.min(1, dt * 12);
-    n.mesh.position.set(n.rx, n.ry, n.rz);
+    /* A merged monster has no limbs to swing, so melee reads as a lunge:
+       a shove toward whatever it is hitting, and back. */
+    if (n.atkT > 0) {
+      n.atkT = Math.max(0, n.atkT - dt * 3.2);
+      const k = Math.sin((1 - n.atkT) * Math.PI);
+      if (n.t.rng > 1) {                         // breathing: rear up, do not charge
+        n.mesh.position.set(n.rx, n.ry + k * 0.35, n.rz);
+        n.mesh.rotation.x = -k * 0.22;
+      } else {
+        const lung = k * 0.55;
+        n.mesh.position.set(n.rx + Math.sin(n.face) * lung, n.ry + k * 0.12,
+                            n.rz + Math.cos(n.face) * lung);
+        n.mesh.rotation.x = k * 0.28;
+      }
+    } else {
+      n.mesh.rotation.x = 0;
+      n.mesh.position.set(n.rx, n.ry, n.rz);
+    }
     n.mesh.rotation.y = n.face;
     if (n.hp < n.maxhp) healthBar(n);
     // name and level over every monster in view, coloured by the gap to yours
@@ -5225,6 +5259,7 @@ function frame(now) {
 
   animate(P, avatar.parts, dt);
   updateRemotes(dt, alpha);
+  labelsEnd();
 
   const key = ck(Math.floor(P.rx / CHUNK), Math.floor(P.rz / CHUNK));
   if (key !== lastChunkKey) { lastChunkKey = key; refresh(); }
@@ -5792,12 +5827,25 @@ function labelAt(owner, key, x, y, z, text, cls) {
   q.claim = 1;
   if (q.txt !== text) { q.txt = text; q.el.innerHTML = text; }
   if (q.cls !== cls) { q.cls = cls; q.el.className = cls; }
+  // a bubble is as wide as its text, so it centres on itself rather than on a
+  // fixed negative margin that only ever suited one length
+  const mid = cls.indexOf('say') >= 0 ? ' translate(-50%,0)' : '';
   q.el.style.transform = 'translate(' +
-    ((_pv.x * 0.5 + 0.5) * innerWidth) + 'px,' + ((-_pv.y * 0.5 + 0.5) * innerHeight) + 'px)';
+    ((_pv.x * 0.5 + 0.5) * innerWidth) + 'px,' + ((-_pv.y * 0.5 + 0.5) * innerHeight) + 'px)' + mid;
   return true;
 }
 /* 2007 coloured a monster's level by how far above yours it was: green means
    free experience, red means think again. */
+/* Claims are opened before anything draws a label and swept after everything
+   has, so players and monsters can both write into the same pool. */
+function labelsBegin() {
+  for (const g of allRigs) g.userData.claim = 0;
+  for (const q of platePool) q.claim = 0;
+}
+function labelsEnd() {
+  for (const g of allRigs) if (!g.userData.claim && g.visible) giveRig(g);
+  for (const q of platePool) if (!q.claim && q.live) freePlate(q);
+}
 function lvlColour(theirs, mine) {
   const d = theirs - mine;
   return d <= -10 ? '#00ff00' : d <= -3 ? '#7fff2f' : d <= 2 ? '#ffff00'
@@ -5806,9 +5854,7 @@ function lvlColour(theirs, mine) {
 function updateRemotes(dt, alpha) {
   if (!remotes.size) {
     if (POOL_FAR.used) { poolReset(POOL_FAR); poolFlush(POOL_FAR); }
-    for (const g of allRigs) if (g.visible) giveRig(g);
-    for (const q of platePool) if (q.live) freePlate(q);
-    return;
+    return;                                    // labelsEnd() does the sweeping
   }
 
   // sort by distance every 8 ticks: LOD churn per frame would thrash the pool
@@ -5820,8 +5866,6 @@ function updateRemotes(dt, alpha) {
   poolReset(POOL_FAR);
   let plates = 0;
   const cut = RADIUS * CHUNK;
-  for (const g of allRigs) g.userData.claim = 0;
-  for (const q of platePool) q.claim = 0;
 
   for (let i = 0; i < sortedRemotes.length; i++) {
     /* Resolve by id, never by the snapshot's object. A player who left and
@@ -5884,7 +5928,7 @@ function updateRemotes(dt, alpha) {
     if (wantLod !== 2 && plates < 20) {
       const on = labelAt(R, 'plate', R.rx, R.ry + 2.5, R.rz, R.name, 'plate');
       if (on) plates++;
-      if (R.bubbleT > 0) labelAt(R, 'bub', R.rx, R.ry + 4.2, R.rz, R.bubble, 'plate say');
+      if (R.bubbleT > 0) labelAt(R, 'bub', R.rx, R.ry + 2.5, R.rz, R.bubble, 'plate say');
       else if (R.bub) { freePlate(R.bub); R.bub = null; }
       if (!on && R.plate) { freePlate(R.plate); R.plate = null; }
     } else {
@@ -5893,9 +5937,6 @@ function updateRemotes(dt, alpha) {
     }
   }
   poolFlush(POOL_FAR);
-  // sweep: anything nobody claimed this frame is a leftover, so put it away
-  for (const g of allRigs) if (!g.userData.claim && g.visible) giveRig(g);
-  for (const q of platePool) if (!q.claim && q.live) freePlate(q);
 }
 let sortedRemotes = [];
 
