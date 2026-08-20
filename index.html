@@ -5850,7 +5850,7 @@ const enc = new TextEncoder();
 const hexs = b => [...new Uint8Array(b)].map(v => v.toString(16).padStart(2, '0')).join('');
 const sha = async s => hexs(await crypto.subtle.digest('SHA-256', enc.encode(s)));
 
-let KEY = null, AUTH = null, PID = null, NAME = null, OFFLINE = 0, SEED = 'osrs';
+let KEY = null, AUTH = null, PID = null, NAME = null, OFFLINE = 0, SEED = 'lumbridge';
 const store = {
   get(k) { try { return localStorage[k] || ''; } catch { return ''; } },
   set(k, v) { try { localStorage[k] = v; } catch {} },
