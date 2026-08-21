@@ -154,10 +154,22 @@
     color:#ff0;text-shadow:1px 1px 0 #000;pointer-events:none}
 
   #eqWrap{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;justify-items:center;padding-top:4px}
+  #eqMore{display:block;width:calc(100% - 8px);margin:6px 4px 2px}
+  .stq{display:flex;gap:12px;align-items:flex-start}
+  .stqCol{flex:1;min-width:0}
+  .stRow{display:flex;justify-content:space-between;font-size:10px;padding:2px 0;
+    border-bottom:1px solid rgba(107,83,52,.25)}
+  .stRow i{font-style:normal;color:var(--dim)}
+  .stRow b{color:var(--amber)}
+  .stWorn{display:flex;align-items:center;gap:6px;font-size:10px;padding:2px 0}
+  .stWorn img{width:24px;height:24px;image-rendering:pixelated;flex:0 0 auto}
+  .stWorn span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .stWorn u{text-decoration:none;color:var(--dim);font-size:8px;display:block;text-transform:uppercase;letter-spacing:.08em}
   .eqslot{width:44px;height:42px;display:grid;place-items:center;cursor:pointer;
     background:rgba(0,0,0,.28);border:1px solid #171209;border-radius:2px;position:relative}
   .eqslot img{width:30px;height:30px;image-rendering:pixelated}
-  .eqslot span{position:absolute;font-size:8px;color:#6b5f47;letter-spacing:.06em}
+  .eqslot span{position:absolute;font-size:7px;color:#6b5f47;letter-spacing:.04em;
+    max-width:42px;text-align:center;line-height:1.1;overflow-wrap:break-word}
   .eqslot em{position:absolute;top:1px;right:2px;font-style:normal;font-size:9px;color:#ffe14a;
     text-shadow:1px 1px 0 #000}
   .eqslot.f span{display:none}
@@ -573,6 +585,7 @@
         <i>Ranged bonus</i><b id="bRng">0</b>
         <i>Combat level</i><b id="bCmb">3</b>
       </div>
+      <button id="eqMore" title="Every bonus, level and worn piece on one sheet">Full stats</button>
     </div>
 
     <div class="pane" id="pane-sk">
@@ -1332,21 +1345,46 @@ const TIERS = [
   { k: 'black',   n: 'Black',   req: 10, tool: 11, mine: 99, c: '#36383f', c2: '#1d1e23', m: 4 },
   { k: 'mithril', n: 'Mithril', req: 20, tool: 21, mine: 55, c: '#5c63b8', c2: '#373d84', m: 5 },
   { k: 'adamant', n: 'Adamant', req: 30, tool: 31, mine: 70, c: '#4e7d52', c2: '#2d5232', m: 6 },
-  { k: 'rune',    n: 'Rune',    req: 40, tool: 41, mine: 85, c: '#3ab6c4', c2: '#1f7d89', m: 7 }
+  { k: 'rune',    n: 'Rune',    req: 40, tool: 41, mine: 85, c: '#3ab6c4', c2: '#1f7d89', m: 7 },
+  /* Appended, never inserted: t.i feeds the drop ladder, which caps at rune.
+     White is an armour-only branch beside black; dragon extends the series
+     to m = 8. Neither is smithable or mined — they arrive as drops and
+     through the exchange. */
+  { k: 'white',  n: 'White',  req: 10, tool: 999, mine: 999, c: '#d9dde3', c2: '#9aa3ad', m: 4, armourOnly: 1 },
+  { k: 'dragon', n: 'Dragon', req: 60, tool: 61,  mine: 999, c: '#a02c1e', c2: '#6b1a10', m: 8 }
 ];
 const TIER = Object.create(null); TIERS.forEach((t, i) => { t.i = i; TIER[t.k] = t; });
 
-/* piece: glyph, slot, per-tier bonus multipliers, attack speed in ticks */
+/* piece: glyph, slot, per-tier bonus multipliers, attack speed in ticks.
+   `two` blocks the shield slot, `reach` swings from that many tiles out,
+   and `gate` names the skill the requirement reads (attack by default —
+   the warhammer answers to Strength). */
 const PIECES = [
   { k: 'hatchet',    n: 'hatchet',    g: 'axe',    slot: 'weapon', tool: 'woodcutting', a: 4, s: 5, d: 0, spd: 5 },
   { k: 'pickaxe',    n: 'pickaxe',    g: 'pick',   slot: 'weapon', tool: 'mining',      a: 3, s: 4, d: 0, spd: 5 },
   { k: 'dagger',     n: 'dagger',     g: 'dagger', slot: 'weapon', a: 5,  s: 4, d: 0, spd: 4 },
   { k: 'sword',      n: 'sword',      g: 'sword',  slot: 'weapon', a: 7,  s: 6, d: 1, spd: 5 },
   { k: 'scimitar',   n: 'scimitar',   g: 'scim',   slot: 'weapon', a: 9,  s: 8, d: 0, spd: 4 },
+  { k: 'longsword',  n: 'longsword',  g: 'lsword', slot: 'weapon', a: 10, s: 8,  d: 1, spd: 5 },
+  { k: 'mace',       n: 'mace',       g: 'mace',   slot: 'weapon', a: 6,  s: 8,  d: 1, spd: 5 },
+  { k: 'battleaxe',  n: 'battleaxe',  g: 'baxe',   slot: 'weapon', a: 8,  s: 9,  d: 0, spd: 5 },
+  { k: 'warhammer',  n: 'warhammer',  g: 'wham',   slot: 'weapon', a: 8,  s: 10, d: 0, spd: 6, gate: 'strength' },
+  { k: 'claws',      n: 'claws',      g: 'claws',  slot: 'weapon', a: 8,  s: 7,  d: 1, spd: 4 },
+  { k: '2h_sword',   n: '2h sword',   g: 'sword2h', slot: 'weapon', a: 12, s: 13, d: 0, spd: 7, two: 1 },
+  { k: 'halberd',    n: 'halberd',    g: 'halberd', slot: 'weapon', a: 11, s: 12, d: 0, spd: 7, two: 1, reach: 2 },
+  { k: 'spear',      n: 'spear',      g: 'spear',  slot: 'weapon', a: 8,  s: 7,  d: 0, spd: 5, two: 1 },
+  { k: 'hasta',      n: 'hasta',      g: 'spear',  slot: 'weapon', a: 7,  s: 7,  d: 0, spd: 5 },
   { k: 'med_helm',   n: 'med helm',   g: 'helm',   slot: 'head',   a: 0,  s: 0, d: 4 },
+  { k: 'full_helm',  n: 'full helm',  g: 'fhelm',  slot: 'head',   a: 0,  s: 0, d: 6 },
   { k: 'platebody',  n: 'platebody',  g: 'body',   slot: 'body',   a: 0,  s: 0, d: 9 },
+  { k: 'chainbody',  n: 'chainbody',  g: 'chain',  slot: 'body',   a: 0,  s: 0, d: 7 },
   { k: 'platelegs',  n: 'platelegs',  g: 'legs',   slot: 'legs',   a: 0,  s: 0, d: 7 },
-  { k: 'kiteshield', n: 'kiteshield', g: 'shield', slot: 'shield', a: 0,  s: 0, d: 8 }
+  { k: 'plateskirt', n: 'plateskirt', g: 'skirt',  slot: 'legs',   a: 0,  s: 0, d: 7 },
+  { k: 'kiteshield', n: 'kiteshield', g: 'shield', slot: 'shield', a: 0,  s: 0, d: 8 },
+  { k: 'sq_shield',  n: 'sq shield',  g: 'sqshield', slot: 'shield', a: 0, s: 0, d: 6 },
+  { k: 'defender',   n: 'defender',   g: 'defender', slot: 'shield', a: 3, s: 2, d: 3 },
+  { k: 'boots',      n: 'boots',      g: 'boot',   slot: 'feet',   a: 0,  s: 0, d: 2 },
+  { k: 'gauntlets',  n: 'gauntlets',  g: 'glove',  slot: 'hands',  a: 0,  s: 0, d: 2 }
 ];
 
 const ITEMS = Object.create(null);
@@ -1356,12 +1394,17 @@ const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 for (const t of TIERS) for (const p of PIECES) {
   const isTool = !!p.tool;
   if (t.k === 'black' && isTool && p.k === 'pickaxe') continue;   // no black pickaxe, as in 2007
+  if (t.armourOnly && p.slot === 'weapon') continue;              // no white weapons or tools exist
+  if (t.k === 'bronze' && p.k === 'boots') continue;              // boots start at iron
   defItem({
     id: t.k + '_' + p.k, name: t.n + ' ' + p.n, g: p.g, c: t.c, c2: t.c2,
     slot: p.slot, tier: t.i, spd: p.spd || 5, equip: 1,
+    two: p.two || 0, reach: p.reach || 0,
     atk: p.a * t.m, str: p.s * t.m, def: p.d * t.m,
     tool: p.tool || null,
-    req: isTool ? { [p.tool]: t.tool } : { attack: p.slot === 'weapon' ? t.req : 0, defence: p.slot === 'weapon' ? 0 : t.req },
+    req: isTool ? { [p.tool]: t.tool }
+       : p.slot === 'weapon' ? { [p.gate || 'attack']: t.req }
+       : { defence: t.req },
     // Price climbs with the square of the tier, the way the 2007 shops did:
     // bronze is pocket change, rune is a season's mining.
     val: Math.round((p.a + p.s + p.d * 1.6 + 6) * t.m * t.m * 1.2)
@@ -1386,25 +1429,60 @@ const BOWFORM = [
 for (const b of BOWS) for (const f of BOWFORM) {
   defItem({
     id: b.k + f.k, name: b.n ? b.n + f.n : cap(f.n), g: 'bow', c: b.c, c2: b.c2,
-    slot: 'weapon', equip: 1, bow: 1, spd: f.spd, rng: f.rng,
+    slot: 'weapon', equip: 1, bow: 1, two: 1, spd: f.spd, rng: f.rng,
     rat: Math.round(b.ra * f.m), atk: 0, str: 0, def: 0,
     req: { ranged: b.lv },
     val: Math.round(30 + b.ra * b.ra * 0.55 * f.m)
   });
 }
-/* Arrows carry the strength, and stack. Their levels follow the metal. */
+/* Crossbows: less reach than a longbow, but one hand — the shield stays on
+   the arm, which no bow ever allowed. They fire bolts, never arrows. */
+const XBOWS = [
+  { k: 'bronze', ra: 12, lv: 1 },  { k: 'iron', ra: 18, lv: 1 },  { k: 'steel', ra: 26, lv: 5 },
+  { k: 'mithril', ra: 36, lv: 20 }, { k: 'adamant', ra: 46, lv: 30 },
+  { k: 'rune', ra: 61, lv: 40 },   { k: 'dragon', ra: 78, lv: 60 }
+];
+for (const b of XBOWS) {
+  const t = TIER[b.k];
+  defItem({
+    id: b.k + '_crossbow', name: t.n + ' crossbow', g: 'cbow', c: t.c, c2: t.c2,
+    slot: 'weapon', equip: 1, bow: 1, ammoT: 'bolt', spd: 5, rng: 7,
+    rat: b.ra, atk: 0, str: 0, def: 0,
+    req: { ranged: b.lv }, val: Math.round(40 + b.ra * b.ra * 0.5)
+  });
+}
+/* Arrows carry the strength, and stack. Their levels follow the metal; the
+   two past rune name their own colours, since no tier speaks for them. */
 const ARROWS = [
   { k: 'bronze',  lv: 1,  rs: 7  }, { k: 'iron',    lv: 1,  rs: 10 },
   { k: 'steel',   lv: 5,  rs: 16 }, { k: 'mithril', lv: 20, rs: 22 },
-  { k: 'adamant', lv: 30, rs: 31 }, { k: 'rune',    lv: 40, rs: 49 }
+  { k: 'adamant', lv: 30, rs: 31 }, { k: 'rune',    lv: 40, rs: 49 },
+  { k: 'amethyst', lv: 61, rs: 55, n: 'Amethyst', c: '#9a6fc4', c2: '#5f4380' },
+  { k: 'dragon',   lv: 75, rs: 62 }
 ];
 for (const a of ARROWS) {
   const t = TIER[a.k];
   defItem({
-    id: a.k + '_arrow', name: t.n + ' arrow', g: 'arrow', c: t.c, c2: t.c2,
+    id: a.k + '_arrow', name: (a.n || t.n) + ' arrow', g: 'arrow',
+    c: a.c || t.c, c2: a.c2 || t.c2,
     slot: 'ammo', equip: 1, stack: 1, ammo: 1,
     rst: a.rs, rat: Math.round(a.rs * 0.45),
     req: { ranged: a.lv }, val: Math.max(1, Math.round(a.rs * 0.9))
+  });
+}
+/* Bolts are the crossbow's half of the ammunition ledger. */
+const BOLTS = [
+  { k: 'bronze', lv: 1, rs: 8 },   { k: 'iron', lv: 1, rs: 12 },  { k: 'steel', lv: 5, rs: 19 },
+  { k: 'mithril', lv: 20, rs: 26 }, { k: 'adamant', lv: 30, rs: 37 },
+  { k: 'rune', lv: 40, rs: 55 },   { k: 'dragon', lv: 60, rs: 71 }
+];
+for (const a of BOLTS) {
+  const t = TIER[a.k];
+  defItem({
+    id: a.k + '_bolts', name: t.n + ' bolts', g: 'bolt', c: t.c, c2: t.c2,
+    slot: 'ammo', equip: 1, stack: 1, ammo: 1, aT: 'bolt',
+    rst: a.rs, rat: Math.round(a.rs * 0.45),
+    req: { ranged: a.lv }, val: Math.max(1, Math.round(a.rs * 1.1))
   });
 }
 /* Hide and leather: light defence, and the only armour that does not fight
@@ -1420,7 +1498,8 @@ const HIDES = [
 const HIDEPIECE = [
   { k: 'coif',  n: 'coif',  g: 'hat',  slot: 'head', d: 3, m: 0.35 },
   { k: 'body',  n: 'body',  g: 'robe', slot: 'body', d: 9, m: 1.00 },
-  { k: 'chaps', n: 'chaps', g: 'legs', slot: 'legs', d: 5, m: 0.55 }
+  { k: 'chaps', n: 'chaps', g: 'legs', slot: 'legs', d: 5, m: 0.55 },
+  { k: 'vambraces', n: 'vambraces', g: 'glove', slot: 'hands', d: 2, m: 0.30 }
 ];
 for (const h of HIDES) for (const q of HIDEPIECE) {
   defItem({
@@ -1499,6 +1578,50 @@ FISH.forEach((f, i) => {
   defItem({ id: 'burnt_' + f.k, name: 'Burnt ' + f.n.toLowerCase(), g: 'cfish', c: '#2a2320', c2: '#151210', stack: 1, val: 0 });
 });
 
+/* Odd pieces with no family to generate them from. Gilded tools reuse the
+   rune multiplier under gold leaf — pure cosmetics, zero balance risk. */
+defItem({ id: 'gilded_hatchet', name: 'Gilded hatchet', g: 'axe', c: '#e8c34a', c2: '#9a7414',
+  slot: 'weapon', tier: 6, tname: 'Gilded', spd: 5, equip: 1, atk: 28, str: 35, def: 0,
+  tool: 'woodcutting', req: { woodcutting: 41 }, val: 882 });
+defItem({ id: 'gilded_pickaxe', name: 'Gilded pickaxe', g: 'pick', c: '#e8c34a', c2: '#9a7414',
+  slot: 'weapon', tier: 6, tname: 'Gilded', spd: 5, equip: 1, atk: 21, str: 28, def: 0,
+  tool: 'mining', req: { mining: 41 }, val: 764 });
+defItem({ id: 'leather_gloves', name: 'Leather gloves', g: 'glove', c: '#8a6438', c2: '#5b4123',
+  slot: 'hands', equip: 1, atk: 0, str: 0, def: 1, req: { defence: 1 }, val: 6 });
+defItem({ id: 'leather_boots', name: 'Leather boots', g: 'boot', c: '#8a6438', c2: '#5b4123',
+  slot: 'feet', equip: 1, atk: 0, str: 0, def: 2, req: { defence: 1 }, val: 9 });
+defItem({ id: 'snakeskin_boots', name: 'Snakeskin boots', g: 'boot', c: '#7a8a4a', c2: '#4a5a2a',
+  slot: 'feet', equip: 1, atk: 0, str: 0, def: 3, rat: 2,
+  req: { ranged: 30, defence: 30 }, val: 85 });
+/* Capes. Ava's devices snatch spent ammunition out of the air — the arrow
+   simply is not consumed — which is the ranged economy the game lacked. */
+defItem({ id: 'avas_attractor', name: "Ava's attractor", g: 'cape', c: '#7a5a3a', c2: '#4a3826',
+  slot: 'cape', equip: 1, atk: 0, str: 0, def: 0, rat: 2, save: 0.6,
+  req: { ranged: 30 }, val: 780 });
+defItem({ id: 'avas_accumulator', name: "Ava's accumulator", g: 'cape', c: '#8a8a52', c2: '#565634',
+  slot: 'cape', equip: 1, atk: 0, str: 0, def: 0, rat: 4, save: 0.72,
+  req: { ranged: 50 }, val: 9800 });
+defItem({ id: 'team_cape', name: 'Team cape', g: 'cape', c: '#b03a3a', c2: '#6b2020',
+  slot: 'cape', equip: 1, atk: 0, str: 0, def: 0, req: {}, val: 50 });
+/* Amulets: the flat-bonus power curve every 2007 account climbed. */
+defItem({ id: 'amulet_of_magic', name: 'Amulet of magic', g: 'amulet', c: '#4a72d0', c2: '#2a4485',
+  slot: 'neck', equip: 1, atk: 0, str: 0, def: 0, mag: 10, req: {}, val: 350 });
+defItem({ id: 'amulet_of_defence', name: 'Amulet of defence', g: 'amulet', c: '#c04a4a', c2: '#7a2a2a',
+  slot: 'neck', equip: 1, atk: 0, str: 0, def: 7, req: {}, val: 700 });
+defItem({ id: 'amulet_of_strength', name: 'Amulet of strength', g: 'amulet', c: '#3f9a4a', c2: '#25622c',
+  slot: 'neck', equip: 1, atk: 0, str: 10, def: 0, req: {}, val: 1400 });
+defItem({ id: 'amulet_of_power', name: 'Amulet of power', g: 'amulet', c: '#8a4ad0', c2: '#552a85',
+  slot: 'neck', equip: 1, atk: 6, str: 6, def: 6, mag: 6, req: {}, val: 2800 });
+defItem({ id: 'amulet_of_glory', name: 'Amulet of glory', g: 'amulet', c: '#e0448a', c2: '#8f2455',
+  slot: 'neck', equip: 1, atk: 10, str: 8, def: 10, mag: 10, req: {}, val: 11000 });
+/* Rings carry behaviours, not stats: recoil bites back, life pulls you out. */
+defItem({ id: 'ring_of_recoil', name: 'Ring of recoil', g: 'ring', c: '#4a72d0', c2: '#2a4485',
+  slot: 'ring', equip: 1, atk: 0, str: 0, def: 0, req: {}, val: 1200 });
+defItem({ id: 'ring_of_life', name: 'Ring of life', g: 'ring', c: '#d0d4dc', c2: '#8a8f98',
+  slot: 'ring', equip: 1, atk: 0, str: 0, def: 0, req: {}, val: 5000 });
+defItem({ id: 'ring_of_wealth', name: 'Ring of wealth', g: 'ring', c: '#e0b436', c2: '#9a7414',
+  slot: 'ring', equip: 1, atk: 0, str: 0, def: 0, req: {}, val: 9000 });
+
 defItem({ id: 'tinderbox',   name: 'Tinderbox',   g: 'tinder', c: '#8a6438', c2: '#4a3620', val: 4 });
 defItem({ id: 'hammer',      name: 'Hammer',      g: 'hammer', c: '#75767a', c2: '#4a4b4f', val: 10 });
 defItem({ id: 'fishing_rod', name: 'Fishing rod', g: 'rod',    c: '#8a6438', c2: '#4a3620', val: 12 });
@@ -1538,30 +1661,62 @@ function shopStock(kind, tier) {
     for (let t = 0; t <= maxT; t++) { push(TIERS[t].k + '_hatchet', 5); push(TIERS[t].k + '_pickaxe', 5); }
     push('hammer', 20); push('tinderbox', 20);
   }
-  if (s.weapons) for (let t = 0; t <= maxT; t++)
-    for (const p of ['dagger', 'sword', 'scimitar']) push(TIERS[t].k + '_' + p, 4);
-  if (s.armour) for (let t = 0; t <= maxT; t++)
-    for (const p of ['med_helm', 'platebody', 'platelegs', 'kiteshield']) push(TIERS[t].k + '_' + p, 4);
+  if (s.weapons) {
+    for (let t = 0; t <= maxT; t++)
+      for (const p of ['dagger', 'sword', 'scimitar', 'longsword', 'mace']) push(TIERS[t].k + '_' + p, 4);
+    if (tier >= 1) for (let t = 0; t <= maxT; t++)
+      for (const p of ['battleaxe', 'warhammer', 'claws']) push(TIERS[t].k + '_' + p, 3);
+    if (tier === 2) for (let t = 0; t <= maxT; t++)
+      for (const p of ['2h_sword', 'halberd', 'spear', 'hasta']) push(TIERS[t].k + '_' + p, 2);
+  }
+  if (s.armour) {
+    for (let t = 0; t <= maxT; t++)
+      for (const p of ['med_helm', 'full_helm', 'platebody', 'chainbody', 'platelegs',
+                       'plateskirt', 'kiteshield', 'sq_shield', 'boots', 'gauntlets'])
+        push(TIERS[t].k + '_' + p, 4);
+    // the city armoury keeps the white line behind the counter
+    if (tier === 2) for (const p of ['med_helm', 'full_helm', 'platebody', 'chainbody',
+                                     'platelegs', 'plateskirt', 'kiteshield', 'sq_shield'])
+      push('white_' + p, 3);
+    push('leather_gloves', 10); push('leather_boots', 10);
+    push('amulet_of_magic', 3);
+    if (tier >= 1) { push('amulet_of_defence', 3); push('amulet_of_strength', 3); }
+    if (tier === 2) push('amulet_of_power', 2);
+  }
   if (s.k === 'food') for (const f of FISH) if (f.lv <= 40) push(f.done, 15);
   if (s.range) {
     // bows by wood, arrows by metal, hide by beast — all gated on settlement size
     for (let i = 0; i <= Math.min(5, 1 + tier * 2); i++) {
       push(BOWS[i].k + 'shortbow', 5); push(BOWS[i].k + 'longbow', 5);
+      push(XBOWS[i].k + '_crossbow', 4);
       for (const q of HIDEPIECE) push(HIDES[i].k + '_' + q.k, 4);
     }
-    for (let i = 0; i <= Math.min(5, 1 + tier * 2); i++) push(ARROWS[i].k + '_arrow', 1000 + tier * 2000);
+    for (let i = 0; i <= Math.min(5, 1 + tier * 2); i++) {
+      push(ARROWS[i].k + '_arrow', 1000 + tier * 2000);
+      push(BOLTS[i].k + '_bolts', 800 + tier * 1600);
+    }
+    if (tier === 2) push('amethyst_arrow', 2000);
+    if (tier >= 1) push('snakeskin_boots', 4);
+    if (tier >= 1) push('avas_attractor', 2);
+    if (tier === 2) push('avas_accumulator', 1);
   }
   if (s.mage) {
-    push('staff', 10);
+    push('staff', 10); push('beginner_wand', 6);
     for (let i = 0; i <= Math.min(2, tier); i++) {
       for (const e of ELEMS) push(STAFF_TIERS[i].k + '_of_' + e.k, 4);
       for (const p of ROBE_PIECES) push(ROBE_TIERS[i].k + '_' + p.k, 6);
+    }
+    if (tier >= 1) { push('battlestaff', 4); push('apprentice_wand', 4); }
+    if (tier === 2) {
+      push('mystic_staff', 3); push('teacher_wand', 3); push('ring_of_life', 2);
+      for (const co of COMBOS) push(co.k + '_battlestaff', 2);
     }
     for (const r of RUNES) push(r.id, 500 + tier * 500);
   }
   // every general store keeps a rune box behind the counter
   if (s.k === 'general') for (const r of RUNES) push(r.id, 200 + tier * 300);
-  if (s.k === 'general') push('bronze_arrow', 500);
+  if (s.k === 'general') { push('bronze_arrow', 500); push('team_cape', 5); }
+  if (s.k === 'general' && tier >= 1) push('ring_of_recoil', 3);
   return list;
 }
 /* Shops buy at a discount and sell at a markup — the spread is the point. */
@@ -1577,9 +1732,11 @@ const ROBE_TIERS = [
   { k: 'mystic', n: 'Mystic', def: 20, mlv: 40, c: '#6a5ab0', c2: '#3e3470', m: 3 }
 ];
 const ROBE_PIECES = [
-  { k: 'hat',         n: 'hat',         g: 'hat',  slot: 'head', mag: 2, def: 2 },
-  { k: 'robe_top',    n: 'robe top',    g: 'robe', slot: 'body', mag: 4, def: 3 },
-  { k: 'robe_bottom', n: 'robe bottom', g: 'legs', slot: 'legs', mag: 3, def: 2 }
+  { k: 'hat',         n: 'hat',         g: 'hat',   slot: 'head',  mag: 2, def: 2 },
+  { k: 'robe_top',    n: 'robe top',    g: 'robe',  slot: 'body',  mag: 4, def: 3 },
+  { k: 'robe_bottom', n: 'robe bottom', g: 'legs',  slot: 'legs',  mag: 3, def: 2 },
+  { k: 'gloves',      n: 'gloves',      g: 'glove', slot: 'hands', mag: 1, def: 1 },
+  { k: 'boots',       n: 'boots',       g: 'boot',  slot: 'feet',  mag: 1, def: 1 }
 ];
 for (const t of ROBE_TIERS) for (const p of ROBE_PIECES) defItem({
   id: t.k + '_' + p.k, name: t.n + ' ' + p.n, g: p.g, c: t.c, c2: t.c2,
@@ -1610,16 +1767,56 @@ for (const t of STAFF_TIERS) for (const e of ELEMS) defItem({
   gives: e.rune,                                   // this rune costs you nothing
   req: { magic: t.lv }, val: Math.round((t.mag * 6 + 20) * t.m * 1.6)
 });
-/* The rune an equipped staff hands out for free, if any. */
-const staffRune = () => (eq.weapon && ITEMS[eq.weapon].gives) || null;
+/* The plain shafts the elemental lines are built on. */
+defItem({ id: 'battlestaff', name: 'Battlestaff', g: 'staff', c: '#6b5334', c2: '#c8b87a',
+  slot: 'weapon', tier: 0, equip: 1, spd: 5, atk: 8, str: 7, def: 0, mag: 7,
+  req: { magic: 30 }, val: 298 });
+defItem({ id: 'mystic_staff', name: 'Mystic staff', g: 'staff', c: '#6a5ab0', c2: '#d8c88a',
+  slot: 'weapon', tier: 0, equip: 1, spd: 5, atk: 12, str: 9, def: 0, mag: 12,
+  req: { magic: 40 }, val: 883 });
+/* Combination staves marry two elements and hand out both runes for free —
+   the cheapest upgrade in the book, priced at a 40% premium for the pair. */
+const ELEM = Object.create(null); ELEMS.forEach(e => { ELEM[e.k] = e; });
+const COMBOS = [
+  { k: 'mud', a: 'water', b: 'earth' }, { k: 'lava', a: 'fire', b: 'earth' },
+  { k: 'steam', a: 'fire', b: 'water' }, { k: 'smoke', a: 'fire', b: 'air' },
+  { k: 'mist', a: 'water', b: 'air' },  { k: 'dust', a: 'earth', b: 'air' }
+];
+for (const co of COMBOS) {
+  const A = ELEM[co.a], B = ELEM[co.b];
+  defItem({ id: co.k + '_battlestaff', name: cap(co.k) + ' battlestaff', g: 'staff',
+    c: A.c, c2: B.c, slot: 'weapon', tier: 0, equip: 1, spd: 5,
+    atk: 8, str: 7, def: 0, mag: 9, gives: [A.rune, B.rune],
+    req: { magic: 30 }, val: Math.round((9 * 6 + 20) * 3 * 1.6 * 1.4) });
+  defItem({ id: 'mystic_' + co.k + '_staff', name: 'Mystic ' + co.k + ' staff', g: 'staff',
+    c: A.c, c2: B.c, slot: 'weapon', tier: 0, equip: 1, spd: 5,
+    atk: 12, str: 9, def: 0, mag: 15, gives: [A.rune, B.rune],
+    req: { magic: 40 }, val: Math.round((15 * 6 + 20) * 6 * 1.6 * 1.4) });
+}
+/* Wands: magic's first one-handed weapon, so a mage can finally carry a
+   shield. They swing like wet paper — the point is the casting hand. */
+const WANDS = [
+  { id: 'beginner_wand',   n: 'Beginner wand',   mag: 4,  lv: 1,  val: 60,   c: '#8a6438', c2: '#b9aee0' },
+  { id: 'apprentice_wand', n: 'Apprentice wand', mag: 8,  lv: 20, val: 240,  c: '#75767a', c2: '#7ab9e0' },
+  { id: 'teacher_wand',    n: 'Teacher wand',    mag: 13, lv: 40, val: 700,  c: '#5c63b8', c2: '#e0d47a' },
+  { id: 'master_wand',     n: 'Master wand',     mag: 18, lv: 60, val: 1600, c: '#3ab6c4', c2: '#e07ad4' }
+];
+for (const w of WANDS) defItem({ id: w.id, name: w.n, g: 'wand', c: w.c, c2: w.c2,
+  slot: 'weapon', tier: 0, equip: 1, spd: 4, atk: 0, str: 0, def: 0, mag: w.mag,
+  req: { magic: w.lv }, val: w.val });
+/* The runes an equipped staff hands out for free — one, two, or none. */
+const staffRune = () => {
+  const g = eq.weapon && ITEMS[eq.weapon].gives;
+  return g ? (Array.isArray(g) ? g : [g]) : [];
+};
 function spellReady(sp) {
   const free = staffRune();
-  for (const [id, k] of sp.need) if (id !== free && invCount(id) < k) return false;
+  for (const [id, k] of sp.need) if (!free.includes(id) && invCount(id) < k) return false;
   return true;
 }
 function spendRunes(sp) {
   const free = staffRune();
-  for (const [id, k] of sp.need) if (id !== free) invRemove(id, k);
+  for (const [id, k] of sp.need) if (!free.includes(id)) invRemove(id, k);
 }
 
 /* ------------------- 7. COMBAT STYLES, MAGIC, PRAYER ---------------- */
@@ -1967,6 +2164,125 @@ const GLYPH = {
     poly(g, [3, 16, 29, 16, 24, 25, 8, 25], c, '#000');
     g.fillStyle = d; g.fillRect(15, 5, 2, 11);
     poly(g, [17, 6, 26, 14, 17, 14], d, '#000');
+  },
+  /* --- the armoury expansion: one small drawing per new family --- */
+  lsword(g, c, d) {
+    poly(g, [16, 1, 18.5, 6, 18.5, 22, 13.5, 22, 13.5, 6], c, '#000');
+    poly(g, [16, 1, 16, 22], null, d);
+    g.fillStyle = d; g.fillRect(9, 22, 14, 2.6);
+    g.fillStyle = '#6b4a26'; g.fillRect(14.6, 24.6, 2.8, 5);
+    g.fillStyle = d; g.fillRect(13.5, 29.2, 5, 1.8);
+  },
+  sword2h(g, c, d) {
+    poly(g, [16, 1, 20.5, 7, 20.5, 20, 11.5, 20, 11.5, 7], c, '#000');
+    poly(g, [16, 1, 16, 20], null, d);
+    g.fillStyle = d; g.fillRect(7, 20, 18, 3);
+    g.fillStyle = '#6b4a26'; g.fillRect(14.5, 23, 3, 7);
+    g.fillStyle = d; g.fillRect(13, 29.4, 6, 2);
+  },
+  mace(g, c, d) {
+    g.fillStyle = '#6b4a26'; g.fillRect(14.6, 12, 2.8, 18);
+    g.beginPath(); g.arc(16, 8.5, 5.4, 0, Math.PI * 2);
+    g.fillStyle = c; g.fill(); g.strokeStyle = '#000'; g.stroke();
+    for (const a of [0, 1.05, 2.09, 3.14, 4.19, 5.24]) {
+      g.fillStyle = d;
+      g.fillRect(16 + Math.cos(a) * 6.4 - 1.1, 8.5 + Math.sin(a) * 6.4 - 1.1, 2.2, 2.2);
+    }
+  },
+  baxe(g, c, d) {
+    poly(g, [20.4, 3.6, 23.6, 5.6, 11.4, 29.4, 8.2, 27.4], '#6b4a26', '#000');
+    poly(g, [7, 3, 24, 6, 26, 16, 12, 16, 6, 9], c, '#000');
+    poly(g, [10, 5.4, 22, 7.6, 23.4, 14, 13.4, 14], d, null);
+  },
+  wham(g, c, d) {
+    g.fillStyle = '#6b4a26'; g.fillRect(14.6, 10, 2.8, 20);
+    poly(g, [8, 2, 24, 2, 24, 12, 8, 12], c, '#000');
+    g.fillStyle = d; g.fillRect(8, 5.4, 16, 3.2);
+  },
+  claws(g, c, d) {
+    g.fillStyle = d; g.fillRect(8, 24, 16, 3.4);
+    for (const x of [10.5, 16, 21.5]) {
+      g.beginPath(); g.moveTo(x - 2.2, 24);
+      g.quadraticCurveTo(x - 3, 12, x + 1.6, 5);
+      g.quadraticCurveTo(x + 1.4, 14, x + 2.2, 24);
+      g.closePath(); g.fillStyle = c; g.fill(); g.strokeStyle = '#000'; g.stroke();
+    }
+    g.fillStyle = '#6b4a26'; g.fillRect(9, 27.4, 14, 2.6);
+  },
+  halberd(g, c, d) {
+    g.fillStyle = '#6b4a26'; g.fillRect(14.8, 3, 2.4, 27);
+    poly(g, [16, 0.5, 18.6, 4.6, 16, 8, 13.4, 4.6], c, '#000');
+    poly(g, [17.2, 8, 26, 9.5, 27, 16, 17.2, 17.5], c, '#000');
+    poly(g, [19, 10.4, 24.6, 11.4, 25.2, 14.4, 19, 15.4], d, null);
+  },
+  spear(g, c, d) {
+    g.fillStyle = '#6b4a26'; g.fillRect(14.8, 8, 2.4, 22);
+    poly(g, [16, 1, 19.4, 7.6, 16, 12, 12.6, 7.6], c, '#000');
+    g.fillStyle = d; g.fillRect(13.4, 12, 5.2, 1.8);
+  },
+  cbow(g, c, d) {
+    g.fillStyle = '#6b4a26'; g.fillRect(14.4, 8, 3.2, 18);
+    g.beginPath(); g.moveTo(4, 12); g.quadraticCurveTo(16, 3, 28, 12);
+    g.quadraticCurveTo(16, 8, 4, 12); g.closePath();
+    g.fillStyle = c; g.fill(); g.strokeStyle = '#000'; g.stroke();
+    g.strokeStyle = '#efe4c4'; g.beginPath(); g.moveTo(4.5, 12); g.lineTo(16, 15); g.lineTo(27.5, 12); g.stroke();
+    g.fillStyle = d; g.fillRect(13.4, 15, 5.2, 4);
+  },
+  bolt(g, c, d) {
+    g.fillStyle = '#8a6a4a'; g.fillRect(14.8, 10, 2.4, 14);
+    poly(g, [16, 4, 19, 11, 13, 11], c, '#000');
+    poly(g, [13, 24, 19, 24, 16, 29], d, '#000');
+  },
+  wand(g, c, d) {
+    poly(g, [19.4, 9, 22, 11.6, 12, 28, 9.4, 25.4], c, '#000');
+    g.fillStyle = d;
+    g.beginPath(); g.arc(22.5, 8.5, 3.4, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = '#000'; g.stroke();
+    g.fillStyle = '#fff';
+    g.fillRect(21.6, 7.6, 1.8, 1.8);
+  },
+  fhelm(g, c, d) {
+    poly(g, [8, 12, 10, 6, 22, 6, 24, 12, 24, 26, 8, 26], c, '#000');
+    g.fillStyle = d; g.fillRect(8, 12, 16, 2.4);
+    g.fillStyle = '#14100c'; g.fillRect(10.4, 15.6, 4.6, 2.6); g.fillRect(17, 15.6, 4.6, 2.6);
+    g.fillStyle = d; g.fillRect(14.8, 14.6, 2.4, 11.4);
+  },
+  chain(g, c, d) {
+    poly(g, [9, 6, 23, 6, 26, 12, 24, 27, 8, 27, 6, 12], c, '#000');
+    g.fillStyle = d;
+    for (let y = 9; y < 26; y += 3.4) for (let x = 9 + (y % 6.8 > 3.3 ? 1.7 : 0); x < 23; x += 3.4)
+      g.fillRect(x, y, 1.6, 1.6);
+  },
+  skirt(g, c, d) {
+    poly(g, [11, 5, 21, 5, 26, 28, 6, 28], c, '#000');
+    g.fillStyle = d; g.fillRect(11, 5, 10, 3);
+    g.strokeStyle = d; g.beginPath(); g.moveTo(13.5, 9); g.lineTo(11, 27); g.moveTo(18.5, 9); g.lineTo(21, 27); g.stroke();
+  },
+  sqshield(g, c, d) {
+    poly(g, [8, 5, 24, 5, 24, 23, 16, 28, 8, 23], c, '#000');
+    poly(g, [11, 8, 21, 8, 21, 21, 16, 24, 11, 21], d, null);
+  },
+  defender(g, c, d) {
+    poly(g, [12, 3, 20, 3, 22, 12, 16, 29, 10, 12], c, '#000');
+    poly(g, [14, 6, 18, 6, 19.4, 12, 16, 24, 12.6, 12], d, null);
+  },
+  glove(g, c, d) {
+    poly(g, [11, 4, 21, 4, 22, 16, 25, 18, 24, 22, 20, 21, 20, 28, 12, 28, 10, 16], c, '#000');
+    g.fillStyle = d; g.fillRect(12, 24, 8, 2.2);
+    g.strokeStyle = d; g.beginPath();
+    g.moveTo(14, 5); g.lineTo(14, 14); g.moveTo(17, 5); g.lineTo(17, 14); g.stroke();
+  },
+  cape(g, c, d) {
+    poly(g, [10, 4, 22, 4, 26, 27, 16, 24, 6, 27], c, '#000');
+    g.fillStyle = d; g.fillRect(10, 4, 12, 3);
+    g.strokeStyle = d; g.beginPath(); g.moveTo(12, 8); g.lineTo(10, 24); g.moveTo(20, 8); g.lineTo(22, 24); g.stroke();
+  },
+  amulet(g, c, d) {
+    g.strokeStyle = d; g.lineWidth = 2;
+    g.beginPath(); g.arc(16, 12, 8.5, Math.PI * 0.95, Math.PI * 0.05, false); g.stroke();
+    g.lineWidth = 1;
+    poly(g, [16, 17, 21, 22, 16, 28, 11, 22], c, '#000');
+    poly(g, [16, 19.4, 18.8, 22, 16, 25.4, 13.2, 22], d, null);
   }
 };
 
@@ -1998,6 +2314,14 @@ const SK_C = ['#c9453a', '#3f9a4a', '#4a72c9', '#7a9a3a', '#d8c86a', '#4a8ad8', 
   '#c9453a', '#4a9ad8', '#4faa4a', '#a05ad0', '#c99a4a', '#4aaa9a', '#8a8a8a', '#8a7a4a',
   '#8a94a3', '#b0733a', '#5aa3c9', '#d05a9a', '#e08a2a', '#4f9a3a', '#3faa5a', '#2f8fb0',
   '#5a5348', '#5a5348', '#5a5348', '#5a5348'];
+/* Skillcapes, one per named skill, in that skill's own colour. The price is
+   the 2007 price and the requirement is the only one that matters: 99. */
+SKILLS.forEach((s, i) => {
+  if (s.locked) return;
+  defItem({ id: 'skillcape_' + s.k, name: (s.f || s.n) + ' cape', g: 'cape',
+    c: SK_C[i], c2: '#2a2620', slot: 'cape', equip: 1, atk: 0, str: 0, def: 9,
+    req: {}, req99: s.k, val: 99000 });
+});
 function skIcon(i) {
   const key = 'sk:' + i;
   let u = _iconCache.get(key);
@@ -2454,21 +2778,31 @@ function qpts(x0, y0, cx, cy, x1, y1, k) {
 const WOOD = [0.42, 0.29, 0.15], STRING = [0.94, 0.90, 0.78];
 /* grip anchor per family: the point that sits in the hand */
 const WGRIP = { sword: [16, 26], dagger: [16, 25], scim: [8, 28], axe: [11.5, 26],
-                pick: [16, 26], staff: [16, 26], bow: [20, 16] };
+                pick: [16, 26], staff: [16, 26], bow: [20, 16],
+                lsword: [16, 27], sword2h: [16, 27], mace: [16, 26], baxe: [10, 28],
+                wham: [16, 26], claws: [16, 28], halberd: [16, 24], spear: [16, 24],
+                cbow: [16, 17], wand: [10.5, 26.5] };
 const WHOLD = {
   // a blade turned edge-on to the chest, rather than lying flat against it
   sword: g => g.rotateY(Math.PI / 2), dagger: g => g.rotateY(Math.PI / 2),
   scim:  g => g.rotateY(Math.PI / 2), axe:    g => g.rotateY(Math.PI / 2),
   pick:  g => g.rotateY(Math.PI / 2), rod:    g => g.rotateY(Math.PI / 2),
+  lsword: g => g.rotateY(Math.PI / 2), sword2h: g => g.rotateY(Math.PI / 2),
+  mace:  g => g.rotateY(Math.PI / 2), baxe:   g => g.rotateY(Math.PI / 2),
+  wham:  g => g.rotateY(Math.PI / 2), claws:  g => g.rotateY(Math.PI / 2),
+  wand:  g => g.rotateY(Math.PI / 2),
   staff: g => g.rotateX(Math.PI),                             // orb overhead
+  halberd: g => g.rotateX(Math.PI),                           // polearms stand tall
+  spear: g => g.rotateX(Math.PI),
   // limbs out to the sides and the string toward the archer's back, which is
   // the only way round that lets you pull it toward yourself
-  bow:   g => g.rotateX(Math.PI / 2).rotateY(-Math.PI / 2)
+  bow:   g => g.rotateX(Math.PI / 2).rotateY(-Math.PI / 2),
+  cbow:  g => g.rotateX(Math.PI / 2)                          // stock along the forearm
 };
 // a staff runs the length of the arm and past the ear, so it stands clear of
 // both: forward of the hand, and a little further out from the shoulder
-const WFWD = { staff: 0.19, bow: 0.03 };
-const WOUT = { staff: -0.10 };
+const WFWD = { staff: 0.19, bow: 0.03, halberd: 0.19, spear: 0.19, cbow: 0.08 };
+const WOUT = { staff: -0.10, halberd: -0.10, spear: -0.10 };
 const WEAPON = {
   sword: (c, d, x, y) => [
     xtr([16, 2, 19.5, 9, 19.5, 20, 12.5, 20, 12.5, 9], c, x, y),
@@ -2506,7 +2840,48 @@ const WEAPON = {
     return [xtr(out.concat(inn), c, x, y),
             xtr([12.9, 6.2, 13.6, 6.2, 13.6, 25.8, 12.9, 25.8], STRING, x, y),
             xrect(18.6, 13.4, 3.2, 5.2, d, x, y)];        // the riser, where the hand goes
-  }
+  },
+  lsword: (c, d, x, y) => [
+    xtr([16, 1, 18.5, 6, 18.5, 22, 13.5, 22, 13.5, 6], c, x, y),
+    xrect(9, 22, 14, 2.6, d, x, y), xrect(14.6, 24.6, 2.8, 5, WOOD, x, y),
+    xrect(13.5, 29.2, 5, 1.8, d, x, y)],
+  sword2h: (c, d, x, y) => [
+    xtr([16, 1, 20.5, 7, 20.5, 20, 11.5, 20, 11.5, 7], c, x, y),
+    xrect(7, 20, 18, 3, d, x, y), xrect(14.5, 23, 3, 7, WOOD, x, y),
+    xrect(13, 29.4, 6, 2, d, x, y)],
+  mace: (c, d, x, y) => [
+    xrect(14.6, 12, 2.8, 18, WOOD, x, y), xcirc(16, 8.5, 5.4, c, x, y),
+    xrect(14.4, 1.6, 3.2, 3.2, d, x, y), xrect(9.2, 6.9, 3.2, 3.2, d, x, y),
+    xrect(19.6, 6.9, 3.2, 3.2, d, x, y)],
+  baxe: (c, d, x, y) => [
+    xtr([20.4, 3.6, 23.6, 5.6, 11.4, 29.4, 8.2, 27.4], WOOD, x, y),
+    xtr([7, 3, 24, 6, 26, 16, 12, 16, 6, 9], c, x, y),
+    xtr([10, 5.4, 22, 7.6, 23.4, 14, 13.4, 14], d, x, y)],
+  wham: (c, d, x, y) => [
+    xrect(14.6, 10, 2.8, 20, WOOD, x, y),
+    xrect(8, 2, 16, 10, c, x, y), xrect(8, 5.4, 16, 3.2, d, x, y)],
+  claws: (c, d, x, y) => [
+    xrect(8, 24, 16, 3.4, d, x, y), xrect(9, 27.4, 14, 2.6, WOOD, x, y),
+    ...[10.5, 16, 21.5].map(cx =>
+      xtr(qpts(cx - 2.2, 24, cx - 3, 12, cx + 1.6, 5, 6)
+        .concat(qpts(cx + 1.6, 5, cx + 1.4, 14, cx + 2.2, 24, 6)), c, x, y))],
+  halberd: (c, d, x, y) => [
+    xrect(14.8, 3, 2.4, 27, WOOD, x, y),
+    xtr([16, 0.5, 18.6, 4.6, 16, 8, 13.4, 4.6], c, x, y),
+    xtr([17.2, 8, 26, 9.5, 27, 16, 17.2, 17.5], c, x, y),
+    xtr([19, 10.4, 24.6, 11.4, 25.2, 14.4, 19, 15.4], d, x, y)],
+  spear: (c, d, x, y) => [
+    xrect(14.8, 8, 2.4, 22, WOOD, x, y),
+    xtr([16, 1, 19.4, 7.6, 16, 12, 12.6, 7.6], c, x, y),
+    xrect(13.4, 12, 5.2, 1.8, d, x, y)],
+  cbow: (c, d, x, y) => [
+    xrect(14.4, 8, 3.2, 18, WOOD, x, y),
+    xtr(qpts(4, 12, 16, 3, 28, 12, 8).concat(qpts(28, 12, 16, 8, 4, 12, 8)), c, x, y),
+    xtr([4.5, 11.6, 16, 14.6, 27.5, 11.6, 27.5, 12.4, 16, 15.4, 4.5, 12.4], STRING, x, y),
+    xrect(13.4, 15, 5.2, 4, d, x, y)],
+  wand: (c, d, x, y) => [
+    xtr([19.4, 9, 22, 11.6, 12, 28, 9.4, 25.4], c, x, y),
+    xcirc(22.5, 8.5, 3.4, d, x, y)]
 };
 const _wepGeo = new Map();
 function wepGeo(id) {
@@ -2545,6 +2920,21 @@ function buildAvatar() {
   const calfL = part(bakeW(shift(box(0.24, 0.34, 0.26), -0.17)), PANTS, 0, -0.38, 0);
   const calfR = part(bakeW(shift(box(0.24, 0.34, 0.26), -0.17)), PANTS, 0, -0.38, 0);
   legL.add(calfL); legR.add(calfR);
+  // boots cap the shins and gloves the wrists: children of the limbs they
+  // dress, so every swing carries them along
+  const bootL = part(bakeW(box(0.28, 0.17, 0.36)), 0xffffff, 0, -0.28, 0.03);
+  const bootR = part(bakeW(box(0.28, 0.17, 0.36)), 0xffffff, 0, -0.28, 0.03);
+  bootL.visible = bootR.visible = false;
+  calfL.add(bootL); calfR.add(bootR);
+  const glovL = part(bakeW(box(0.26, 0.18, 0.26)), 0xffffff, 0, -0.56, 0);
+  const glovR = part(bakeW(box(0.26, 0.18, 0.26)), 0xffffff, 0, -0.56, 0);
+  glovL.visible = glovR.visible = false;
+  armL.add(glovL); armR.add(glovR);
+  // the cape hangs from the shoulders and the amulet sits on the chest
+  const capeM = part(bakeW(box(0.64, 0.94, 0.09)), 0xffffff, 0, -0.14, -0.27);
+  capeM.visible = false; torso.add(capeM);
+  const amul = part(bakeW(box(0.14, 0.16, 0.05)), 0xffffff, 0, 0.24, 0.235);
+  amul.visible = false; torso.add(amul);
   const helm = part(bakeW(box(0.52, 0.3, 0.52)), 0xffffff, 0, 1.79, 0); helm.visible = false;
   // the mage's point: brim and cone baked as one piece, recoloured as one
   const wizHat = part(merge([
@@ -2576,6 +2966,7 @@ function buildAvatar() {
   g.add(torso, head, hair, armL, armR, legL, legR, helm, wizHat, rhHat, skirt,
         eyeL, eyeR, brow, mo, beard, paint);
   g.parts = { torso, head, hair, armL, armR, legL, legR, calfL, calfR,
+              bootL, bootR, glovL, glovR, capeM, amul,
               helm, wizHat, rhHat, skirt, wep, shl, legHid: 0,
               face: { eyeL, eyeR, brow, mo, beard, paint } };
   return g;
@@ -2826,6 +3217,7 @@ const NPC_TYPES = [
   { k: 'troll', n: 'Mountain troll', lv: 69, agg: 1, at: 'mr', rng: 6, arrow: 0x8a8479, hp: 132, atk: 44, str: 50, def: 40, db: 72, abon: 24, spd: 6, mspd: 0.6, sz: 2.2, big: 1, body: [0.44, 0.42, 0.4],
     build: () => humanoid({ w: 2.2, h: 4.2, body: [0.44, 0.42, 0.4], skin: [0.52, 0.5, 0.46], horns: 1, belt: [0.3, 0.28, 0.26] }) },
   { k: 'greendragon', n: 'Green dragon', lv: 79, agg: 1, at: 'mg', rng: 6, bolt: 0x6fd04a, hp: 150, atk: 52, str: 56, def: 48, db: 90, abon: 28, max: 20, spd: 5, mspd: 0.7, sz: 2.6, big: 1, body: [0.22, 0.38, 0.2],
+    drops: [{ id: 'dragon_dagger', min: 1, max: 1, w: 4 }, { id: 'dragon_spear', min: 1, max: 1, w: 2 }],
     build: () => dragonGeo({ w: 1.6, h: 2.6, body: [0.22, 0.38, 0.2], head: [0.28, 0.45, 0.24], wing: [0.17, 0.3, 0.16] }) },
   { k: 'lesserdemon', n: 'Lesser demon', lv: 82, agg: 1, hp: 158, atk: 56, str: 58, def: 50, db: 84, abon: 29, max: 8, spd: 5, mspd: 0.9, sz: 2.3, big: 1, body: [0.55, 0.16, 0.12],
     build: () => humanoid({ w: 2.0, h: 4.4, body: [0.55, 0.16, 0.12], skin: [0.66, 0.2, 0.14],
@@ -2837,7 +3229,8 @@ const NPC_TYPES = [
     build: () => humanoid({ w: 2.4, h: 5.2, body: [0.35, 0.1, 0.14], skin: [0.5, 0.14, 0.16],
       horns: 1, wings: 1, wing: [0.2, 0.06, 0.08], belt: [0.16, 0.05, 0.06] }) },
   { k: 'blackdragon', n: 'Black dragon', lv: 227, agg: 1, at: 'mg', rng: 7, bolt: 0xc04adc, hp: 240, atk: 90, str: 96, def: 88, db: 150, abon: 79, max: 25, spd: 5, mspd: 0.7, sz: 3.0, big: 1, body: [0.13, 0.12, 0.15],
-    drops: [{ id: 'rune_platebody', min: 1, max: 1, w: 3 }],
+    drops: [{ id: 'rune_platebody', min: 1, max: 1, w: 3 }, { id: 'dragon_longsword', min: 1, max: 1, w: 3 },
+            { id: 'dragon_med_helm', min: 1, max: 1, w: 2 }, { id: 'dragon_battleaxe', min: 1, max: 1, w: 2 }],
     build: () => dragonGeo({ w: 2.0, h: 3.2, body: [0.13, 0.12, 0.15], head: [0.19, 0.18, 0.22], wing: [0.09, 0.08, 0.11] }) },
 
   /* ---- folk of the road: men, knights and everything between ---- */
@@ -2862,6 +3255,8 @@ const NPC_TYPES = [
   { k: 'ghoul', n: 'Ghoul', lv: 42, agg: 1, hp: 84, atk: 30, str: 32, def: 28, db: 19, abon: 15, spd: 5, mspd: 1.1, sz: 0.95, body: [0.44, 0.46, 0.38],
     build: () => humanoid({ w: 0.68, h: 1.7, body: [0.44, 0.46, 0.38], skin: [0.6, 0.62, 0.5], arm: [0.4, 0.42, 0.34] }) },
   { k: 'whiteknight', n: 'White Knight', lv: 42, agg: 1, hp: 84, atk: 30, str: 32, def: 28, db: 29, abon: 15, spd: 5, sz: 0.95, body: [0.84, 0.86, 0.9],
+    drops: [{ id: 'white_full_helm', min: 1, max: 1, w: 5 }, { id: 'white_kiteshield', min: 1, max: 1, w: 4 },
+            { id: 'white_platebody', min: 1, max: 1, w: 3 }, { id: 'white_platelegs', min: 1, max: 1, w: 3 }],
     build: () => humanoid({ w: 0.78, h: 1.72, body: [0.84, 0.86, 0.9], skin: [0.78, 0.6, 0.45], belt: [0.55, 0.58, 0.66] }) },
   { k: 'chaosdwarf', n: 'Chaos dwarf', lv: 48, agg: 1, hp: 96, atk: 35, str: 36, def: 32, db: 34, abon: 17, spd: 5, mspd: 0.9, sz: 0.9, body: [0.48, 0.18, 0.16],
     build: () => humanoid({ w: 0.85, h: 1.2, body: [0.48, 0.18, 0.16], skin: [0.66, 0.44, 0.34], belt: [0.28, 0.1, 0.09] }) },
@@ -2983,9 +3378,12 @@ const NPC_TYPES = [
   { k: 'reddragon', n: 'Red dragon', lv: 152, agg: 1, at: 'mg', rng: 6, bolt: 0xd04a2a, hp: 216, atk: 79, str: 84, def: 75, db: 106, abon: 53, max: 23, spd: 5, mspd: 0.7, sz: 2.7, big: 1, body: [0.52, 0.14, 0.12],
     build: () => dragonGeo({ w: 1.7, h: 2.8, body: [0.52, 0.14, 0.12], head: [0.62, 0.19, 0.15], wing: [0.38, 0.1, 0.09] }) },
   { k: 'irondragon', n: 'Iron dragon', lv: 189, agg: 1, at: 'mg', rng: 7, bolt: 0x9aa4b0, hp: 228, atk: 84, str: 90, def: 81, db: 132, abon: 66, max: 24, spd: 6, mspd: 0.6, sz: 2.9, big: 1, body: [0.34, 0.35, 0.38],
+    drops: [{ id: 'dragon_scimitar', min: 1, max: 1, w: 2 }, { id: 'dragon_sq_shield', min: 1, max: 1, w: 2 },
+            { id: 'dragon_hatchet', min: 1, max: 1, w: 1 }, { id: 'dragon_pickaxe', min: 1, max: 1, w: 1 }],
     build: () => dragonGeo({ w: 1.9, h: 3.0, body: [0.34, 0.35, 0.38], head: [0.42, 0.43, 0.46], wing: [0.26, 0.27, 0.29] }) },
   { k: 'steeldragon', n: 'Steel dragon', lv: 246, agg: 1, at: 'mg', rng: 7, bolt: 0xd8e0ea, hp: 245, atk: 92, str: 99, def: 91, db: 172, abon: 86, max: 25, spd: 6, mspd: 0.6, sz: 3.1, big: 1, body: [0.66, 0.69, 0.74],
-    drops: [{ id: 'rune_kiteshield', min: 1, max: 1, w: 4 }],
+    drops: [{ id: 'rune_kiteshield', min: 1, max: 1, w: 4 }, { id: 'dragon_platelegs', min: 1, max: 1, w: 2 },
+            { id: 'dragon_platebody', min: 1, max: 1, w: 1 }, { id: 'dragon_crossbow', min: 1, max: 1, w: 2 }],
     build: () => dragonGeo({ w: 2.0, h: 3.2, body: [0.66, 0.69, 0.74], head: [0.74, 0.77, 0.82], wing: [0.5, 0.53, 0.58] }) }
 ];
 /* Fill the defaults once, and refuse to load a type with no defence bonus —
@@ -4584,9 +4982,12 @@ function pickObject(ray) {
    here and a full pack every ninety seconds is not a game loop. */
 const INV_N = 28;
 const inv = new Array(INV_N).fill(null);
-// ammo last, so an old five-entry save still lands in the right slots
-const EQ_SLOTS = ['head', 'body', 'legs', 'weapon', 'shield', 'ammo'];
-const eq = { head: null, body: null, legs: null, weapon: null, shield: null };
+// strictly append-only: saves store this array positionally, so an old
+// six-entry save still lands every piece in the right slot
+const EQ_SLOTS = ['head', 'body', 'legs', 'weapon', 'shield', 'ammo',
+                  'hands', 'feet', 'cape', 'neck', 'ring'];
+const eq = { head: null, body: null, legs: null, weapon: null, shield: null,
+             ammo: null, hands: null, feet: null, cape: null, neck: null, ring: null };
 const dirty = { inv: 1, eq: 1, sk: 1, orb: 1 };
 
 /* 2007's use-cursor: arm an item, then click what to use it on. Only raw
@@ -4685,6 +5086,11 @@ function canEquip(it) {
     if (!it.req[k]) continue;
     if (lvl[SK[k]] < it.req[k]) { say('You need ' + skName(SK[k]) + ' level ' + it.req[k] + ' to wear that.', 'bad'); return false; }
   }
+  // a skillcape answers only to mastery
+  if (it.req99 && lvl[SK[it.req99]] < 99) {
+    say('Only a master of ' + skName(SK[it.req99]) + ' may wear that cape.', 'bad');
+    return false;
+  }
   return true;
 }
 function equip(slotIdx) {
@@ -4692,6 +5098,17 @@ function equip(slotIdx) {
   const it = ITEMS[s.id];
   if (!it.equip) { say("You can't wear that.", 'bad'); return; }
   if (!canEquip(it)) return;
+  /* Two hands are two hands: a 2h weapon shoulders the shield off, and a
+     shield going on puts the 2h weapon away. Either way the displaced piece
+     needs a pack slot beyond the one being vacated. */
+  if (it.slot === 'weapon' && it.two && eq.shield) {
+    if (!invFree()) { say('You need a free pack slot to unsling your shield.', 'bad'); return; }
+    invAdd(eq.shield, 1); eq.shield = null;
+  }
+  if (it.slot === 'shield' && eq.weapon && ITEMS[eq.weapon].two) {
+    if (!invFree()) { say('You need a free pack slot to put away your two-handed weapon.', 'bad'); return; }
+    invAdd(eq.weapon, 1); eq.weapon = null;
+  }
   if (it.slot === 'ammo') {
     /* Ammo equips as a whole stack, so the quiver carries a count. The slot we
        just emptied always has room for whatever came out of it. */
@@ -4779,19 +5196,23 @@ const gearClass = it => !it ? '' : it.mag ? 'mage' : it.rat ? 'range' : 'melee';
    given look. Each discipline wears its own silhouette: metal keeps the
    helm and full legs, robes fall past the knee under a pointed hat, hide
    stops at the knee — shorts over bare shins — under the bycocket. */
-function dressRig(p, look, headIt, bodyIt, legsIt, wepIt, shlIt) {
+function dressRig(p, look, it) {
+  const headIt = it('head'), bodyIt = it('body'), legsIt = it('legs');
+  const wepIt = it('weapon'), shlIt = it('shield');
+  const handsIt = it('hands'), feetIt = it('feet'), capeIt = it('cape'), neckIt = it('neck');
   const skin = SKINS[look.skin], shirt = SHIRTS[look.shirt], pants = LEGSC[look.legs];
   const hc = gearClass(headIt), bc = gearClass(bodyIt), lc = gearClass(legsIt);
   p.torso.material.color.set(bodyIt ? bodyIt.c : shirt);
   p.armL.material.color.set(bodyIt ? bodyIt.c : skin);
   p.armR.material.color.set(bodyIt ? bodyIt.c : skin);
   p.head.material.color.set(skin);
-  // a robe on either slot hides the legs the way every hooded order does;
-  // the skirt takes the robe bottom's colour when one is worn
-  const robed = bc === 'mage' || lc === 'mage';
+  // a robe on either slot hides the legs the way every hooded order does,
+  // and a plateskirt borrows the same fall in metal; the skirt takes the
+  // leg slot's colour when that is what put it there
+  const robed = bc === 'mage' || lc === 'mage' || (legsIt && legsIt.g === 'skirt');
   p.legHid = robed ? 1 : 0;
   p.skirt.visible = robed;
-  if (robed) p.skirt.material.color.set(lc === 'mage' ? legsIt.c : bodyIt.c);
+  if (robed) p.skirt.material.color.set(legsIt && (lc === 'mage' || legsIt.g === 'skirt') ? legsIt.c : bodyIt.c);
   p.legL.visible = p.legR.visible = !robed;
   const thigh = legsIt ? legsIt.c : pants;
   const shin = legsIt ? (lc === 'range' ? skin : legsIt.c) : pants;
@@ -4803,13 +5224,23 @@ function dressRig(p, look, headIt, bodyIt, legsIt, wepIt, shlIt) {
   p.rhHat.visible = hc === 'range';
   p.hair.visible = !headIt;
   if (headIt) (hc === 'mage' ? p.wizHat : hc === 'range' ? p.rhHat : p.helm).material.color.set(headIt.c);
+  // the small slots: boots on the shins, gloves at the wrists, a cape off
+  // the shoulders, an amulet at the throat
+  p.bootL.visible = p.bootR.visible = !!feetIt;
+  if (feetIt) { p.bootL.material.color.set(feetIt.c); p.bootR.material.color.set(feetIt.c); }
+  p.glovL.visible = p.glovR.visible = !!handsIt;
+  if (handsIt) { p.glovL.material.color.set(handsIt.c); p.glovR.material.color.set(handsIt.c); }
+  p.capeM.visible = !!capeIt;
+  if (capeIt) p.capeM.material.color.set(capeIt.c);
+  p.amul.visible = !!neckIt;
+  if (neckIt) p.amul.material.color.set(neckIt.c);
   holdWeapon(p.wep, wepIt);
   p.shl.visible = !!shlIt;
   if (shlIt) p.shl.material.color.set(shlIt.c);
 }
 function dressAvatar() {
-  const p = avatar.parts, it = s => (eq[s] && ITEMS[eq[s]]) || null;
-  dressRig(p, P.look, it('head'), it('body'), it('legs'), it('weapon'), it('shield'));
+  const p = avatar.parts;
+  dressRig(p, P.look, s => (eq[s] && ITEMS[eq[s]]) || null);
   applyFace(p, P.look.face);
   shownTool = '';                  // re-shows the task tool next tick if one is due
   sendEquip();
@@ -4832,6 +5263,9 @@ function ammoTint() {
 function bowRange() {
   const w = bowItem();
   if (!w || P.spell !== null || !eq.ammo || P.ammoN <= 0) return 0;
+  // a bow draws arrows and a crossbow bolts; the wrong quiver is an empty one
+  const a = ITEMS[eq.ammo];
+  if (!a || (w.ammoT || 'arrow') !== (a.aT || 'arrow')) return 0;
   return w.rng + (RSTYLES[P.rstyle].rng || 0);
 }
 function rangedMax() {
@@ -4840,6 +5274,10 @@ function rangedMax() {
 }
 /* Spend one arrow. Run out and the bow is a stick, so say so once. */
 function spendArrow() {
+  // Ava's devices snatch the shot back out of the air: the ammunition is
+  // simply not spent, at the device's advertised rate
+  const cp = eq.cape && ITEMS[eq.cape];
+  if (cp && cp.save && Math.random() < cp.save) return;
   if (--P.ammoN > 0) return;
   P.ammoN = 0; eq.ammo = null;
   say('You have run out of ammunition!', 'bad');
@@ -5246,7 +5684,16 @@ function npcTick(n) {
       n.atkT = 1; n.atkStyle = st;               // drives the lunge or the throw
       n.netAct = st === 'm' ? 1 : st === 'r' ? 2 : 3;
       if (st !== 'm') npcBolt(n, st);
-      hurtPlayer(Math.random() < c ? Math.floor(Math.random() * (mx + 1)) : 0);
+      const dealt = Math.random() < c ? Math.floor(Math.random() * (mx + 1)) : 0;
+      hurtPlayer(dealt);
+      // a ring of recoil bites back a tenth of every landed blow
+      if (dealt > 0 && eq.ring === 'ring_of_recoil' && !n.dead && !P.dead) {
+        const rec = Math.max(1, Math.ceil(dealt * 0.1));
+        n.hp -= rec;
+        hitsplat(n.rx, n.ry + 1.2, n.rz, rec);
+        if (n.hp <= 0) { killNpc(n); return; }
+        healthBar(n);
+      }
       retaliate(n);
     }
   } else {
@@ -5291,7 +5738,11 @@ const RARE_DROPS = [
   { id: 'adamant_scimitar', w: 8 }, { id: 'adamant_platebody', w: 6 },
   { id: 'mystic_hat', w: 5 }, { id: 'mystic_robe_bottom', w: 4 }, { id: 'mystic_robe_top', w: 3 },
   { id: 'rune_med_helm', w: 4 }, { id: 'rune_scimitar', w: 3 },
-  { id: 'rune_kiteshield', w: 2 }, { id: 'rune_platebody', w: 1 }
+  { id: 'rune_kiteshield', w: 2 }, { id: 'rune_platebody', w: 1 },
+  { id: 'rune_defender', w: 3 }, { id: 'dragon_arrow', w: 4, n: 40 },
+  { id: 'amulet_of_glory', w: 2 }, { id: 'ring_of_wealth', w: 1 }, { id: 'ring_of_life', w: 2 },
+  { id: 'master_wand', w: 1 }, { id: 'gilded_hatchet', w: 1 }, { id: 'gilded_pickaxe', w: 1 },
+  { id: 'dragon_dagger', w: 2 }, { id: 'dragon_mace', w: 1 }, { id: 'dragon_longsword', w: 1 }
 ];
 const RARE_W = RARE_DROPS.reduce((s, d) => s + d.w, 0);
 function killNpc(n) {
@@ -5318,7 +5769,8 @@ function killNpc(n) {
   /* And every kill buys one ticket in the rare lottery, on top of whatever
      else fell. Level buys more tickets, but even a steel dragon tops out at
      one in fifty — the dragon earns chances, not a salary. */
-  if (Math.random() < Math.min(0.02, 0.002 + lv * 0.00008)) {
+  const luck = eq.ring === 'ring_of_wealth' ? 2 : 1;   // fortune favours the wearer
+  if (Math.random() < Math.min(0.02 * luck, (0.002 + lv * 0.00008) * luck)) {
     let r = Math.random() * RARE_W;
     for (const d of RARE_DROPS) if ((r -= d.w) < 0) {
       dropItem(d.id, d.n || 1, n.tx, n.tz);
@@ -5349,6 +5801,24 @@ function hurtPlayer(dmg, byPlayer) {
   hitsplat(P.rx, P.ry + 1.6, P.rz, dmg);
   if (ws && ws.readyState === 1) {
     try { ws.send(JSON.stringify([13, P.hp, P.maxhp])); } catch {}
+  }
+  /* A ring of life fires once, at a tenth of your health: it crumbles, and
+     you are stood in the nearest settlement before the next blow lands. */
+  if (P.hp > 0 && eq.ring === 'ring_of_life' &&
+      P.hp <= Math.max(1, Math.floor(P.maxhp * 0.1))) {
+    eq.ring = null; dirty.eq = 1;
+    P.task = null; P.path.length = 0; P.goal = null;
+    const v = nearestVillageTo(P.tx, P.tz, 12);
+    if (v) {
+      const sp = safeSpotIn(v);
+      focus.set(sp.x, 0, sp.z); refresh(); pump(200);
+      placePlayer(sp.x, sp.z); rebuildNear(); refreshNpcs();
+      mapOX = 1e9; mapRow = MW; mapImg = null;
+    }
+    say('Your ring of life flares, carries you to safety, and crumbles to dust.', 'lv');
+    markDirty(1);
+    healthBar(P);
+    return;
   }
   if (P.hp <= 0) die(byPlayer);
   healthBar(P);                                  // your own bar, over your head
@@ -5485,7 +5955,9 @@ function taskTick() {
    its shin, and demanding an adjacent tile made the big ones unfightable. */
   const reach = (t.k === 'attack' && P.spell !== null) ? MAGIC_RANGE
               : (t.k === 'attack' && bowRange()) ? bowRange()
-              : (t.k === 'attack' && o.npc && o.t.big) ? Math.max(1, Math.round(o.t.sz)) : 1;
+              : (t.k === 'attack') ? Math.max(
+                  (eq.weapon && ITEMS[eq.weapon].reach) || 1,           // a halberd swings from two out
+                  o.npc && o.t.big ? Math.max(1, Math.round(o.t.sz)) : 1) : 1;
   if (Math.max(Math.abs(P.tx - ox), Math.abs(P.tz - oz)) > reach) {
     if (!P.path.length) {                            // chase, or give up if it walked off a cliff
       const p = findPath(P.tx, P.tz, ox, oz, reach);
@@ -6192,13 +6664,16 @@ function drawInv() {
   if (openShop) drawShop();
   if (bankOpen) drawBank();
 }
-const EQ_LAY = [null, 'head', 'ammo', 'weapon', 'body', 'shield', null, 'legs', null];
+const EQ_LAY = ['cape', 'head', 'ammo',
+                'weapon', 'body', 'shield',
+                'hands', 'legs', 'feet',
+                'neck', null, 'ring'];
 const eqWrap = el('eqWrap');
 EQ_LAY.forEach(s => {
   const d = document.createElement('div');
   d.className = 'eqslot';
   if (!s) d.style.visibility = 'hidden';
-  else { d.dataset.s = s; d.innerHTML = '<span>' + s.slice(0, 4) + '</span>'; }
+  else { d.dataset.s = s; d.innerHTML = '<span>' + s + '</span>'; }
   eqWrap.appendChild(d);
 });
 function drawEq() {
@@ -6207,7 +6682,7 @@ function drawEq() {
     const s = d.dataset.s; if (!s) continue;
     const id = eq[s];
     d.className = 'eqslot' + (id ? ' f' : '');
-    d.innerHTML = (id ? '<img src="' + icon(id) + '" alt="">' : '') + '<span>' + s.slice(0, 4) + '</span>' +
+    d.innerHTML = (id ? '<img src="' + icon(id) + '" alt="">' : '') + '<span>' + s + '</span>' +
       (s === 'ammo' && id ? '<em>' + P.ammoN + '</em>' : '');
   }
   el('bAtk').textContent = '+' + bonus('atk');
@@ -6217,6 +6692,35 @@ function drawEq() {
   el('bRng').textContent = '+' + bonus('rat');
   el('bCmb').textContent = combatLevel();
 }
+/* The full ledger: every bonus, every worn piece, and the levels that come
+   of it — the sheet the equipment tab is too small to carry. */
+function showStats() {
+  const B = [['Attack bonus', bonus('atk')], ['Strength bonus', bonus('str')],
+             ['Defence bonus', bonus('def')], ['Magic bonus', bonus('mag')],
+             ['Ranged attack', bonus('rat')], ['Ranged strength', bonus('rst')]];
+  const h = ['<div class="stq">'];
+  h.push('<div class="stqCol"><p class="blab">Bonuses</p>');
+  for (const [n, v] of B) h.push('<div class="stRow"><i>' + n + '</i><b>+' + v + '</b></div>');
+  h.push('<p class="blab">Levels</p>');
+  h.push('<div class="stRow"><i>Combat level</i><b>' + combatLevel() + '</b></div>');
+  h.push('<div class="stRow"><i>Total level</i><b>' + totalLevel() + '</b></div>');
+  h.push('<div class="stRow"><i>Hitpoints</i><b>' + P.hp + ' / ' + P.maxhp + '</b></div>');
+  h.push('<div class="stRow"><i>Prayer</i><b>' + Math.floor(P.pray) + ' / ' + P.maxpray + '</b></div>');
+  h.push('<div class="stRow"><i>Max melee hit</i><b>' + maxHit() + '</b></div>');
+  h.push('</div><div class="stqCol"><p class="blab">Worn</p>');
+  let worn = 0;
+  for (const s of EQ_SLOTS) {
+    if (!eq[s]) continue;
+    worn++;
+    const it = ITEMS[eq[s]];
+    h.push('<div class="stWorn"><img src="' + icon(it.id) + '" alt=""><span>' + it.name +
+      (s === 'ammo' ? ' × ' + P.ammoN : '') + '<u>' + s + '</u></span></div>');
+  }
+  if (!worn) h.push('<p class="gesEmpty">Nothing worn.</p>');
+  h.push('</div></div>');
+  showModal('Character', h.join(''), 'Bonuses total every worn piece. The combat level weighs your best discipline.');
+}
+el('eqMore').onclick = showStats;
 const skGrid = el('skGrid'), skEls = [];
 for (let i = 0; i < NSK; i++) {
   const s = SKILLS[i];
@@ -6819,7 +7323,17 @@ function itemOptions(i) {
   return opts;
 }
 function examine(it) {
-  if (it.equip) return it.name + '. A ' + TIERS[it.tier].n.toLowerCase() + ' ' + (it.slot === 'weapon' ? 'weapon' : 'armour piece') + ', worth about ' + sellPrice(it) + ' coins.';
+  if (it.equip) {
+    const mat = it.tname || (it.tier !== undefined && TIERS[it.tier] ? TIERS[it.tier].n : '');
+    const kind = it.slot === 'weapon' ? 'weapon' : it.slot === 'ammo' ? 'ammunition' : 'piece of equipment';
+    return it.name + '. ' + (mat ? 'A ' + mat.toLowerCase() + ' ' + kind : 'A fine ' + kind) +
+      ', worth about ' + sellPrice(it) + ' coins.' +
+      (it.two ? ' Needs both hands.' : '') + (it.reach > 1 ? ' Strikes from ' + it.reach + ' tiles.' : '') +
+      (it.save ? ' Recovers about ' + Math.round(it.save * 100) + '% of fired ammunition.' : '') +
+      (it.id === 'ring_of_recoil' ? ' Bites back a tenth of every blow.' : '') +
+      (it.id === 'ring_of_life' ? ' Carries you to safety at a tenth of your health, once.' : '') +
+      (it.id === 'ring_of_wealth' ? ' Fortune favours the wearer.' : '');
+  }
   if (it.heal) return it.name + '. Restores ' + it.heal + ' hitpoints.';
   if (it.fire) return it.name + '. A bundle of firewood.';
   return it.name + '.';
@@ -7784,7 +8298,7 @@ function packSave() {
     hp: P.hp, maxhp: P.maxhp, pray: Math.round(P.pray), maxpray: P.maxpray,
     energy: Math.round(P.energy), run: P.run, style: P.style, prayers: P.prayers,
     rstyle: P.rstyle, ammoN: P.ammoN,
-    eq: [eq.head, eq.body, eq.legs, eq.weapon, eq.shield, eq.ammo],
+    eq: EQ_SLOTS.map(s => eq[s] || null),
     inv: invp,
     bank: bank.map(s => [s.id, s.n]),
     look: [P.look.skin, P.look.shirt, P.look.legs, P.look.face],
@@ -8294,8 +8808,10 @@ function dressRemote(R) {
   R.eqDirty = 0;
   if (!R.parts) return;
   const e = R.eq || [];
-  const it = i => (e[i] && ITEMS[e[i]]) || null;
-  dressRig(R.parts, REMOTE_LOOK, it(0), it(1), it(2), it(3), it(4));
+  dressRig(R.parts, REMOTE_LOOK, s => {
+    const id = e[EQ_SLOTS.indexOf(s)];
+    return (id && ITEMS[id]) || null;
+  });
 }
 
 /* Everyone past the nearest twelve renders from one instanced pool: forty

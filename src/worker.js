@@ -191,9 +191,9 @@ export class World extends DurableObject {
         this.queue('2:' + me.pid, [2, me.pid, (m[2] | 0) & 255]);
         break;
 
-      case 3:                                    // equipment
+      case 3:                                    // equipment — 11 slots as of the armoury expansion
         me.eq = Array.isArray(m[1])
-          ? m[1].slice(0, 6).map(v => (v == null ? null : String(v).slice(0, 32)))
+          ? m[1].slice(0, 12).map(v => (v == null ? null : String(v).slice(0, 32)))
           : [];
         this.queue('3:' + me.pid, [3, me.pid, me.eq]);
         break;
