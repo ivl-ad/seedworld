@@ -2386,7 +2386,7 @@ const WHOLD = {
   // a blade turned edge-on to the chest, rather than lying flat against it
   sword: g => g.rotateY(Math.PI / 2), dagger: g => g.rotateY(Math.PI / 2),
   scim:  g => g.rotateY(Math.PI / 2), axe:    g => g.rotateY(Math.PI / 2),
-  pick:  g => g.rotateY(Math.PI / 2),
+  pick:  g => g.rotateY(Math.PI / 2), rod:    g => g.rotateY(Math.PI / 2),
   staff: g => g.rotateX(Math.PI),                             // orb overhead
   // limbs out to the sides and the string toward the archer's back, which is
   // the only way round that lets you pull it toward yourself
@@ -2415,6 +2415,10 @@ const WEAPON = {
     xrect(14, 8, 4, 22, WOOD, x, y),
     xtr(qpts(2, 12, 16, 2, 30, 12, 7).concat(qpts(30, 12, 16, 7, 2, 12, 7)), c, x, y),
     xrect(12, 7, 8, 4, d, x, y)],
+  // a fishing rod: long pole on the diagonal with the reel by the grip
+  rod: (c, d, x, y) => [
+    xtr([20.5, 2, 23, 4.5, 12.5, 29, 10, 26.5], c, x, y),
+    xrect(12, 21.5, 4, 4, d, x, y)],
   // the icon draws the shaft on the diagonal; held, it wants to be upright
   staff: (c, d, x, y) => [
     xrect(14.6, 7, 2.8, 23, WOOD, x, y), xcirc(16, 6, 5, c, x, y),
@@ -4363,6 +4367,26 @@ function bestTool(kind) {
   for (let i = 0; i < INV_N; i++) if (inv[i]) consider(inv[i].id);
   return best;
 }
+/* While a gathering task runs, the hand shows the tool doing the work — the
+   best one you can use, straight from the pack — and the weapon comes back
+   the moment the task ends. Purely visual: bestTool decides the rolls. */
+let shownTool = '';
+function heldToolFor(t) {
+  if (!t) return '';
+  if (t.k === 'chop') { const a = bestTool('woodcutting'); return a ? a.id : ''; }
+  if (t.k === 'mine') { const a = bestTool('mining'); return a ? a.id : ''; }
+  if (t.k === 'fish') {
+    if (t.o && t.o.k) return invCount('harpoon') ? 'harpoon' : '';
+    return invCount('fishing_rod') ? 'fishing_rod' : '';   // the net is thrown by hand
+  }
+  return '';
+}
+function updateHeldTool() {
+  const want = heldToolFor(P.task);
+  if (want === shownTool) return;
+  shownTool = want;
+  holdWeapon(avatar.parts.wep, want ? ITEMS[want] : (eq.weapon ? ITEMS[eq.weapon] : null));
+}
 function bonus(f) {
   let t = 0;
   for (const s of EQ_SLOTS) if (eq[s]) t += ITEMS[eq[s]][f] || 0;
@@ -4477,6 +4501,7 @@ function dressAvatar() {
   p.helm.visible = !!headIt; p.hair.visible = !headIt;
   if (headIt) p.helm.material.color.set(headIt.c);
   holdWeapon(p.wep, wepIt);
+  shownTool = '';                  // re-shows the task tool next tick if one is due
   p.shl.visible = !!shlIt;
   if (shlIt) p.shl.material.color.set(shlIt.c);
   sendEquip();
@@ -5074,6 +5099,11 @@ function die(byPlayer) {
 const ACT_TICKS = 4;
 const MAGIC_RANGE = 10;                             // tiles, same for every spell
 const rollChance = (l, req, tier) => clamp(0.10 + (l - req) * 0.011 + tier * 0.035, 0.05, 0.92);
+/* Chop and mine odds also carry the stubbornness of the material itself:
+   the swing that shreds a copper seam barely marks runite, and a better
+   tool or levels past the requirement claw the speed back. */
+const gatherChance = (l, req, tier) =>
+  clamp((0.10 + (l - req) * 0.011 + tier * 0.045) * 60 / (60 + req), 0.04, 0.9);
 
 function deplete(o, ticks) {
   /* tickN is already the shared clock (it is seeded from globalTick and
@@ -5307,7 +5337,7 @@ function taskTick() {
     const T = TREES[o.k], axe = bestTool('woodcutting');
     if (!axe) { say('You need an axe to chop this.', 'bad'); P.task = null; return; }
     if (lvl[SK.woodcutting] < T.lv) { say('You need Woodcutting level ' + T.lv + ' for this.', 'bad'); P.task = null; return; }
-    if (Math.random() < rollChance(lvl[SK.woodcutting], T.lv, axe.tier)) {
+    if (Math.random() < gatherChance(lvl[SK.woodcutting], T.lv, axe.tier)) {
       if (!invAdd(T.log, 1)) { say('Your inventory is too full.', 'bad'); P.task = null; return; }
       say('You get some ' + ITEMS[T.log].name.toLowerCase() + '.');
       gainXp('woodcutting', T.xp);
@@ -5318,7 +5348,7 @@ function taskTick() {
     const O = ORES[o.k], pick = bestTool('mining');
     if (!pick) { say('You need a pickaxe to mine this.', 'bad'); P.task = null; return; }
     if (lvl[SK.mining] < O.lv) { say('You need Mining level ' + O.lv + ' for this.', 'bad'); P.task = null; return; }
-    if (Math.random() < rollChance(lvl[SK.mining], O.lv, pick.tier)) {
+    if (Math.random() < gatherChance(lvl[SK.mining], O.lv, pick.tier)) {
       if (!invAdd(O.ore, 1)) { say('Your inventory is too full.', 'bad'); P.task = null; return; }
       say('You manage to mine some ' + ITEMS[O.ore].name.toLowerCase() + '.');
       gainXp('mining', O.xp);
@@ -5929,8 +5959,8 @@ function drawDevItems() {
     const it = ITEMS[id];
     if (q && it.name.toLowerCase().indexOf(q) < 0 && id.indexOf(q) < 0) continue;
     hits.push(it);
-    if (hits.length >= 160) break;
   }
+  hits.sort((a, b) => a.name.localeCompare(b.name));
   devItems.innerHTML = hits.map(it => '<div class="di" data-i="' + it.id + '">' +
     '<img src="' + icon(it.id) + '" alt=""><span>' + it.name + '</span></div>').join('') ||
     '<div class="di no"><span>no match</span></div>';
@@ -5943,7 +5973,8 @@ devFind.addEventListener('input', drawDevItems);
 const devMons = el('devMons'), devMonFind = el('devMonFind');
 function drawDevMons() {
   const q = devMonFind.value.trim().toLowerCase();
-  const hits = NPC_TYPES.filter(t => !q || t.n.toLowerCase().indexOf(q) >= 0 || t.k.indexOf(q) >= 0);
+  const hits = NPC_TYPES.filter(t => !q || t.n.toLowerCase().indexOf(q) >= 0 || t.k.indexOf(q) >= 0)
+    .slice().sort((a, b) => a.n.localeCompare(b.n));
   devMons.innerHTML = hits.map(t =>
     '<div class="di" data-m="' + t.k + '"><img src="' + drawIcon(t.big ? 'skull' : 'fist',
       '#' + (t.body ? rgbHex(t.body) : '8a8a8a'), '#efe4c4') + '" alt="">' +
@@ -6647,7 +6678,16 @@ function openStuck() {
     closeOverlays();                                 // the answer was the whole conversation
   };
 }
-el('stuck').onclick = openStuck;
+/* Turning it on gets the explanation; turning it off is one click — you
+   already know what you agreed to. */
+el('stuck').onclick = () => {
+  if (!OPT.stuck) { openStuck(); return; }
+  OPT.stuck = 0;
+  P.stuckT = 0; P.span = 1; P.path.length = 0; P.goal = null;
+  el('stuck').classList.remove('on');
+  say('Stuck mode off — back to normal footing.', 'lv');
+  updateZoneTags();
+};
 /* The little flags under the hover line: the stuck crawl, and the skull that
    says other players can reach you here. Cheap — nearVillage is cached. */
 function updateZoneTags() {
@@ -6665,6 +6705,7 @@ function gameTick() {
   if (P.dead) return;
   walkTick();
   taskTick();
+  updateHeldTool();
   for (let i = npcs.length - 1; i >= 0; i--) npcTick(npcs[i]);
   respawnTick();
   if (!P.moved && P.energy < 100) { P.energy = Math.min(100, P.energy + 0.9); dirty.orb = 1; }
