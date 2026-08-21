@@ -457,6 +457,8 @@
      the 2007 way of finding the town's plumbing at a glance. Clickable: the
      icon stands in for the thing it floats over. */
   .plate.mk{margin:-12px 0 0;pointer-events:auto;cursor:pointer}
+  .plate.boss{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    text-shadow:0 0 6px #c9453a,1px 1px 0 #000}
   /* a monster's tag is part of the monster: clicking it attacks */
   .plate.npc{pointer-events:auto;cursor:pointer}
   .plate.mk img{width:22px;height:22px;image-rendering:pixelated;
@@ -3001,19 +3003,20 @@ function flatGeo(spec) {
 }
 /* One creature on stage: a lone mesh when nothing swings, otherwise a group
    whose children share the type's geometries — same buffers, new joints. */
-function riggedMesh(spec) {
+function riggedMesh(spec, material) {
+  const M = material || mat;
   if (!spec.limbs.length) {
-    const m = new THREE.Mesh(spec.body, mat);
+    const m = new THREE.Mesh(spec.body, M);
     m.frustumCulled = false;
     return m;
   }
   const g = new THREE.Group();
   g.limbs = [];
-  const b = new THREE.Mesh(spec.body, mat);
+  const b = new THREE.Mesh(spec.body, M);
   b.frustumCulled = false;
   g.add(b);
   for (const L of spec.limbs) {
-    const m = new THREE.Mesh(L.geo, mat);
+    const m = new THREE.Mesh(L.geo, M);
     m.position.set(L.x, L.y, L.z);
     m.frustumCulled = false;
     g.add(m);
@@ -3387,8 +3390,66 @@ const NPC_TYPES = [
   { k: 'steeldragon', n: 'Steel dragon', lv: 246, agg: 1, at: 'mg', rng: 7, bolt: 0xd8e0ea, hp: 245, atk: 92, str: 99, def: 91, db: 172, abon: 86, max: 25, spd: 6, mspd: 0.6, sz: 3.1, big: 1, body: [0.66, 0.69, 0.74],
     drops: [{ id: 'rune_kiteshield', min: 1, max: 1, w: 4 }, { id: 'dragon_platelegs', min: 1, max: 1, w: 2 },
             { id: 'dragon_platebody', min: 1, max: 1, w: 1 }, { id: 'dragon_crossbow', min: 1, max: 1, w: 2 }],
-    build: () => dragonGeo({ w: 2.0, h: 3.2, body: [0.66, 0.69, 0.74], head: [0.74, 0.77, 0.82], wing: [0.5, 0.53, 0.58] }) }
+    build: () => dragonGeo({ w: 2.0, h: 3.2, body: [0.66, 0.69, 0.74], head: [0.74, 0.77, 0.82], wing: [0.5, 0.53, 0.58] }) },
+  // the metal line runs on past steel, as it did
+  { k: 'mithrildragon', n: 'Mithril dragon', lv: 304, agg: 1, at: 'mrg', rng: 7, bolt: 0x8a92e8, arrow: 0x9aa0ff, hp: 254, atk: 100, str: 104, def: 96, db: 190, abon: 100, max: 26, spd: 5, mspd: 0.6, sz: 3.2, big: 1, body: [0.36, 0.39, 0.72],
+    drops: [{ id: 'dragon_full_helm', min: 1, max: 1, w: 3 }, { id: 'dragon_battleaxe', min: 1, max: 1, w: 3 }],
+    build: () => dragonGeo({ w: 2.1, h: 3.3, body: [0.36, 0.39, 0.72], head: [0.44, 0.47, 0.8], wing: [0.28, 0.3, 0.58] }) },
+  { k: 'adamantdragon', n: 'Adamant dragon', lv: 338, agg: 1, at: 'mrg', rng: 7, bolt: 0x6fb070, arrow: 0x8ad08a, hp: 295, atk: 110, str: 116, def: 104, db: 210, abon: 112, max: 27, spd: 5, mspd: 0.6, sz: 3.3, big: 1, body: [0.31, 0.49, 0.32],
+    drops: [{ id: 'dragon_chainbody', min: 1, max: 1, w: 2 }, { id: 'dragon_gauntlets', min: 1, max: 1, w: 3 }],
+    build: () => dragonGeo({ w: 2.2, h: 3.4, body: [0.31, 0.49, 0.32], head: [0.38, 0.58, 0.4], wing: [0.22, 0.38, 0.24] }) },
+  { k: 'runedragon', n: 'Rune dragon', lv: 380, agg: 1, at: 'mrg', rng: 7, bolt: 0x3ab6c4, arrow: 0x7ae0ea, hp: 330, atk: 120, str: 126, def: 112, db: 230, abon: 125, max: 28, spd: 5, mspd: 0.6, sz: 3.4, big: 1, body: [0.23, 0.71, 0.77],
+    drops: [{ id: 'dragon_plateskirt', min: 1, max: 1, w: 2 }, { id: 'dragon_boots', min: 1, max: 1, w: 3 }, { id: 'dragon_mace', min: 1, max: 1, w: 2 }],
+    build: () => dragonGeo({ w: 2.3, h: 3.5, body: [0.23, 0.71, 0.77], head: [0.3, 0.8, 0.86], wing: [0.16, 0.55, 0.6] }) }
 ];
+
+/* --------------------- 10c. THE NAMED BOSSES ------------------------ */
+/* Each is a family's build blown up to a monster's scale and given a stat
+   block of its own — the regular rows are the bestiary, these are the
+   names people whisper. Bosses fight in phases, three blows to a discipline
+   before they switch, and keep their own roaming lairs out in the wilds:
+   they never stand near a town and never stay in one place for long. */
+const bossLoot = (sig, coinsMax) => sig.map(id => ({ id, min: 1, max: 1, w: 55 })).concat([
+  { id: 'coins', min: Math.round(coinsMax * 0.35), max: coinsMax, w: 260 },
+  { id: 'dragon_bolts', min: 20, max: 60, w: 60 }, { id: 'dragon_arrow', min: 15, max: 50, w: 50 },
+  { id: 'rune_platebody', min: 1, max: 1, w: 35 }, { id: 'amulet_of_glory', min: 1, max: 1, w: 30 },
+  { id: 'ring_of_life', min: 1, max: 1, w: 25 }
+]);
+const BOSSES = [
+  { k: 'elvarg', n: 'Elvarg', base: 'greendragon', lv: 83, hp: 150, atk: 55, str: 60, def: 52, db: 85, abon: 36, max: 12, at: 'mg', rng: 6, spd: 5, mspd: 0.8, scale: 1.7, tint: 0xa8e090, bolt: 0x6fd04a, loot: ['dragon_dagger', 'green_dhide_body'], gp: 1200 },
+  { k: 'obor', n: 'Obor', base: 'hillgiant', lv: 106, hp: 200, atk: 62, str: 80, def: 58, db: 90, abon: 42, max: 14, at: 'mr', rng: 5, spd: 5, mspd: 0.8, scale: 1.6, tint: 0xb09070, arrow: 0x8a6a4a, loot: ['rune_2h_sword', 'gilded_hatchet'], gp: 1500 },
+  { k: 'slashbash', n: 'Slash Bash', base: 'ogre', lv: 111, hp: 210, atk: 64, str: 82, def: 60, db: 95, abon: 44, max: 14, at: 'mr', rng: 5, spd: 5, mspd: 0.8, scale: 1.6, tint: 0xa0a888, arrow: 0x8a8a6a, loot: ['dragon_spear', 'dragon_hasta'], gp: 1500 },
+  { k: 'bktitan', n: 'Black Knight Titan', base: 'blackknight', lv: 120, hp: 230, atk: 70, str: 85, def: 64, db: 110, abon: 46, max: 14, at: 'mg', rng: 5, spd: 5, mspd: 0.9, scale: 2.0, bolt: 0x8a2f27, loot: ['dragon_longsword', 'dragon_full_helm'], gp: 1800 },
+  { k: 'trollking', n: 'Ice Troll King', base: 'icetroll', lv: 122, hp: 230, atk: 70, str: 86, def: 64, db: 105, abon: 46, max: 15, at: 'mr', rng: 5, spd: 5, mspd: 0.8, scale: 1.6, arrow: 0xc0e0ff, loot: ['dragon_sq_shield', 'dragon_gauntlets'], gp: 1800 },
+  { k: 'bryophyta', n: 'Bryophyta', base: 'mossgiant', lv: 128, hp: 220, atk: 72, str: 90, def: 66, db: 100, abon: 48, max: 16, at: 'mg', rng: 5, spd: 5, mspd: 0.8, scale: 1.6, tint: 0x8ac070, bolt: 0x5ad06a, loot: ['mystic_mud_staff', 'gilded_pickaxe'], gp: 2000 },
+  { k: 'evilchicken', n: 'Evil Chicken', base: 'chicken', lv: 159, hp: 250, atk: 80, str: 86, def: 76, db: 120, abon: 60, max: 14, at: 'mg', rng: 6, spd: 4, mspd: 1.4, scale: 4.5, tint: 0x3a3438, bolt: 0xffe14a, loot: ['dragon_spear', 'amulet_of_glory'], gp: 2200 },
+  { k: 'scurrius', n: 'Scurrius', base: 'rat', lv: 166, hp: 300, atk: 78, str: 90, def: 78, db: 125, abon: 62, max: 15, at: 'mr', rng: 5, spd: 4, mspd: 1.2, scale: 3.2, tint: 0x8a9a8a, arrow: 0x9a9a6a, loot: ['rune_full_helm', 'dragon_boots'], gp: 2400 },
+  { k: 'scorpia', n: 'Scorpia', base: 'scorpion', lv: 225, hp: 320, atk: 92, str: 110, def: 86, db: 145, abon: 80, max: 17, at: 'mr', rng: 5, spd: 4, mspd: 1.1, scale: 2.4, tint: 0xa89a48, arrow: 0x80c040, loot: ['dragon_scimitar', 'dragon_claws'], gp: 3000 },
+  { k: 'eldric', n: 'Eldric the Ice King', base: 'icegiant', lv: 250, hp: 330, atk: 100, str: 115, def: 90, db: 160, abon: 90, max: 22, at: 'mg', rng: 6, spd: 4, mspd: 0.8, scale: 1.6, bolt: 0x80e0ff, loot: ['dragon_warhammer', 'dragon_kiteshield'], gp: 3400 },
+  { k: 'branda', n: 'Branda the Fire Queen', base: 'firegiant', lv: 250, hp: 330, atk: 100, str: 115, def: 90, db: 160, abon: 90, max: 22, at: 'mg', rng: 6, spd: 4, mspd: 0.8, scale: 1.6, bolt: 0xff7030, loot: ['dragon_halberd', 'dragon_platelegs'], gp: 3400 },
+  { k: 'kbd', n: 'King Black Dragon', base: 'blackdragon', lv: 276, hp: 400, atk: 110, str: 120, def: 95, db: 175, abon: 100, max: 25, at: 'mg', rng: 7, spd: 4, mspd: 0.8, scale: 1.8, bolt: 0xd04a2a, loot: ['dragon_med_helm', 'dragon_kiteshield', 'dragon_crossbow'], gp: 4000 },
+  { k: 'sarachnis', n: 'Sarachnis', base: 'redspider', lv: 318, hp: 380, atk: 112, str: 120, def: 102, db: 180, abon: 100, max: 26, at: 'mr', rng: 6, spd: 4, mspd: 1.3, scale: 2.5, tint: 0xd08888, arrow: 0xe0e0a0, loot: ['dragon_gauntlets', 'dragon_battleaxe'], gp: 4200 },
+  { k: 'skotizo', n: 'Skotizo', base: 'blackdemon', lv: 321, hp: 400, atk: 120, str: 140, def: 104, db: 185, abon: 110, max: 30, at: 'mg', rng: 6, spd: 4, mspd: 0.9, scale: 1.8, tint: 0xd07070, bolt: 0xc040ff, loot: ['dragon_claws', 'master_wand'], gp: 4500 },
+  { k: 'kalphitequeen', n: 'Kalphite Queen', base: 'kalphitesoldier', lv: 333, hp: 520, atk: 122, str: 130, def: 108, db: 190, abon: 120, max: 31, at: 'mrg', rng: 6, spd: 4, mspd: 0.9, scale: 2.0, tint: 0xb8a868, bolt: 0x60d0c0, arrow: 0xd0b060, loot: ['dragon_chainbody', 'dragon_2h_sword'], gp: 5000 },
+  { k: 'vorkath', n: 'Vorkath', base: 'bluedragon', lv: 392, hp: 750, atk: 150, str: 170, def: 115, db: 200, abon: 140, max: 32, at: 'mrg', rng: 7, spd: 4, mspd: 0.8, scale: 2.0, tint: 0xa8c0d0, bolt: 0x4ad0ff, arrow: 0xc0e0ff, loot: ['dragon_crossbow', 'dragon_platebody'], gp: 6000 },
+  { k: 'vetion', n: "Vet'ion", base: 'giantskeleton', lv: 454, hp: 420, atk: 140, str: 160, def: 118, db: 200, abon: 150, max: 30, at: 'mg', rng: 6, spd: 4, mspd: 0.9, scale: 2.0, tint: 0xb090e0, bolt: 0xc060ff, loot: ['dragon_longsword', 'dragon_halberd', 'ring_of_wealth'], gp: 6500 },
+  { k: 'venenatis', n: 'Venenatis', base: 'shadowspider', lv: 464, hp: 420, atk: 140, str: 150, def: 118, db: 200, abon: 150, max: 27, at: 'mg', rng: 6, spd: 4, mspd: 1.2, scale: 2.6, tint: 0xa070b0, bolt: 0x40e080, loot: ['dragon_dagger', 'dragon_plateskirt', 'ring_of_wealth'], gp: 6500 },
+  { k: 'callisto', n: 'Callisto', base: 'grizzly', lv: 470, hp: 420, atk: 142, str: 170, def: 120, db: 200, abon: 160, max: 28, at: 'mg', rng: 6, spd: 4, mspd: 1.1, scale: 2.4, tint: 0xa08060, bolt: 0x9ad0ff, loot: ['dragon_2h_sword', 'dragon_pickaxe', 'ring_of_wealth'], gp: 6500 },
+  { k: 'galvek', n: 'Galvek', base: 'steeldragon', lv: 608, hp: 700, atk: 170, str: 190, def: 128, db: 215, abon: 180, max: 34, at: 'mrg', rng: 7, spd: 4, mspd: 0.8, scale: 2.0, tint: 0xd8b890, bolt: 0xff9040, arrow: 0xffd080, loot: ['dragon_crossbow', 'dragon_platelegs', 'dragon_sq_shield'], gp: 8000 },
+  { k: 'graardor', n: 'General Graardor', base: 'ogrechief', lv: 624, hp: 440, atk: 180, str: 210, def: 130, db: 220, abon: 190, max: 35, at: 'mr', rng: 6, spd: 4, mspd: 1.0, scale: 1.9, tint: 0x909880, arrow: 0x8a8a6a, loot: ['dragon_warhammer', 'dragon_chainbody', 'dragon_boots'], gp: 8000 },
+  { k: 'kril', n: "K'ril Tsutsaroth", base: 'greaterdemon', lv: 650, hp: 440, atk: 182, str: 200, def: 132, db: 225, abon: 200, max: 35, at: 'mg', rng: 6, spd: 4, mspd: 1.0, scale: 1.9, tint: 0xe05050, bolt: 0xff2a2a, loot: ['mystic_smoke_staff', 'dragon_mace', 'master_wand'], gp: 8000 }
+];
+for (const b of BOSSES) {
+  const base = NPC_TYPES.find(t => t.k === b.base);
+  NPC_TYPES.push({
+    k: b.k, n: b.n, boss: 1, big: 1, agg: 1, flee: 0,
+    lv: b.lv, hp: b.hp, atk: b.atk, str: b.str, def: b.def, db: b.db, abon: b.abon, max: b.max,
+    at: b.at, rng: b.rng, spd: b.spd, mspd: b.mspd, sz: base.sz * b.scale, scale: b.scale,
+    bolt: b.bolt || base.bolt, arrow: b.arrow || base.arrow, tint: b.tint || null,
+    body: base.body, drops: bossLoot(b.loot, b.gp),
+    build: base.build
+  });
+}
 /* Fill the defaults once, and refuse to load a type with no defence bonus —
    the old `undefined ? 8` fallback hid missing stats for months. */
 for (const t of NPC_TYPES) {
@@ -3404,6 +3465,54 @@ for (const t of NPC_TYPES) {
    would be paid for mostly by monsters the player never meets. */
 NPC_TYPES.forEach((t, i) => { t.i = i; });
 const NPC_BY = Object.create(null); NPC_TYPES.forEach(t => NPC_BY[t.k] = t);
+
+/* --------------------- 10d. LEVEL VARIANTS -------------------------- */
+/* Every family comes in several strengths, as the 2007 bestiary did: the
+   same goblin at 2, 5, 11, 13, 16 and 25. A variant is the base row with
+   its combat numbers scaled to the new level and everything else — build,
+   palette, drops, temperament — inherited through the prototype, so one
+   mesh serves the whole family. Ladders follow the wiki where it lists
+   them; the rest get a generic three-rung climb. Base first, always: the
+   first rung is the common one and each rung after it rolls more rarely. */
+const LADDERS = {
+  rat: [3, 6, 10, 12], spider: [2, 20, 27, 50], smallspider: [1, 5], goblin: [5, 2, 11, 13, 16, 25],
+  barbarian: [10, 17], zombie: [13, 18, 24, 25, 30, 44], bandit: [14, 22, 74, 130],
+  skeleton: [15, 21, 22, 25, 45, 68, 77, 85], ghost: [19, 25, 27, 40], guard: [21, 22],
+  scorpion: [24, 32, 49], smallscorpion: [14, 20, 26], wolf: [25, 11, 43, 64, 89], whitewolf: [25, 43],
+  bigwolf: [73, 89], bear: [27, 19, 11], grizzly: [36, 21, 51], hobgoblin: [28, 42, 60],
+  mossgiant: [42, 48, 84], ogre: [53, 44, 82], troll: [69, 67, 71, 74, 82], icetroll: [74, 82],
+  greendragon: [79, 88], firegiant: [86, 104, 109], greaterdemon: [92, 101], blackdragon: [227, 247],
+  redgoblin: [5, 13, 25], dwarf: [10, 7, 24], chaosdwarf: [48, 122], blackknight: [33, 58],
+  whiteknight: [42, 36, 38], cyclops: [56, 76, 81, 106], jungledemon: [82, 195], blackdemon: [172, 184, 200],
+  darkwizard: [20, 7], banshee: [23, 89, 140], druid: [30, 13, 42, 129], shade: [40, 60, 80, 100, 120],
+  revenant: [90, 7, 15, 40, 60, 82, 98, 105, 120, 126, 135], giantskeleton: [84, 100], unicorn: [15, 27],
+  kalphitesoldier: [85, 141], redspider: [34, 75]
+};
+function variantOf(t, L) {
+  if (L === t.lv) return t;
+  t.vars = t.vars || Object.create(null);
+  let v = t.vars[L];
+  if (v) return v;
+  const s = L / t.lv, sc = x => Math.max(1, Math.round(x * s));
+  v = Object.create(t);
+  Object.assign(v, { base: t, lv: L, hp: sc(t.hp), atk: sc(t.atk), str: sc(t.str), def: sc(t.def),
+    db: Math.round(t.db * s), abon: sc(t.abon), max: t.max !== null ? sc(t.max) : null });
+  t.vars[L] = v;
+  return v;
+}
+/* Everything the wilds can roll, bosses excepted — they keep their lairs. */
+const SPAWNABLE = [];
+for (const t of NPC_TYPES) {
+  if (t.boss) continue;
+  const lvs = LADDERS[t.k] || [t.lv, Math.round(t.lv * 1.6) + 1, Math.round(t.lv * 2.4) + 2];
+  lvs.forEach((L, i) => { const v = variantOf(t, L); v.vw = 1 / Math.pow(1 + i, 0.9); SPAWNABLE.push(v); });
+}
+/* A boss or a variant by name, for the dev console: "goblin@25". */
+function npcByName(s) {
+  const [k, L] = String(s).split('@');
+  const t = NPC_BY[k];
+  return t && L ? variantOf(t, +L) : t;
+}
 
 /* Shopkeepers stand behind a counter and never fight — and never walk, so
    their rig is flattened back into the single instanced geometry. */
@@ -5463,10 +5572,10 @@ function spawnTable(p, sT) {
   const cap = sanctuaryCap(Math.round(sT * 10) / 10);
   const cum = [], types = [];
   let sum = 0;
-  for (const q of NPC_TYPES) {
+  for (const q of SPAWNABLE) {
     if (q.lv > cap) continue;                          // the respawn field stays soft
     const r = Math.log(q.lv / targetLv), sg = r < 0 ? 0.95 : 0.55;
-    sum += 1 / Math.pow(1 + Math.pow(r / sg, 2), 2);
+    sum += q.vw / Math.pow(1 + Math.pow(r / sg, 2), 2);   // vw: the base rung rolls most
     cum.push(sum); types.push(q);
   }
   t = { cum, types, sum };
@@ -5526,11 +5635,64 @@ function spawnWild() {
       }
     }
 }
+/* Boss lairs. The world is cut into 512-tile cells and each cell, each hour
+   of the shared clock, either holds a boss or does not — which one, and
+   where in the cell, is a pure function of (cell, hour, seed), so every
+   client agrees and the lairs drift as the hour turns. A lair is never
+   within sight of a town, and the ground's power decides which bosses a
+   cell may draw: the tame reaches see nothing named at all. */
+const BOSS_CELL = 512, BOSS_HOUR = 6000;           // 6000 ticks is an hour
+const BOSS_LIST = NPC_TYPES.filter(t => t.boss);
+function nearTown(x, z) {
+  const cx = Math.floor(x * INV_CELL), cz = Math.floor(z * INV_CELL);
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+    const v = villageAt(cx + a, cz + b);
+    if (v && Math.hypot(v.x - x, v.z - z) < v.r * 2.5 + 80) return true;
+  }
+  return false;
+}
+function bossAt(gx, gz, hour) {
+  const h = hash2(gx * 7 + hour * 131, gz * 13 - hour * 71, S + 200);
+  if (h % 100 >= 40) return null;                  // two lairs in five stand empty
+  for (let i = 0; i < 12; i++) {                   // twelve tries at dry, lonely ground
+    const hh = hash2(gx * 31 + i, gz * 17 + hour, S + 201 + i);
+    const x = gx * BOSS_CELL + 40 + (hh % (BOSS_CELL - 80));
+    const z = gz * BOSS_CELL + 40 + ((hh >>> 9) % (BOSS_CELL - 80));
+    const y = heightAt(x, z);
+    if (y < 2.5 || y > 60 || nearTown(x, z)) continue;
+    const p = powerAt(x, z);
+    const pool = BOSS_LIST.filter(b => b.lv <= 60 + p * 260);
+    if (!pool.length) return null;
+    return { t: pool[(h >>> 8) % pool.length], x, z };
+  }
+  return null;
+}
+function spawnBosses() {
+  const hour = Math.floor(tickN / BOSS_HOUR);
+  const cx = Math.floor(P.tx / BOSS_CELL), cz = Math.floor(P.tz / BOSS_CELL);
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+    const gx = cx + a, gz = cz + b;
+    const key = 'b' + gx + '_' + gz + '_' + hour;
+    if (npcDead.has(key) || npcs.some(q => q.key === key)) continue;
+    const L = bossAt(gx, gz, hour);
+    if (!L || Math.abs(L.x - P.tx) > 80 || Math.abs(L.z - P.tz) > 80) continue;
+    // the exact tile may hold a tree; the nearest open one is as good
+    let spot = null;
+    for (let r = 0; r <= 4 && !spot; r++) for (let i = -r; i <= r && !spot; i++) for (let j = -r; j <= r; j++) {
+      if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
+      const x = L.x + i, z = L.z + j;
+      if (!isWater(walkY(x, z)) && !blocked.has(tk(x, z)) && !floorMap.has(tk(x, z))) { spot = { x, z }; break; }
+    }
+    if (!spot) continue;
+    spawnNpc(L.t, spot.x, spot.z, key, powerAt(spot.x, spot.z));
+  }
+}
 function refreshNpcs() {
   for (let i = npcs.length - 1; i >= 0; i--) {
     const n = npcs[i];
     if (Math.abs(n.tx - P.tx) > 92 || Math.abs(n.tz - P.tz) > 92) { scene.remove(n.mesh); npcs.splice(i, 1); }
   }
+  spawnBosses();                                   // the lairs are served before the cap
   const CAP = npcCap();
   if (npcs.length >= CAP) return;
   const gx = Math.floor(P.tx * INV_CELL), gz = Math.floor(P.tz * INV_CELL);
@@ -5577,13 +5739,18 @@ function spawnNpc(t, x, z, key, pw) {
     const r = hash2(kh ^ (tickN - b), tickN - b, S + 777);
     if (r % 6 === 0) dest = { x: x + ((r >>> 8) % 11) - 5, z: z + ((r >>> 16) % 11) - 5 };
   }
-  if (!t.rig) t.rig = t.build();                   // built on first meeting, kept forever
-  const mesh = riggedMesh(t.rig);
+  /* A level variant shares its family's rig; a boss wears the family's build
+     blown up to its own scale, tinted, in a material of its own. */
+  const base = t.base || t;
+  if (!base.rig) base.rig = base.build();          // built on first meeting, kept forever
+  if (t.tint && !t.mat) t.mat = new THREE.MeshBasicMaterial({ vertexColors: true, color: t.tint });
+  const mesh = riggedMesh(base.rig, t.mat || null);
+  if (t.scale) mesh.scale.setScalar(t.scale);
   scene.add(mesh);
   npcs.push({
     npc: 1, t, key, name: t.n, tx: x, tz: z, px: x, pz: z, rx: x, rz: z, ry: walkY(x, z),
     home: { x, z }, hp: t.hp, maxhp: t.hp, face: 0, faceT: 0, mesh, atkT: 0, atkStyle: 'm',
-    limbs: mesh.limbs || null, walkPhase: 0,
+    limbs: mesh.limbs || null, walkPhase: 0, styleIx: 0, styleN: 0,
     cd: 2 + (hash2(x, z, S) & 3), target: null, dead: 0, mv: 0,
     pw: pw !== undefined ? pw : powerAt(x, z),     // callers who know it pass it
     kh, dest, owner: null, lastNet: 0, netAct: 0
@@ -5661,14 +5828,20 @@ function npcTick(n) {
      ground's power rises and never arrives past p = 1.5 — the deep wilds do
      not get used to you, which is what keeps camping there a decision. */
   const npw = Math.max(0, n.pw);                 // noise can dip powerAt below zero near home
-  if (!n.target && n.t.agg && !P.dead && near <= 5 &&
-      (npw >= 1.5 || tickN - P.regionT < 1000 / (1 - npw / 1.5)) &&
-      combatLevel() < n.t.lv * 2 + 1) {
+  // a boss never tires of you and never thinks you beneath it
+  if (!n.target && n.t.agg && !P.dead && near <= (n.t.boss ? 7 : 5) &&
+      (n.t.boss || npw >= 1.5 || tickN - P.regionT < 1000 / (1 - npw / 1.5)) &&
+      (n.t.boss || combatLevel() < n.t.lv * 2 + 1)) {
     n.target = P;
     claimMon(n);
   }
   if (n.target) {
-    if (near > (n.t.rng || 1)) {
+    /* A boss fights in phases — three blows with one discipline, then the
+       next in its cycle — and the phase decides the distance: it closes to
+       maul, and stands off to hurl or cast. Everyone else just reaches. */
+    const phase = n.t.boss ? n.t.at[n.styleIx % n.t.at.length] : null;
+    const want = phase === 'm' ? 1 : (n.t.rng || 1);
+    if (near > want) {
       // mspd is tiles per tick, banked in an accumulator: 0.6 lumbers, 1.5
       // runs a fleeing player down. The swing cooldown (spd) is untouched.
       for (n.mv += n.t.mspd; n.mv >= 1; n.mv--) {
@@ -5686,7 +5859,15 @@ function npcTick(n) {
       // the shared curve unless the type says otherwise: giants land slow,
       // huge blows that the derivation from str undersells
       const mx = n.t.max !== null ? n.t.max : Math.max(1, Math.round(1 + n.t.str * 0.16));
-      const st = npcStyle(n, near);
+      let st;
+      if (phase) {
+        st = phase;
+        if (++n.styleN >= 3) {                   // the phase turns over
+          n.styleN = 0; n.styleIx = (n.styleIx + 1) % n.t.at.length;
+          const nx = n.t.at[n.styleIx];
+          say(n.t.n + (nx === 'm' ? ' charges in to maul you!' : nx === 'r' ? ' rears back to hurl!' : ' begins to cast!'), 'bad');
+        }
+      } else st = npcStyle(n, near);
       n.atkT = 1; n.atkStyle = st;               // drives the lunge or the throw
       n.netAct = st === 'm' ? 1 : st === 'r' ? 2 : 3;
       if (st !== 'm') npcBolt(n, st);
@@ -5755,8 +5936,9 @@ function killNpc(n) {
   n.dead = 1;
   if (n.plate) { freePlate(n.plate); n.plate = null; }
   scene.remove(n.mesh);
-  npcDead.set(n.key, tickN + 60);
-  if (n.key) netWorld([22, n.key, tickN + 60]);
+  const due = tickN + (n.t.boss ? 3000 : 60);     // a slain boss stays down half an hour
+  npcDead.set(n.key, due);
+  if (n.key) netWorld([22, n.key, due]);
   const i = npcs.indexOf(n); if (i >= 0) npcs.splice(i, 1);
   const lv = n.t.lv, p = Math.max(0, n.pw || 0);
   dropItem(n.t.big ? 'big_bones' : 'bones', 1, n.tx, n.tz);
@@ -5797,7 +5979,7 @@ function killNpc(n) {
     else if (roll < 0.40) dropItem(['iron_ore', 'coal', 'mithril_ore', 'adamantite_ore'][Math.min(3, tier >> 1)], Math.round((2 + (Math.random() * 4 | 0)) * (1 + p)), n.tx, n.tz);
     else if (roll < 0.46 && lv > 20) dropItem(['air_rune', 'fire_rune', 'chaos_rune'][Math.random() * 3 | 0], Math.round((8 + (Math.random() * 20 | 0)) * (1 + p)), n.tx, n.tz);
   }
-  say('You defeat the ' + n.name + '.', 'good');
+  say(n.t.boss ? 'You have slain ' + n.name + '!' : 'You defeat the ' + n.name + '.', n.t.boss ? 'lv' : 'good');
   if (P.task && P.task.o === n) P.task = null;
 }
 let pvpOn = 0;
@@ -7130,12 +7312,14 @@ devFind.addEventListener('input', drawDevItems);
 const devMons = el('devMons'), devMonFind = el('devMonFind');
 function drawDevMons() {
   const q = devMonFind.value.trim().toLowerCase();
-  const hits = NPC_TYPES.filter(t => !q || t.n.toLowerCase().indexOf(q) >= 0 || t.k.indexOf(q) >= 0)
-    .slice().sort((a, b) => a.n.localeCompare(b.n));
+  // every rung of every family, and the bosses after them
+  const all = SPAWNABLE.concat(BOSS_LIST);
+  const hits = all.filter(t => !q || t.n.toLowerCase().indexOf(q) >= 0 || t.k.indexOf(q) >= 0 || (q === 'boss' && t.boss))
+    .slice().sort((a, b) => a.n.localeCompare(b.n) || a.lv - b.lv);
   devMons.innerHTML = hits.map(t =>
-    '<div class="di" data-m="' + t.k + '"><img src="' + drawIcon(t.big ? 'skull' : 'fist',
+    '<div class="di" data-m="' + t.k + (t.base ? '@' + t.lv : '') + '"><img src="' + drawIcon(t.boss ? 'star' : t.big ? 'skull' : 'fist',
       '#' + (t.body ? rgbHex(t.body) : '8a8a8a'), '#efe4c4') + '" alt="">' +
-    '<span>' + t.n + ' <u>lv ' + t.lv + '</u></span></div>').join('') ||
+    '<span>' + t.n + ' <u>lv ' + t.lv + (t.boss ? ' · boss' : '') + '</u></span></div>').join('') ||
     '<div class="di no"><span>no match</span></div>';
 }
 function rgbHex(c) {
@@ -7155,7 +7339,7 @@ function spawnNear(t, count) {
 }
 devMons.addEventListener('click', e => {
   const d = e.target.closest('[data-m]'); if (!d) return;
-  const t = NPC_BY[d.dataset.m]; if (!t) return;
+  const t = npcByName(d.dataset.m); if (!t) return;
   const want = Math.max(1, Math.min(20, +el('devMonQty').value || 1));
   const made = spawnNear(t, want);
   say(made ? 'Spawned ' + made + ' x ' + t.n + '.' : 'No open ground nearby.', made ? 'lv' : 'bad');
@@ -8185,7 +8369,7 @@ function frame(now) {
     // the whole tag wears the threat colour: "Hill giant (28)", all in red
     if (npcPlates < 14 && Math.abs(n.rx - P.rx) < 40 && Math.abs(n.rz - P.rz) < 40) {
       const lbl = '<i style="color:' + lvlColour(n.t.lv, myCombat) + '">' + n.t.n + ' (' + n.t.lv + ')</i>';
-      if (labelAt(n, 'plate', n.rx, n.ry + 1.5 + n.t.sz * 1.5, n.rz, lbl, 'plate npc')) {
+      if (labelAt(n, 'plate', n.rx, n.ry + 1.5 + n.t.sz * 1.5, n.rz, lbl, n.t.boss ? 'plate npc boss' : 'plate npc')) {
         npcPlates++;
         n.plate.el._obj = n;               // the tag clicks through to the monster
       }
