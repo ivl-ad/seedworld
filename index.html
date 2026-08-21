@@ -5209,7 +5209,8 @@ function dressRig(p, look, it) {
   // a robe on either slot hides the legs the way every hooded order does,
   // and a plateskirt borrows the same fall in metal; the skirt takes the
   // leg slot's colour when that is what put it there
-  const robed = bc === 'mage' || lc === 'mage' || (legsIt && legsIt.g === 'skirt');
+  //const robed = bc === 'mage' || lc === 'mage' || (legsIt && legsIt.g === 'skirt');
+  const robed = bc === 'mage' || lc === 'mage' || !!(legsIt && legsIt.g === 'skirt');
   p.legHid = robed ? 1 : 0;
   p.skirt.visible = robed;
   if (robed) p.skirt.material.color.set(legsIt && (lc === 'mage' || legsIt.g === 'skirt') ? legsIt.c : bodyIt.c);
