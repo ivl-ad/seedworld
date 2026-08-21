@@ -272,6 +272,29 @@
   .brbFoot{margin:9px 0 0}
   .brbFoot button{flex:1}
   @media (max-width:560px){.brb{flex-direction:column-reverse;align-items:center}.brbL{width:100%}}
+  /* the grand exchange ledger */
+  .ges{background:rgba(0,0,0,.22);border-radius:3px;padding:5px 6px;min-height:62px;
+    display:flex;flex-direction:column;justify-content:center}
+  .gesHead{display:flex;gap:6px;align-items:center;font-size:10px}
+  .gesHead img{width:26px;height:26px;image-rendering:pixelated;flex:0 0 auto}
+  .gesHead span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gesHead u{text-decoration:none;color:var(--dim);font-size:9px;display:block}
+  .gesEmpty{margin:2px 0;font-size:10px;color:var(--dim);text-align:center}
+  .gesBtns{margin:5px 0 0}
+  .gesBtns:empty{display:none}
+  .gesBtns button{flex:1;font-size:9px;padding:3px 4px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .gebar{height:5px;background:#1a1410;border-radius:2px;margin-top:4px;overflow:hidden}
+  .gebar s{display:block;height:100%;background:#3f9a4a}
+  .ges.gsell .gebar s{background:#c9a24a}
+  .gepick{display:grid;grid-template-columns:1fr 1fr;gap:2px;max-height:168px;overflow:auto;margin:5px 0}
+  .gepick .di.on{outline:2px solid #fff}
+  .gepick .di u{text-decoration:none;color:var(--dim);font-size:9px;display:block}
+  .gerow{display:flex;gap:5px;align-items:center;margin:5px 0}
+  .gerow label{font-size:9px;letter-spacing:.08em;color:var(--dim);text-transform:uppercase;flex:0 0 56px}
+  .gerow input{flex:1;min-width:0;background:#191309;border:1px solid var(--bevel);color:var(--bone);
+    font:inherit;font-size:11px;padding:3px 5px;border-radius:2px;outline:none}
+  .gerow button{flex:0 0 auto;font-size:9px;padding:3px 6px}
+  .getot{margin:4px 0;font-size:10px;color:var(--amber)}
   #modalFoot{padding:5px 9px 7px;font-size:9px;color:#8d7e63;border-top:1px solid rgba(107,83,52,.4)}
   #modalBody .grid{display:grid;grid-template-columns:1fr 1fr;gap:3px}
   /* .mk rows are styled once, in the dev-console section below */
@@ -978,6 +1001,44 @@ function villageDist(v, x, z) {
   const ex = rx / v.ax, ez = rz / v.az;
   return Math.sqrt(ex * ex + ez * ez);
 }
+/* The nearest settlement to a point, spiralling out cell by cell. The ring
+   that first turns one up is scanned one ring further, so a marginally
+   closer neighbour in the next ring out still wins. */
+function nearestVillageTo(x, z, maxRing) {
+  const cx = Math.floor(x * INV_CELL), cz = Math.floor(z * INV_CELL);
+  let best = null, bd = 1e9, foundRing = -1;
+  for (let ring = 0; ring <= (maxRing === undefined ? 10 : maxRing); ring++) {
+    if (foundRing >= 0 && ring > foundRing + 1) break;
+    for (let a = -ring; a <= ring; a++) for (let b = -ring; b <= ring; b++) {
+      if (Math.max(Math.abs(a), Math.abs(b)) !== ring) continue;
+      const v = villageAt(cx + a, cz + b);
+      if (!v) continue;
+      if (foundRing < 0) foundRing = ring;
+      const d = Math.hypot(v.x - x, v.z - z);
+      if (d < bd) { bd = d; best = v; }
+    }
+  }
+  return best;
+}
+/* A safe, walkable tile inside a settlement: town ground is truce ground, so
+   waking up here can never be a pvp spawn. The street spots the layout
+   already chose are known-clear of walls and buildings; failing those, any
+   road tile spiralling out from the crossing. */
+function safeSpotIn(v) {
+  villageBuildings(v);                       // the plan must exist to be read
+  let best = null, bd = 1e9;
+  for (const s of (v.spots || [])) {
+    const d = Math.hypot(s.x - v.x, s.z - v.z);
+    if (d < bd && !isWater(heightAt(s.x, s.z))) { bd = d; best = s; }
+  }
+  if (best) return best;
+  for (let r = 0; r <= v.r; r++) for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) {
+    if (Math.max(Math.abs(a), Math.abs(b)) !== r) continue;
+    const x = v.x + a, z = v.z + b, c = cityCell(x, z);
+    if ((c === G_ROAD || c === G_PAVED) && heightAt(x, z) > 1.5) return { x, z };
+  }
+  return { x: v.x, z: v.z };
+}
 
 /* ================= STAGE 4 — THE ROADS BETWEEN ====================
    Every settlement links east, south and sometimes a diagonal, so each link
@@ -1147,7 +1208,7 @@ function colorAt(x, z, h, slope) {
   // actually laid out beats guessing at it with an analytic road formula.
   const cell = h > 1.2 ? cityCell(x, z) : 0;
   if (cell === G_ROAD) c = PAL.road;
-  else if (cell === G_PAVED || cell === G_GATE) c = PAL.cobble;
+  else if (cell === G_PAVED || cell === G_GATE || cell === G_GE) c = PAL.cobble;
   else if (cell === G_KEEP) c = PAL.flag;
   else if (cell === G_PARK) c = PAL.lawn;
   else {
@@ -2975,7 +3036,7 @@ const floorMap = new Map();                           // tile -> building you st
 
 /* Grid codes. Anything above EMPTY is claimed ground. */
 const G_EMPTY = 0, G_ROAD = 1, G_PAVED = 2, G_BUILD = 3,
-      G_WALL = 4, G_GATE = 5, G_PARK = 6, G_KEEP = 7;
+      G_WALL = 4, G_GATE = 5, G_PARK = 6, G_KEEP = 7, G_GE = 8;
 
 /* --- one cottage or shop: plinth, floor, four walls with a doorway --- */
 function emitShell(B, b) {
@@ -3350,6 +3411,60 @@ function emitLandmark(B, L) {
     B.add(BOX, x, y + 1.3, z - 2.45, 1.3, 2.6, 0.4, 0, C_DARK);
   }
 }
+/* The Grand Exchange: a great cobbled circle behind a pillared ring wall,
+   a gate at each compass point, and a covered counter island in the middle
+   staffed on all four sides — the 2007 rotunda, in boxes. */
+function emitGE(B, g) {
+  const x = g.x, z = g.z, y = g.y;
+  const WR = 8.2, N = 16, seg = 2 * WR * Math.sin(Math.PI / N);
+  const rm = WR * Math.cos(Math.PI / N);
+  // a laid cobble floor, tile by tile so it follows the ground: the paint
+  // pass samples between tiles and cannot be trusted with a circle
+  for (let a = -9; a <= 9; a++) for (let b = -9; b <= 9; b++) {
+    if (a * a + b * b > 9.4 * 9.4) continue;
+    const fx = x + a, fz = z + b;
+    B.add(BOX, fx, heightAt(fx, fz) + 0.06, fz, 1.02, 0.14, 1.02, 0,
+          ((a ^ b) & 1) ? C_STONE : PAL.cobble);
+  }
+  for (let i = 0; i < N; i++) {
+    // pillars sit off the axes, so none ever lands in a gateway
+    const a = (i + 0.5) / N * TAU, ar = -(a + Math.PI / 2);
+    const px = x + Math.sin(a) * WR, pz = z + Math.cos(a) * WR;
+    const py = heightAt(px, pz);
+    B.add(BOX, px, py + 1.7, pz, 0.72, 4.6, 0.72, ar, C_STONE);
+    B.add(BOX, px, py + 3.9, pz, 1.05, 0.35, 1.05, ar, C_STONE2);
+    // low wall between pillars, skipped where a gate opens; the entablature
+    // ring above runs unbroken, carried over the gates
+    const am = (i + 1) / N * TAU, mr = -(am + Math.PI / 2);
+    const mx = x + Math.sin(am) * rm, mz = z + Math.cos(am) * rm;
+    const my = heightAt(mx, mz);
+    const gate = Math.abs(Math.sin(am)) < 0.20 || Math.abs(Math.cos(am)) < 0.20;
+    if (!gate) B.add(BOX, mx, my + 0.75, mz, 0.5, 2.1, seg, mr, C_STONE2);
+    B.add(BOX, mx, my + 4.35, mz, 0.95, 0.55, seg + 0.5, mr, C_STONE);
+  }
+  // gold finials over the four gates
+  for (let d = 0; d < 4; d++) {
+    const a = d * Math.PI / 2;
+    const gx2 = x + Math.sin(a) * WR, gz2 = z + Math.cos(a) * WR;
+    B.add(PYR, gx2, heightAt(gx2, gz2) + 5.0, gz2, 1.3, 0.9, 1.3, 0, C_GOLD);
+  }
+  // the counter island: a square ring of desks with a worked-wood top
+  for (const s of [-1, 1]) {
+    B.add(BOX, x, y + 0.55, z + s * 3, 6.6, 1.5, 0.9, 0, C_STONE);
+    B.add(BOX, x, y + 1.28, z + s * 3, 7.2, 0.16, 1.25, 0, C_SIGN);
+    B.add(BOX, x + s * 3, y + 0.55, z, 0.9, 1.5, 6.6, 0, C_STONE);
+    B.add(BOX, x + s * 3, y + 1.28, z, 1.25, 0.16, 7.2, 0, C_SIGN);
+  }
+  // corner posts carry a pyramid roof with a gilded cap
+  for (const sx of [-1, 1]) for (const sz of [-1, 1])
+    B.add(BOX, x + sx * 3, y + 2.1, z + sz * 3, 0.42, 4.2, 0.42, 0, C_BEAM);
+  B.add(PYR, x, y + 5.2, z, 9.6, 2.8, 9.6, 0, C_SLATE);
+  B.add(BOX, x, y + 6.7, z, 0.5, 1.3, 0.5, 0, C_BEAM);
+  B.add(BLOB, x, y + 7.5, z, 0.9, 0.9, 0.9, 0, C_GOLD);
+  // the clerks' lectern in the middle of the floor
+  B.add(CYL8, x, y + 0.8, z, 0.9, 1.6, 0.9, 0, C_STONE2);
+  B.add(BLOB, x, y + 1.9, z, 0.7, 0.6, 0.7, 0, C_GOLD);
+}
 /* Street trees. Decoration only — the choppable ones are scattered by the
    chunk pass, which keeps well clear of anything the town has claimed. */
 function emitCityTree(B, t) {
@@ -3525,6 +3640,42 @@ function layoutCity(v) {
                  hall: { x: best.x, z: best.z, w: hw * 2 + 1, d: hd * 2 + 1, h: 10.5 + v.rank * 1.5, hw, hd } };
       for (let p = -best.R; p <= best.R; p++) for (let q = -best.R; q <= best.R; q++)
         force(best.x + p, best.z + q, G_KEEP);
+    }
+  }
+
+  /* ---- the grand exchange: one great ring of commerce. Rarer than any
+     bank — most towns never see one — and claimed before the houses are
+     planted, so no roof can ever end up underneath it. ---- */
+  v.ge = null;
+  if (v.rank >= 2) {
+    const gh = hash2(v.x, v.z, S + 112);
+    const odds = v.rank >= 4 ? 85 : v.rank === 3 ? 40 : 8;
+    if (gh % 100 < odds) {
+      const GR = 10;
+      let best = null, bestScore = -1e9;
+      for (let i = 0; i < 24; i++) {
+        const a = ((gh >>> 3) & 1023) / 1024 * TAU + i * 0.7;
+        const rr = R * (0.30 + (i % 5) * 0.09);
+        const cx2 = Math.round(v.x + Math.sin(a) * rr), cz2 = Math.round(v.z + Math.cos(a) * rr);
+        let free = 0, lo = 1e9, hi = -1e9, bad = 0;
+        for (let p = -GR; p <= GR && !bad; p += 2) for (let q = -GR; q <= GR; q += 2) {
+          if (p * p + q * q > GR * GR) continue;
+          const c = get(cx2 + p, cz2 + q);
+          if (c === 255 || c === G_WALL || c === G_KEEP || c === G_BUILD) { bad = 1; break; }
+          if (c === G_EMPTY || c === G_ROAD) free++;
+          const y = heightAt(cx2 + p, cz2 + q);
+          if (y < lo) lo = y; if (y > hi) hi = y;
+          if (y < 1.9) { bad = 1; break; }
+        }
+        if (bad || hi - lo > 2.2) continue;
+        const score = free - (hi - lo) * 10 - Math.hypot(cx2 - v.x, cz2 - v.z) * 0.1;
+        if (score > bestScore) { bestScore = score; best = { x: cx2, z: cz2, y: hi }; }
+      }
+      if (best) {
+        for (let p = -GR; p <= GR; p++) for (let q = -GR; q <= GR; q++)
+          if (p * p + q * q <= GR * GR) force(best.x + p, best.z + q, G_GE);
+        v.ge = { x: best.x, z: best.z, y: best.y, R: GR, blk: null };
+      }
     }
   }
 
@@ -3799,6 +3950,20 @@ function layoutCity(v) {
     const L = v.lm, b2 = [];
     for (let a = -L.R; a <= L.R; a++) for (let c2 = -L.R; c2 <= L.R; c2++) b2.push(tk(L.x + a, L.z + c2));
     L.blk = b2;
+  }
+  if (v.ge) {
+    /* The ring wall stands in a band round the floor, broken by a gate at
+       each compass point; the counter island in the middle is solid, so
+       nobody ever walks behind the desks. */
+    const g = v.ge, blk = [];
+    for (let a = -9; a <= 9; a++) for (let b2 = -9; b2 <= 9; b2++) {
+      const d = Math.sqrt(a * a + b2 * b2);
+      if (d < 7.6 || d > 8.9) continue;
+      if (Math.abs(a) <= 1 || Math.abs(b2) <= 1) continue;   // the four gates
+      blk.push(tk(g.x + a, g.z + b2));
+    }
+    for (let a = -3; a <= 3; a++) for (let b2 = -3; b2 <= 3; b2++) blk.push(tk(g.x + a, g.z + b2));
+    g.blk = blk;
   }
   for (const w of v.wall) w.key = tk(w.x, w.z);
   return B;
@@ -4095,12 +4260,35 @@ function buildStructures(rec, cx, cz) {
   const gx = Math.floor(cx * CHUNK * INV_CELL), gz = Math.floor(cz * CHUNK * INV_CELL);
   const x0 = cx * CHUNK, x1 = x0 + CHUNK, z0 = cz * CHUNK, z1 = z0 + CHUNK;
   const inChunk = (x, z) => x >= x0 && x < x1 && z >= z0 && z < z1;
-  const mine = [], forges = [], walls = [], citytrees = [], lms = [], furn = [];
+  const mine = [], forges = [], walls = [], citytrees = [], lms = [], furn = [], ges = [];
   let castle = null;
   for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
     const v = villageAt(gx + a, gz + b);
     if (!v) continue;
     villageBuildings(v);
+    if (v.ge && inChunk(v.ge.x, v.ge.z)) {
+      const g = v.ge;
+      ges.push(g);
+      for (const k of g.blk) rec.blk.push(k);
+      /* Four counter sides, each with a banker and an exchange clerk: the
+         clickable booth sits on the counter itself so a customer outside can
+         reach it, while the keeper stands a tile behind the desk. */
+      const st = [
+        [g.x - 1, g.z - 3, 7,  g.x - 1, g.z - 2, Math.PI],
+        [g.x + 1, g.z - 3, 10, g.x + 1, g.z - 2, Math.PI],
+        [g.x + 3, g.z - 1, 7,  g.x + 2, g.z - 1, Math.PI / 2],
+        [g.x + 3, g.z + 1, 10, g.x + 2, g.z + 1, Math.PI / 2],
+        [g.x + 1, g.z + 3, 7,  g.x + 1, g.z + 2, 0],
+        [g.x - 1, g.z + 3, 10, g.x - 1, g.z + 2, 0],
+        [g.x - 3, g.z + 1, 7,  g.x - 2, g.z + 1, -Math.PI / 2],
+        [g.x - 3, g.z - 1, 10, g.x - 2, g.z - 1, -Math.PI / 2]
+      ];
+      let marked = 0;                            // eight desks, two floating icons
+      for (const [sx, sz, t, kx, kz, dir] of st)
+        rec.objs.push({ t, k: 0, x: sx, z: sz, y: heightAt(kx, kz) + 0.13, key: tk(sx, sz),
+                        n: t === 7 ? 'Banker' : 'Grand Exchange clerk', kx, kz, dir,
+                        noMark: (marked++ & 6) !== 0 ? 1 : 0 });
+    }
     for (const bd of v.b) if (inChunk(bd.x, bd.z)) mine.push(bd);
     for (const f of v.f) if (inChunk(f.x, f.z)) {
       const o = { t: f.t, k: 0, x: f.x, z: f.z, y: f.y, key: tk(f.x, f.z),
@@ -4130,12 +4318,13 @@ function buildStructures(rec, cx, cz) {
     if (m) { scene.add(m); rec.extra.push(m); }
     for (const k of castle.blk) rec.blk.push(k);
   }
-  if (walls.length || citytrees.length || lms.length || furn.length) {
+  if (walls.length || citytrees.length || lms.length || furn.length || ges.length) {
     const W = new Batch();                          // one mesh for the town's masonry and greenery
     for (const w of walls) emitWallCell(W, w);
     for (const t of citytrees) emitCityTree(W, t);
     for (const L of lms) emitLandmark(W, L);
     for (const fu of furn) emitFurniture(W, fu);
+    for (const g of ges) emitGE(W, g);
     const wm = W.mesh();
     if (wm) { scene.add(wm); rec.extra.push(wm); }
   }
@@ -4365,8 +4554,8 @@ function rayGround(ray) {
 }
 /* Picking is a sphere test per nearby thing. At a few hundred candidates that
    beats any spatial index, and it means props need no colliders of their own. */
-const PICK_R = [1.7, 1.15, 1.5, 2.4, 1.5, 1.1, 1.6, 1.1, 1.5, 1.1];  // tree, rock, spot, furnace, anvil, keeper, range, banker, altar, barber
-const PICK_Y = [2.4, 0.55, 0.05, 1.6, 0.9, 0.9, 1.0, 0.9, 0.8, 0.9];
+const PICK_R = [1.7, 1.15, 1.5, 2.4, 1.5, 1.1, 1.6, 1.1, 1.5, 1.1, 1.2];  // tree, rock, spot, furnace, anvil, keeper, range, banker, altar, barber, ge clerk
+const PICK_Y = [2.4, 0.55, 0.05, 1.6, 0.9, 0.9, 1.0, 0.9, 0.8, 0.9, 0.9];
 function pickObject(ray) {
   const o = ray.origin, d = ray.direction;
   let bestT = 1e9, best = null;
@@ -5199,13 +5388,19 @@ function die(byPlayer) {
   markDirty(1);
 
   setTimeout(() => {
-    // a pvp death sends you to the origin; anything else to your own bed
-    if (byPlayer) { focus.set(0, 0, 0); refresh(); pump(200); placePlayer(0, 0); rebuildNear(); refreshNpcs(); }
-    else placePlayer(P.home.x, P.home.z);
+    // any death sends you to the nearest settlement: safe ground, never a
+    // second ambush on the respawn tile
+    const v = nearestVillageTo(P.tx, P.tz, 12);
+    let sx = P.home.x, sz = P.home.z;
+    if (v) { const s = safeSpotIn(v); sx = s.x; sz = s.z; }
+    focus.set(sx, 0, sz); refresh(); pump(200);
+    placePlayer(sx, sz); rebuildNear(); refreshNpcs();
+    mapOX = 1e9; mapRow = MW; mapImg = null;
     P.hp = P.maxhp = lvl[SK.hitpoints]; P.dead = 0; P.energy = 100;
     pvpOn = 0;
     dirty.orb = 1;
-    say(byPlayer ? 'You wake up at the origin with nothing.' : 'You wake up back where you started.');
+    const where = v ? villageName(v) : 'where you started';
+    say(byPlayer ? 'You wake up in ' + where + ' with nothing.' : 'You wake up in ' + where + '.');
     markDirty(1);
     refresh(); pump(80);
   }, 1500);
@@ -5718,6 +5913,220 @@ function barberApply() {
   say('The barber restyles you for ' + BARBER_FEE + ' coins.', 'good');
   closeOverlays();
 }
+/* ---------------------- 24b. GRAND EXCHANGE ------------------------- */
+/* The order book lives on the worker — one book for every world, so a sale
+   completes with the seller asleep three seeds away. This side is an honest
+   till: escrow leaves the pack before the request goes out, comes back if
+   the server says no, and nothing is minted that a response did not grant.
+   Eight slots, buy or sell in each, priced by you — the 2007 machine. */
+const GE_SLOTS_N = 8;
+let geSlots = null, geOpen = 0, geTimer = 0, geBusy = 0, geView = null;
+const geOn = () => !OFFLINE && AUTH;
+async function geFetch() {
+  const j = await api('/ge?auth=' + AUTH);
+  if (j && j.slots) {
+    geSlots = j.slots;
+    if (geOpen && !geView) drawGE();
+  }
+  return j;
+}
+function gePost(path, body) {
+  body.auth = AUTH;
+  return api(path, { method: 'POST', headers: { 'content-type': 'application/json' },
+                     body: JSON.stringify(body) });
+}
+function openGE() {
+  clearUse();
+  if (!geOn()) { say('The exchange is closed to offline traders.', 'bad'); return; }
+  geOpen = 1; geView = null;
+  say('The clerk opens the ledger.');
+  drawGE();                        // the cached book at once…
+  geFetch();                       // …then the live one
+  clearInterval(geTimer);
+  geTimer = setInterval(() => { if (geOpen) geFetch(); else clearInterval(geTimer); }, 4000);
+}
+const geGuide = id => Math.max(1, ITEMS[id] ? ITEMS[id].val : 1);
+function drawGE() {
+  if (!geOpen) return;
+  if (geView) return drawGEForm();
+  const h = ['<div class="grid">'];
+  for (let i = 0; i < GE_SLOTS_N; i++) {
+    const o = geSlots ? geSlots[i] : null;
+    if (!o) {
+      h.push('<div class="ges"><p class="gesEmpty">' + (geSlots ? 'Empty slot' : '…') + '</p>' +
+        (geSlots ? '<div class="wrow2 gesBtns"><button data-genew="0:' + i + '">Buy</button>' +
+        '<button data-genew="1:' + i + '">Sell</button></div>' : '') + '</div>');
+      continue;
+    }
+    const it = ITEMS[o.item], nm = it ? it.name : o.item;
+    const done = o.state === 1, full = o.filled >= o.qty;
+    const boxes = [];
+    if (o.items_box > 0) boxes.push(o.items_box + ' × ' + nm);
+    if (o.coins_box > 0) boxes.push(fmt(o.coins_box) + ' gp');
+    h.push('<div class="ges ' + (o.kind ? 'gsell' : 'gbuy') + '">' +
+      '<div class="gesHead"><img src="' + icon(o.item) + '" alt=""><span>' +
+      (o.kind ? 'Sell' : 'Buy') + ' ' + nm +
+      '<u>' + o.filled + ' / ' + o.qty + ' at ' + fmt(o.price) + ' gp each' +
+      (done ? (full ? ' — complete' : ' — cancelled') : '') + '</u></span></div>' +
+      '<div class="gebar"><s style="width:' + (o.qty ? Math.round(o.filled / o.qty * 100) : 0) + '%"></s></div>' +
+      '<div class="wrow2 gesBtns">' +
+      (boxes.length ? '<button data-gecol="' + i + '">Collect ' + boxes.join(' + ') + '</button>' : '') +
+      (!done ? '<button data-geab="' + i + '">Abort</button>' : '') +
+      (!boxes.length && done ? '<button data-gecol="' + i + '">Clear</button>' : '') +
+      '</div></div>');
+  }
+  h.push('</div>');
+  modalTitle.textContent = 'Grand Exchange — ' + fmt(coins()) + ' gp';
+  modalBody.innerHTML = h.join('');
+  modalFoot.textContent = 'Offers stand across every world and complete while you are away. Collect the goods to free the slot.';
+  modalEl.classList.add('on');
+  showTab('inv');
+}
+function gePickList() {
+  const V = geView, buy = V.kind === 0, list = [];
+  if (buy) {
+    const q = (V.q || '').trim().toLowerCase();
+    for (const id in ITEMS) {
+      if (id === 'coins') continue;
+      if (q && ITEMS[id].name.toLowerCase().indexOf(q) < 0) continue;
+      list.push(id);
+      if (list.length >= 36) break;
+    }
+  } else {
+    const seen = new Set();
+    for (let i = 0; i < INV_N; i++)
+      if (inv[i] && inv[i].id !== 'coins' && !seen.has(inv[i].id)) { seen.add(inv[i].id); list.push(inv[i].id); }
+  }
+  if (!list.length) return '<p class="gesEmpty">' + (buy ? 'Nothing by that name.' : 'Nothing in your pack to sell.') + '</p>';
+  return list.map(id =>
+    '<div class="di' + (V.item === id ? ' on' : '') + '" data-gepick="' + id + '"><img src="' + icon(id) +
+    '" alt=""><span>' + ITEMS[id].name + '<u>' + (buy ? 'guide ' + fmt(geGuide(id)) + ' gp' : invCount(id) + ' held') +
+    '</u></span></div>').join('');
+}
+function drawGEForm() {
+  const V = geView, buy = V.kind === 0;
+  const h = ['<p class="blab">' + (buy ? 'Buy offer' : 'Sell offer') + ' — slot ' + (V.slot + 1) + '</p>'];
+  if (buy) h.push('<div class="gerow"><input id="geq" placeholder="search all items" value=""></div>');
+  h.push('<div class="gepick" id="gePickWrap">' + gePickList() + '</div>');
+  if (V.item) {
+    const held = invCount(V.item);
+    if (V.qty === undefined) V.qty = buy ? 1 : held;
+    if (V.price === undefined) V.price = geGuide(V.item);
+    h.push('<div class="gerow"><label>Quantity</label><input id="geQty" type="number" min="1" value="' + V.qty + '">' +
+      (buy ? '' : '<button data-gea="all">All ' + held + '</button>') + '</div>');
+    h.push('<div class="gerow"><label>Price each</label><input id="gePrice" type="number" min="1" value="' + V.price + '">' +
+      '<button data-gea="-5">-5%</button><button data-gea="g">Guide</button><button data-gea="+5">+5%</button></div>');
+    h.push('<p class="getot" id="geTot"></p>');
+    h.push('<div class="wrow2 brbFoot"><button id="geOk">' + (buy ? 'Place buy offer' : 'Place sell offer') + '</button>' +
+      '<button id="geBack">Back</button></div>');
+  } else {
+    h.push('<div class="wrow2 brbFoot"><button id="geBack">Back</button></div>');
+  }
+  modalTitle.textContent = 'Grand Exchange — ' + fmt(coins()) + ' gp';
+  modalBody.innerHTML = h.join('');
+  modalFoot.textContent = buy
+    ? 'Coins are taken when the offer is placed; a cheaper match refunds the difference to the slot.'
+    : 'The goods are taken when the offer is placed; a higher standing bid pays its own price.';
+  modalEl.classList.add('on');
+  showTab('inv');
+  const qEl = el('geq');
+  if (qEl) {
+    qEl.value = V.q || '';
+    qEl.onkeydown = e => e.stopPropagation();
+    qEl.oninput = () => { V.q = qEl.value; el('gePickWrap').innerHTML = gePickList(); };
+  }
+  const upd = () => {
+    const q = Math.max(1, Math.floor(+el('geQty').value || 0));
+    const p = Math.max(1, Math.floor(+el('gePrice').value || 0));
+    V.qty = q; V.price = p;
+    el('geTot').textContent = 'Total: ' + fmt(q * p) + ' gp' +
+      (V.kind === 0 ? ' — you have ' + fmt(coins()) + ' gp' : '');
+  };
+  for (const id of ['geQty', 'gePrice']) {
+    const n = el(id);
+    if (n) { n.onkeydown = e => e.stopPropagation(); n.oninput = upd; }
+  }
+  if (V.item) upd();
+  if (el('geOk')) el('geOk').onclick = gePlace;
+  el('geBack').onclick = () => { geView = null; drawGE(); };
+}
+async function gePlace() {
+  const V = geView;
+  if (!V || !V.item || geBusy) return;
+  const qty = clamp(Math.floor(+el('geQty').value || 0), 1, 100000);
+  const price = clamp(Math.floor(+el('gePrice').value || 0), 1, 1e9);
+  const buy = V.kind === 0;
+  if (buy && coins() < qty * price) { say('You need ' + fmt(qty * price) + ' coins for that offer.', 'bad'); return; }
+  if (!buy && invCount(V.item) < qty) { say("You don't have that many.", 'bad'); return; }
+  geBusy = 1;
+  // the escrow leaves the pack before the book hears of the offer
+  if (buy) invRemove('coins', qty * price); else invRemove(V.item, qty);
+  markDirty(1);
+  const j = await gePost('/ge/place', { slot: V.slot, kind: V.kind, item: V.item, price, qty });
+  geBusy = 0;
+  if (!j || j.e || !j.offer) {
+    if (buy) invAdd('coins', qty * price); else invAdd(V.item, qty);
+    markDirty(1);
+    say('The exchange refused the offer' + (j && j.e ? ': ' + j.e + '.' : '.'), 'bad');
+    return;
+  }
+  if (!geSlots) geSlots = new Array(GE_SLOTS_N).fill(null);
+  geSlots[V.slot] = j.offer;
+  geView = null;
+  say('Offer placed: ' + (buy ? 'buy ' : 'sell ') + qty + ' × ' + ITEMS[V.item].name + ' at ' + fmt(price) + ' gp each.', 'good');
+  if (geOpen) drawGE();
+}
+async function geAbort(i) {
+  if (geBusy) return;
+  geBusy = 1;
+  const j = await gePost('/ge/abort', { slot: i });
+  geBusy = 0;
+  if (j && j.offer) { geSlots[i] = j.offer; say('Offer cancelled — collect what came back.'); }
+  else if (j && j.e) say('Could not abort: ' + j.e + '.', 'bad');
+  if (geOpen) drawGE();
+}
+async function geCollect(i) {
+  const o = geSlots && geSlots[i];
+  if (!o || geBusy) return;
+  /* Ask only for what the pack can hold; the box keeps the rest for the
+     next trip, and the slot stays taken until it is truly empty. */
+  let free = invFree(), wantCoins = 0, wantItems = 0;
+  if (o.coins_box > 0 && (invCount('coins') > 0 || free > 0)) {
+    wantCoins = o.coins_box;
+    if (invCount('coins') === 0) free--;
+  }
+  if (o.items_box > 0) {
+    const it = ITEMS[o.item];
+    if (it && it.stack) wantItems = (invCount(o.item) > 0 || free > 0) ? o.items_box : 0;
+    else if (it) wantItems = Math.max(0, Math.min(o.items_box, free));
+  }
+  if (!wantCoins && !wantItems && (o.coins_box > 0 || o.items_box > 0)) {
+    say('Your pack is too full to collect.', 'bad');
+    return;
+  }
+  geBusy = 1;
+  const j = await gePost('/ge/collect', { slot: i, coins: wantCoins, items: wantItems });
+  geBusy = 0;
+  if (!j || j.e) { say('Could not collect' + (j && j.e ? ': ' + j.e + '.' : '.'), 'bad'); return; }
+  if (j.coins > 0) invAdd('coins', j.coins);
+  if (j.items > 0 && ITEMS[j.item || o.item]) invAdd(j.item || o.item, j.items);
+  markDirty(1);
+  geSlots[i] = j.offer || null;
+  const got = [];
+  if (j.items > 0) got.push(j.items + ' × ' + (ITEMS[o.item] ? ITEMS[o.item].name : o.item));
+  if (j.coins > 0) got.push(fmt(j.coins) + ' gp');
+  if (got.length) say('You collect ' + got.join(' and ') + '.', 'good');
+  if (geOpen) drawGE();
+}
+/* Word waiting at the gate: one probe on login says whether the book owes
+   you anything, so a sale that finished overnight is not a secret. */
+async function geGreet() {
+  if (!geOn()) return;
+  const j = await geFetch();
+  if (j && j.slots && j.slots.some(o => o && (o.coins_box > 0 || o.items_box > 0)))
+    say('The Grand Exchange holds goods for you to collect.', 'lv');
+}
+
 function shopBuy(id) {
   const it = ITEMS[id], price = buyPrice(it);
   if (coins() < price) { say("You don't have enough coins.", 'bad'); return; }
@@ -5859,6 +6268,7 @@ function showModal(title, html, foot) {
 }
 function closeOverlays() {
   modalEl.classList.remove('on'); openShop = null; makeRows = null; bankOpen = 0; barberOn = 0;
+  geOpen = 0; geView = null; clearInterval(geTimer);
   // dismissing the border warning any way but Continue cancels the walk
   if (pvpHold) { pvpHold = 0; P.path.length = 0; P.goal = null; }
 }
@@ -5907,6 +6317,32 @@ modalBody.addEventListener('click', e => {
     for (const b of modalBody.querySelectorAll('[data-lk^="' + k + ':"]'))
       b.classList.toggle(k === 'face' ? 'fon' : 'on', b.dataset.lk === lk.dataset.lk);
     dressBarberRig();
+    return;
+  }
+  const ge = e.target.closest('[data-genew],[data-gepick],[data-gecol],[data-geab],[data-gea]');
+  if (ge && geOpen) {                             // the exchange window's controls
+    const d = ge.dataset;
+    if (d.genew !== undefined) {
+      const [k, s] = d.genew.split(':');
+      geView = { kind: +k, slot: +s, item: null, q: '' };
+      drawGE();
+    } else if (d.gepick !== undefined && geView) {
+      geView.item = d.gepick;
+      geView.qty = undefined; geView.price = undefined;
+      drawGE();
+    } else if (d.gecol !== undefined) geCollect(+d.gecol);
+    else if (d.geab !== undefined) geAbort(+d.geab);
+    else if (d.gea !== undefined && geView && geView.item) {
+      const pEl = el('gePrice'), qEl2 = el('geQty');
+      if (d.gea === 'all') qEl2.value = Math.max(1, invCount(geView.item));
+      else if (d.gea === 'g') pEl.value = geGuide(geView.item);
+      else {
+        const cur = Math.max(1, Math.floor(+pEl.value || 0));
+        pEl.value = Math.max(1, Math.round(cur * (d.gea === '+5' ? 1.05 : 0.95)));
+      }
+      pEl.dispatchEvent(new Event('input'));
+      qEl2.dispatchEvent(new Event('input'));
+    }
     return;
   }
   const all = e.target.closest('[data-wall]');
@@ -6340,6 +6776,7 @@ function optionsFor(o) {
   else if (o.t === 7) opts.push({ t: 'Bank at', o: o.n, f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openBank }; } });
   else if (o.t === 8) opts.push({ t: 'Pray at', o: 'Altar', f: () => { flashTarget(o, 0); startTask(o, 'pray'); } });
   else if (o.t === 9) opts.push({ t: 'Groom at', o: o.n, f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openBarber }; } });
+  else if (o.t === 10) opts.push({ t: 'Exchange at', o: o.n, f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: openGE }; } });
   if (o.t !== undefined && o.t <= 2 && depleted.has(o.key)) return [];
   return opts;
 }
@@ -6487,6 +6924,7 @@ function mapMarks() {
     if (o.t === 2) dot(o.x, o.z, '#7fd8ff', 2);
     else if (o.t === 5) dot(o.x, o.z, '#ffd34a', 4);
     else if (o.t === 7) dot(o.x, o.z, '#ffffff', 4);       // the bank, worth spotting
+    else if (o.t === 10) dot(o.x, o.z, '#ffb02a', 4);      // the exchange, worth more
     else if (o.t > 2) dot(o.x, o.z, '#ff7fd8', 3);
     else if (Math.abs(o.x - P.rx) < 34 && Math.abs(o.z - P.rz) < 34)
       dot(o.x, o.z, o.t ? '#c9a24a' : '#2f6b2a', 2);
@@ -6778,27 +7216,14 @@ function loadSeed(str) {
   for (const n of npcs) scene.remove(n.mesh);
   npcs.length = 0;
   closeOverlays();
-  // Spawn on the outskirts of the nearest settlement, spiralling out from the
-  // origin cell — dry, gentle ground, never mid-ocean.
+  // Spawn inside the settlement nearest the origin: town ground is truce
+  // ground, so a fresh character can never wake up standing in a pvp zone.
   let bx = 0, bz = 0, found = false;
-  outer:
-  for (let ring = 0; ring < 7 && !found; ring++)
-    for (let a = -ring; a <= ring; a++) for (let b = -ring; b <= ring; b++) {
-      if (Math.max(Math.abs(a), Math.abs(b)) !== ring) continue;
-      const v = villageAt(a, b);
-      if (!v) continue;
-      let best = -1e9;
-      for (let k = 0; k < 24; k++) {
-        const ang = k / 24 * TAU, rad = v.r + 12;
-        const x = Math.round(v.x + Math.cos(ang) * rad), z = Math.round(v.z + Math.sin(ang) * rad);
-        const y = heightAt(x, z);
-        if (y < 2 || y > 22) continue;
-        const sl = Math.abs(heightAt(x + 4, z) - y) + Math.abs(heightAt(x, z + 4) - y);
-        const sc = -sl * 4 - Math.abs(y - 8);
-        if (sc > best) { best = sc; bx = x; bz = z; found = true; }
-      }
-      if (found) break outer;
-    }
+  const sv = nearestVillageTo(0, 0, 7);
+  if (sv) {
+    const s = safeSpotIn(sv);
+    bx = s.x; bz = s.z; found = true;
+  }
   if (!found) {
     let best = -1e9;
     for (let i = 0; i < 900; i++) {
@@ -7068,7 +7493,7 @@ function animateNpc(n, dt) {
 
 /* Repopulate the instance pools from whatever is near enough to matter.
    Five draw calls cover every stump, fire, drop, ripple and shopkeeper. */
-const POOL_KEEP = Pool(KEEP_GEO, 12, 1);   // tinted: banker blue, barber pink
+const POOL_KEEP = Pool(KEEP_GEO, 24, 1);   // tinted: banker blue, barber pink, clerk gold
 function updatePools(t) {
   poolReset(POOL_STUMP); poolReset(POOL_FIRE); poolReset(POOL_DROP);
   poolReset(POOL_SPOT); poolReset(POOL_KEEP);
@@ -7078,9 +7503,11 @@ function updatePools(t) {
       if (depleted.has(o.key)) continue;
       const w = 0.85 + Math.sin(t * 2.2 + o.x * 0.7 + o.z * 0.4) * 0.16;
       poolPut(POOL_SPOT, o.x, 0.08, o.z, t * 0.5 + o.x, w, 1, w);
-    } else if (o.t === 5 || o.t === 7 || o.t === 9) {   // keeper, banker, barber by tint
-      poolPut(POOL_KEEP, o.x, o.y, o.z, o.b ? o.b.door * (Math.PI / 2) : 0, 1, 1, 1,
-              o.t === 7 ? 0x9fb4e8 : o.t === 9 ? 0xf2b8d8 : 0xffffff);
+    } else if (o.t === 5 || o.t === 7 || o.t === 9 || o.t === 10) {   // keeper, banker, barber, clerk by tint
+      // exchange staff stand a tile behind the booth they serve, facing out
+      poolPut(POOL_KEEP, o.kx !== undefined ? o.kx : o.x, o.y, o.kz !== undefined ? o.kz : o.z,
+              o.dir !== undefined ? o.dir : o.b ? o.b.door * (Math.PI / 2) : 0, 1, 1, 1,
+              o.t === 7 ? 0x9fb4e8 : o.t === 9 ? 0xf2b8d8 : o.t === 10 ? 0xf2cf6a : 0xffffff);
     }
   }
   for (const f of fires) poolPut(POOL_FIRE, f.x, f.y, f.z, t * 1.7, 1, 0.86 + Math.sin(t * 9 + f.x) * 0.14, 1);
@@ -7220,7 +7647,7 @@ function frame(now) {
   // icon markers over the town's plumbing: furnace, anvil, shops, bank, altar
   let marks = 0;
   for (const o of nearObjs) {
-    if (!(o.t >= 3) || marks >= 16) continue;
+    if (!(o.t >= 3) || o.noMark || marks >= 16) continue;
     if (Math.abs(o.x - P.rx) > 42 || Math.abs(o.z - P.rz) > 42) continue;
     if (labelAt(o, 'mk', o.x, o.y + MARK_H[o.t], o.z, markHtml(o), 'plate mk')) {
       marks++;
@@ -7921,7 +8348,7 @@ function labelAt(owner, key, x, y, z, text, cls) {
 }
 /* Marker art for the utility icons, one cached <img> per kind. Shops get
    their own glyph and colour, everything else is fixed. */
-const MARK_H = [0, 0, 0, 4.6, 2.9, 3.4, 3.1, 3.4, 3.0, 3.4];   // float height by object type
+const MARK_H = [0, 0, 0, 4.6, 2.9, 3.4, 3.1, 3.4, 3.0, 3.4, 3.6];   // float height by object type
 const _markCache = new Map();
 function markHtml(o) {
   const key = o.t === 5 ? 't5.' + o.k : 't' + o.t;
@@ -7933,6 +8360,7 @@ function markHtml(o) {
     : o.t === 6 ? drawIcon('cfish', '#ffb04a', '#7a4a20')
     : o.t === 7 ? drawIcon('coins', '#ffd94a', '#9a7414')
     : o.t === 9 ? drawIcon('hat', '#e87ac8', '#8a3a72')
+    : o.t === 10 ? drawIcon('coins', '#ffb02a', '#b05a10')
     : drawIcon('star', '#fff2b0', '#c9a24a');
   h = '<img src="' + src + '" alt="">';
   _markCache.set(key, h);
@@ -8180,7 +8608,7 @@ async function enterWorld(seed) {
   el('welGo').disabled = false;
   el('welGo').textContent = 'Enter this world';
   started = 1;
-  if (!OFFLINE && AUTH) { connect(); markDirty(1); }
+  if (!OFFLINE && AUTH) { connect(); markDirty(1); geGreet(); }
 }
 
 let started = 0;

@@ -1,11 +1,9 @@
+# Local API-only dev config: no [assets] block, so the file watcher cannot
+# chase its own .wrangler state in a reload loop. Used for testing the worker;
+# the real config stays wrangler.toml. Safe to delete.
 name = "seedworld"
 main = "src/worker.js"
 compatibility_date = "2026-08-01"
-
-[assets]
-directory = "."
-binding = "ASSETS"
-run_worker_first = ["/ws", "/register", "/save", "/health", "/play", "/name-check", "/characters", "/population", "/ge", "/ge/*"]
 
 [[durable_objects.bindings]]
 name = "WORLD"
@@ -29,7 +27,4 @@ database_name = "seedworld"
 database_id = "35e33bd4-04d1-4bda-aae6-b312c7511835"
 
 [vars]
-ALLOWED_ORIGINS = "https://vla.dev"
-
-[observability]
-enabled = true
+ALLOWED_ORIGINS = ""

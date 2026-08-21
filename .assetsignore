@@ -1,3 +1,5 @@
 /src
 wrangler.toml
 .assetsignore
+.wrangler
+.git

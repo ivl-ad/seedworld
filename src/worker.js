@@ -430,6 +430,155 @@ export class World extends DurableObject {
   }
 }
 
+/* ======================== THE GRAND EXCHANGE ============================= */
+/* One Durable Object for every world: the order book is global, so a seller
+   on one seed meets a buyer on another, and a sale completes with the seller
+   asleep three worlds away. The book lives in D1 and survives hibernation;
+   the object holds nothing worth keeping — it exists to be the till. Every
+   request funnels through one instance and queues on one lock, so two
+   crossing offers can never both spend the same coins.
+
+   The matching rule is the 2007 exchange's: a new offer sweeps the book
+   best-price-first, each trade striking at the *resting* offer's price. A
+   buy above the ask pays the ask and banks the difference for collection; a
+   sell below the bid is paid the bid. Escrow is taken by the client when the
+   offer is placed, so completion needs nobody online: proceeds sit in the
+   offer's collection box until their owner comes back for them, and only an
+   emptied, finished offer frees its slot. */
+
+const GE_SLOTS = 8;
+const GE_MAXQ = 100000;          // per offer; arrows are the volume case
+const GE_MAXP = 1000000000;      // coins per item
+
+export class Exchange extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.lock = Promise.resolve();
+    this.tables = 0;
+  }
+  /* D1 calls are subrequests, not DO storage, so the platform's input gate
+     does not serialise them — this chain does. Handlers run strictly in turn. */
+  serial(fn) {
+    const p = this.lock.then(fn, fn);
+    this.lock = p.then(() => {}, () => {});
+    return p;
+  }
+  /* The table makes itself on first use: no migration to run, nothing to
+     forget. The index is what the matching query lives on. */
+  async ensure() {
+    if (this.tables) return;
+    await this.env.DB.prepare(
+      'CREATE TABLE IF NOT EXISTS ge_offers (' +
+      'pid TEXT NOT NULL, slot INTEGER NOT NULL, kind INTEGER NOT NULL, ' +
+      'item TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, ' +
+      'filled INTEGER NOT NULL DEFAULT 0, coins_box INTEGER NOT NULL DEFAULT 0, ' +
+      'items_box INTEGER NOT NULL DEFAULT 0, state INTEGER NOT NULL DEFAULT 0, ' +
+      'created INTEGER NOT NULL, updated INTEGER NOT NULL, ' +
+      'PRIMARY KEY (pid, slot))').run();
+    await this.env.DB.prepare(
+      'CREATE INDEX IF NOT EXISTS ge_book ON ge_offers (item, kind, state, price)').run();
+    this.tables = 1;
+  }
+  row(pid, slot) {
+    return this.env.DB.prepare('SELECT * FROM ge_offers WHERE pid=? AND slot=?')
+      .bind(pid, slot).first();
+  }
+  async fetch(req) {
+    return this.serial(async () => {
+      try {
+        await this.ensure();
+        const u = new URL(req.url);
+        const pid = u.searchParams.get('pid') || '';
+        if (!pid) return Response.json({ e: 'no pid' }, { status: 400 });
+        let b = {};
+        if (req.method === 'POST') { try { b = await req.json(); } catch {} }
+        if (u.pathname === '/ge') return Response.json(await this.state(pid));
+        if (u.pathname === '/ge/place') return Response.json(await this.place(pid, b));
+        if (u.pathname === '/ge/abort') return Response.json(await this.abort(pid, b));
+        if (u.pathname === '/ge/collect') return Response.json(await this.collect(pid, b));
+        return Response.json({ e: 'no such path' }, { status: 404 });
+      } catch (e) {
+        console.log('ge error', String(e));
+        return Response.json({ e: 'exchange error' }, { status: 500 });
+      }
+    });
+  }
+  async state(pid) {
+    const r = await this.env.DB.prepare('SELECT * FROM ge_offers WHERE pid=?').bind(pid).all();
+    const slots = new Array(GE_SLOTS).fill(null);
+    for (const o of (r.results || [])) if (o.slot >= 0 && o.slot < GE_SLOTS) slots[o.slot] = o;
+    return { slots };
+  }
+  async place(pid, b) {
+    const slot = b.slot | 0, kind = b.kind | 0;
+    const item = String(b.item || '');
+    const price = Math.floor(+b.price || 0), qty = Math.floor(+b.qty || 0);
+    if (slot < 0 || slot >= GE_SLOTS) return { e: 'bad slot' };
+    if (kind !== 0 && kind !== 1) return { e: 'bad kind' };
+    if (!/^[a-z0-9_]{1,32}$/.test(item) || item === 'coins') return { e: 'bad item' };
+    if (!(price >= 1 && price <= GE_MAXP)) return { e: 'bad price' };
+    if (!(qty >= 1 && qty <= GE_MAXQ)) return { e: 'bad quantity' };
+    if (await this.row(pid, slot)) return { e: 'slot in use' };
+    const now = Date.now();
+    await this.env.DB.prepare(
+      'INSERT INTO ge_offers (pid, slot, kind, item, price, qty, filled, coins_box, items_box, state, created, updated) ' +
+      'VALUES (?,?,?,?,?,?,0,0,0,0,?,?)').bind(pid, slot, kind, item, price, qty, now, now).run();
+
+    let remaining = qty;
+    while (remaining > 0) {
+      const c = await this.env.DB.prepare(kind === 0
+        ? 'SELECT * FROM ge_offers WHERE item=? AND kind=1 AND state=0 AND price<=? AND pid<>? ORDER BY price ASC, created ASC LIMIT 1'
+        : 'SELECT * FROM ge_offers WHERE item=? AND kind=0 AND state=0 AND price>=? AND pid<>? ORDER BY price DESC, created ASC LIMIT 1'
+      ).bind(item, price, pid).first();
+      if (!c) break;
+      const t = Math.min(remaining, c.qty - c.filled);
+      if (t <= 0) break;                             // a corrupt row must not spin forever
+      const tp = c.price;                            // the resting offer sets the price
+      const mine = await this.row(pid, slot);
+      const upd = 'UPDATE ge_offers SET filled=filled+?, coins_box=coins_box+?, items_box=items_box+?, state=?, updated=? WHERE pid=? AND slot=?';
+      const doneC = c.filled + t >= c.qty ? 1 : 0;
+      const doneM = mine.filled + t >= mine.qty ? 1 : 0;
+      // both sides of the trade land in one transaction, or neither does
+      await this.env.DB.batch(kind === 0
+        ? [this.env.DB.prepare(upd).bind(t, t * tp, 0, doneC, now, c.pid, c.slot),               // seller is paid the ask
+           this.env.DB.prepare(upd).bind(t, t * (price - tp), t, doneM, now, pid, slot)]         // buyer gets goods + change
+        : [this.env.DB.prepare(upd).bind(t, 0, t, doneC, now, c.pid, c.slot),                    // buyer's offer receives goods
+           this.env.DB.prepare(upd).bind(t, t * tp, 0, doneM, now, pid, slot)]);                 // seller is paid the bid
+      remaining -= t;
+    }
+    return { offer: await this.row(pid, slot) };
+  }
+  async abort(pid, b) {
+    const o = await this.row(pid, b.slot | 0);
+    if (!o) return { e: 'no offer' };
+    if (o.state !== 0) return { offer: o };          // already finished: nothing to abort
+    // the unfilled escrow comes back through the collection box, as it did in 2007
+    const backC = o.kind === 0 ? (o.qty - o.filled) * o.price : 0;
+    const backI = o.kind === 1 ? (o.qty - o.filled) : 0;
+    await this.env.DB.prepare(
+      'UPDATE ge_offers SET state=1, coins_box=coins_box+?, items_box=items_box+?, updated=? WHERE pid=? AND slot=?'
+    ).bind(backC, backI, Date.now(), o.pid, o.slot).run();
+    return { offer: await this.row(o.pid, o.slot) };
+  }
+  async collect(pid, b) {
+    const o = await this.row(pid, b.slot | 0);
+    if (!o) return { e: 'no offer' };
+    /* The client asks for what its pack can hold; the box keeps the rest.
+       Clamped here, so a hopeful request can never mint anything. */
+    const tc = Math.max(0, Math.min(Math.floor(+b.coins || 0), o.coins_box));
+    const ti = Math.max(0, Math.min(Math.floor(+b.items || 0), o.items_box));
+    await this.env.DB.prepare(
+      'UPDATE ge_offers SET coins_box=coins_box-?, items_box=items_box-?, updated=? WHERE pid=? AND slot=?'
+    ).bind(tc, ti, Date.now(), o.pid, o.slot).run();
+    const left = await this.row(o.pid, o.slot);
+    if (left && left.state === 1 && left.coins_box === 0 && left.items_box === 0) {
+      await this.env.DB.prepare('DELETE FROM ge_offers WHERE pid=? AND slot=?').bind(o.pid, o.slot).run();
+      return { coins: tc, items: ti, item: o.item, offer: null };
+    }
+    return { coins: tc, items: ti, item: o.item, offer: left };
+  }
+}
+
 /* ============================ THE WORKER ================================= */
 
 function cors(origin) {
@@ -538,6 +687,30 @@ export default {
 
       const stub = env.WORLD.get(env.WORLD.idFromName('world:' + seed));
       return stub.fetch(new Request(target, req));
+    }
+
+    /* ---------------- /ge : the grand exchange ---------------- */
+    if (u.pathname === '/ge' || u.pathname.startsWith('/ge/')) {
+      if (!originOk) return json({ e: 'origin' }, 403, 'null');
+      let body = null;
+      if (req.method === 'POST') {
+        try { body = await req.json(); } catch { return json({ e: 'bad json' }, 400, origin); }
+      }
+      const who = await whoami(env, (body && body.auth) || u.searchParams.get('auth') || '');
+      if (who.e) return json({ e: who.e }, who.code, origin);
+      try {
+        const stub = env.EXCHANGE.get(env.EXCHANGE.idFromName('ge'));
+        const r = await stub.fetch(new Request('https://do' + u.pathname + '?pid=' + who.row.pid, {
+          method: req.method,
+          headers: { 'content-type': 'application/json' },
+          body: body ? JSON.stringify(body) : undefined
+        }));
+        let j; try { j = await r.json(); } catch { j = { e: 'exchange error' }; }
+        return json(j, r.status, origin);
+      } catch (e) {
+        console.log('ge route failed', String(e));
+        return json({ e: 'exchange unavailable' }, 500, origin);
+      }
     }
 
     /* ---------------- /register ---------------- */
