@@ -577,15 +577,7 @@
 
     <div class="pane" id="pane-eq">
       <div id="eqWrap"></div>
-      <div id="eqStats">
-        <i>Attack bonus</i><b id="bAtk">0</b>
-        <i>Strength bonus</i><b id="bStr">0</b>
-        <i>Defence bonus</i><b id="bDef">0</b>
-        <i>Magic bonus</i><b id="bMag">0</b>
-        <i>Ranged bonus</i><b id="bRng">0</b>
-        <i>Combat level</i><b id="bCmb">3</b>
-      </div>
-      <button id="eqMore" title="Every bonus, level and worn piece on one sheet">Full stats</button>
+      <button id="eqMore" title="Every bonus, level and worn piece on one sheet">Bonuses &amp; stats</button>
     </div>
 
     <div class="pane" id="pane-sk">
@@ -1362,8 +1354,8 @@ const TIER = Object.create(null); TIERS.forEach((t, i) => { t.i = i; TIER[t.k] =
 const PIECES = [
   { k: 'hatchet',    n: 'hatchet',    g: 'axe',    slot: 'weapon', tool: 'woodcutting', a: 4, s: 5, d: 0, spd: 5 },
   { k: 'pickaxe',    n: 'pickaxe',    g: 'pick',   slot: 'weapon', tool: 'mining',      a: 3, s: 4, d: 0, spd: 5 },
-  { k: 'dagger',     n: 'dagger',     g: 'dagger', slot: 'weapon', a: 5,  s: 4, d: 0, spd: 4 },
-  { k: 'sword',      n: 'sword',      g: 'sword',  slot: 'weapon', a: 7,  s: 6, d: 1, spd: 5 },
+  { k: 'dagger',     n: 'dagger',     g: 'dagger', slot: 'weapon', a: 5,  s: 4, d: 0, spd: 4, stab: 1 },
+  { k: 'sword',      n: 'sword',      g: 'sword',  slot: 'weapon', a: 7,  s: 6, d: 1, spd: 5, stab: 1 },
   { k: 'scimitar',   n: 'scimitar',   g: 'scim',   slot: 'weapon', a: 9,  s: 8, d: 0, spd: 4 },
   { k: 'longsword',  n: 'longsword',  g: 'lsword', slot: 'weapon', a: 10, s: 8,  d: 1, spd: 5 },
   { k: 'mace',       n: 'mace',       g: 'mace',   slot: 'weapon', a: 6,  s: 8,  d: 1, spd: 5 },
@@ -1371,9 +1363,9 @@ const PIECES = [
   { k: 'warhammer',  n: 'warhammer',  g: 'wham',   slot: 'weapon', a: 8,  s: 10, d: 0, spd: 6, gate: 'strength' },
   { k: 'claws',      n: 'claws',      g: 'claws',  slot: 'weapon', a: 8,  s: 7,  d: 1, spd: 4 },
   { k: '2h_sword',   n: '2h sword',   g: 'sword2h', slot: 'weapon', a: 12, s: 13, d: 0, spd: 7, two: 1 },
-  { k: 'halberd',    n: 'halberd',    g: 'halberd', slot: 'weapon', a: 11, s: 12, d: 0, spd: 7, two: 1, reach: 2 },
-  { k: 'spear',      n: 'spear',      g: 'spear',  slot: 'weapon', a: 8,  s: 7,  d: 0, spd: 5, two: 1 },
-  { k: 'hasta',      n: 'hasta',      g: 'spear',  slot: 'weapon', a: 7,  s: 7,  d: 0, spd: 5 },
+  { k: 'halberd',    n: 'halberd',    g: 'halberd', slot: 'weapon', a: 11, s: 12, d: 0, spd: 7, two: 1, reach: 2, stab: 1 },
+  { k: 'spear',      n: 'spear',      g: 'spear',  slot: 'weapon', a: 8,  s: 7,  d: 0, spd: 5, two: 1, stab: 1 },
+  { k: 'hasta',      n: 'hasta',      g: 'spear',  slot: 'weapon', a: 7,  s: 7,  d: 0, spd: 5, stab: 1 },
   { k: 'med_helm',   n: 'med helm',   g: 'helm',   slot: 'head',   a: 0,  s: 0, d: 4 },
   { k: 'full_helm',  n: 'full helm',  g: 'fhelm',  slot: 'head',   a: 0,  s: 0, d: 6 },
   { k: 'platebody',  n: 'platebody',  g: 'body',   slot: 'body',   a: 0,  s: 0, d: 9 },
@@ -1399,7 +1391,7 @@ for (const t of TIERS) for (const p of PIECES) {
   defItem({
     id: t.k + '_' + p.k, name: t.n + ' ' + p.n, g: p.g, c: t.c, c2: t.c2,
     slot: p.slot, tier: t.i, spd: p.spd || 5, equip: 1,
-    two: p.two || 0, reach: p.reach || 0,
+    two: p.two || 0, reach: p.reach || 0, stab: p.stab || 0,
     atk: p.a * t.m, str: p.s * t.m, def: p.d * t.m,
     tool: p.tool || null,
     req: isTool ? { [p.tool]: t.tool }
@@ -2797,8 +2789,15 @@ const WHOLD = {
   // limbs out to the sides and the string toward the archer's back, which is
   // the only way round that lets you pull it toward yourself
   bow:   g => g.rotateX(Math.PI / 2).rotateY(-Math.PI / 2),
-  cbow:  g => g.rotateX(Math.PI / 2)                          // stock along the forearm
+  cbow:  g => g.rotateX(-Math.PI / 2)                         // stock along the forearm, limbs forward
 };
+/* Everything that hangs point-down from the hand is cut at half scale: at
+   icon scale a sword reaches the ground from the hip and a pickaxe swings
+   through it. Staves, polearms and bows hold their size. */
+const WHANG = new Set(['sword', 'dagger', 'scim', 'axe', 'pick', 'rod', 'lsword', 'sword2h',
+                       'mace', 'baxe', 'wham', 'claws', 'wand']);
+/* Held tip-up, so a thrust has to lower them into line first. */
+const WUP = new Set(['staff', 'halberd', 'spear']);
 // a staff runs the length of the arm and past the ear, so it stands clear of
 // both: forward of the hand, and a little further out from the shoulder
 const WFWD = { staff: 0.19, bow: 0.03, halberd: 0.19, spear: 0.19, cbow: 0.08 };
@@ -2890,6 +2889,7 @@ function wepGeo(id) {
   const it = ITEMS[id], b = WEAPON[it.g] || WEAPON.sword, a = WGRIP[it.g] || WGRIP.sword;
   g = merge(b(hexRgb(it.c), hexRgb(it.c2 || it.c), a[0], a[1]));
   if (WHOLD[it.g]) WHOLD[it.g](g);
+  if (WHANG.has(it.g)) g.scale(0.5, 0.5, 0.5);    // about the grip, which stays in the hand
   g.computeBoundingSphere();
   _wepGeo.set(id, g);
   return g;
@@ -2902,6 +2902,7 @@ function holdWeapon(mesh, it) {
   mesh.material.color.set('#ffffff');              // the shape carries its own colours
   mesh.rotation.set(0, 0, 0);                      // orientation is baked in
   mesh.position.set(WOUT[it.g] || 0, -0.60, 0.05 + (WFWD[it.g] || 0));
+  mesh.userData.up = WUP.has(it.g) ? 1 : 0;        // the thrust animation needs to know
 }
 
 function buildAvatar() {
@@ -2953,7 +2954,9 @@ function buildAvatar() {
   skirt.visible = false;
   const wep = part(bakeW(shift(box(0.12, 1.0, 0.3), -0.42)), 0xffffff, 0, -0.60, 0.05);
   wep.visible = false; armR.add(wep);
-  const shl = part(bakeW(shift(box(0.1, 0.66, 0.52), -0.3)), 0xffffff, 0, -0.5, 0);
+  // a shield is strapped to the forearm by its middle and rides at its side,
+  // not dangled from the fist like a case
+  const shl = part(bakeW(box(0.1, 0.66, 0.52)), 0xffffff, 0.16, -0.40, 0.02);
   shl.visible = false; armL.add(shl);
   // the face: small features on the head's front (+z), so front reads as front
   const eyeL  = part(bakeW(box(0.09, 0.07, 0.03)), 0x1d1712,  0.11, 1.72, 0.235);
@@ -5203,8 +5206,10 @@ function dressRig(p, look, it) {
   const skin = SKINS[look.skin], shirt = SHIRTS[look.shirt], pants = LEGSC[look.legs];
   const hc = gearClass(headIt), bc = gearClass(bodyIt), lc = gearClass(legsIt);
   p.torso.material.color.set(bodyIt ? bodyIt.c : shirt);
-  p.armL.material.color.set(bodyIt ? bodyIt.c : skin);
-  p.armR.material.color.set(bodyIt ? bodyIt.c : skin);
+  // a chainbody stops at the shoulder; everything else runs down the arms
+  const sleeves = bodyIt && bodyIt.g !== 'chain';
+  p.armL.material.color.set(sleeves ? bodyIt.c : skin);
+  p.armR.material.color.set(sleeves ? bodyIt.c : skin);
   p.head.material.color.set(skin);
   // a robe on either slot hides the legs the way every hooded order does,
   // and a plateskirt borrows the same fall in metal; the skirt takes the
@@ -5997,7 +6002,7 @@ function taskTick() {
     const sp = P.spell !== null ? SPELLS[P.spell] : null;
     const bw = sp ? null : bowItem();
     P.acting = 1; P.actSpan = sp ? 5 : atkSpeed();
-    P.pose = sp ? 2 : (bw && bowRange()) ? 1 : 0;
+    P.pose = sp ? 2 : (bw && bowRange()) ? 1 : stabbing() ? 4 : 0;
     if (--P.actT > 0) return;
     P.actT = sp ? 5 : atkSpeed();
     let dmg;
@@ -6048,7 +6053,7 @@ function taskTick() {
     const sp = P.spell !== null ? SPELLS[P.spell] : null;
     const bw = sp ? null : bowItem();
     P.acting = 1; P.actSpan = sp ? 5 : atkSpeed();
-    P.pose = sp ? 2 : (bw && bowRange()) ? 1 : 0;
+    P.pose = sp ? 2 : (bw && bowRange()) ? 1 : stabbing() ? 4 : 0;
     if (--P.actT > 0) return;
     P.actT = sp ? 5 : atkSpeed();
     let dmg, c;
@@ -6686,15 +6691,12 @@ function drawEq() {
     d.innerHTML = (id ? '<img src="' + icon(id) + '" alt="">' : '') + '<span>' + s + '</span>' +
       (s === 'ammo' && id ? '<em>' + P.ammoN + '</em>' : '');
   }
-  el('bAtk').textContent = '+' + bonus('atk');
-  el('bStr').textContent = '+' + bonus('str');
-  el('bDef').textContent = '+' + bonus('def');
-  el('bMag').textContent = '+' + bonus('mag');
-  el('bRng').textContent = '+' + bonus('rat');
-  el('bCmb').textContent = combatLevel();
+  if (statsOpen) showStats();                       // the sheet follows every change
 }
 /* The full ledger: every bonus, every worn piece, and the levels that come
-   of it — the sheet the equipment tab is too small to carry. */
+   of it — the sheet the equipment tab is too small to carry. It keeps the
+   worn tab in view rather than flipping to the pack like a shop would. */
+let statsOpen = 0;
 function showStats() {
   const B = [['Attack bonus', bonus('atk')], ['Strength bonus', bonus('str')],
              ['Defence bonus', bonus('def')], ['Magic bonus', bonus('mag')],
@@ -6719,9 +6721,21 @@ function showStats() {
   }
   if (!worn) h.push('<p class="gesEmpty">Nothing worn.</p>');
   h.push('</div></div>');
-  showModal('Character', h.join(''), 'Bonuses total every worn piece. The combat level weighs your best discipline.');
+  showModal('Character', h.join(''), 'Bonuses total every worn piece. The combat level weighs your best discipline.', 1);
+  statsOpen = 1;
 }
 el('eqMore').onclick = showStats;
+/* Right-clicking a worn piece offers to take it off, or to look at it. */
+eqWrap.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const d = e.target.closest('.eqslot');
+  if (!d || !d.dataset.s || !eq[d.dataset.s]) return;
+  const s = d.dataset.s, it = ITEMS[eq[s]];
+  openCtx(e.clientX, e.clientY, [
+    { t: 'Unequip', o: it.name, cls: 'itm', f: () => unequip(s) },
+    { t: 'Examine', o: it.name, cls: 'itm', f: () => say(examine(it)) }
+  ]);
+});
 const skGrid = el('skGrid'), skEls = [];
 for (let i = 0; i < NSK; i++) {
   const s = SKILLS[i];
@@ -6763,17 +6777,17 @@ function drawOrbs() {
 /* Shops and forges open in the middle of the screen and leave the pack
    panel alone, so you can see what you own while you spend it. */
 const modalEl = el('modal'), modalBody = el('modalBody'), modalTitle = el('modalTitle'), modalFoot = el('modalFoot');
-function showModal(title, html, foot) {
-  barberOn = 0;                    // any other content in the box ends the fitting
+function showModal(title, html, foot, keepTab) {
+  barberOn = 0; statsOpen = 0;     // any other content in the box ends the fitting
   modalTitle.textContent = title;
   modalBody.innerHTML = html;
   modalFoot.textContent = foot || '';
   modalEl.classList.add('on');
-  showTab('inv');
+  if (!keepTab) showTab('inv');    // shops and banks want the pack beside them
 }
 function closeOverlays() {
   modalEl.classList.remove('on'); openShop = null; makeRows = null; bankOpen = 0; barberOn = 0;
-  geOpen = 0; geView = null; clearInterval(geTimer);
+  geOpen = 0; geView = null; clearInterval(geTimer); statsOpen = 0;
   // dismissing the border warning any way but Continue cancels the walk
   if (pvpHold) { pvpHold = 0; P.path.length = 0; P.goal = null; }
 }
@@ -7662,6 +7676,7 @@ invGrid.addEventListener('contextmenu', e => {
   openCtx(e.clientX, e.clientY, itemOptions(+s.dataset.i));
 });
 eqWrap.addEventListener('click', e => {
+  if (ctxAte) { ctxAte = 0; return; }                 // that click closed the menu
   const d = e.target.closest('.eqslot'); if (!d || !d.dataset.s) return;
   unequip(d.dataset.s);
 });
@@ -7975,6 +7990,20 @@ function animate(E, parts, dt) {
         p.armL.rotation.z = 0.30 * li;  p.armR.rotation.z = -0.30 * li;
         p.torso.rotation.x = 0.24 * li;
         p.torso.rotation.y = 0;
+      } else if (E.pose === 4) {
+        /* A thrust, not a swing: the arm cocks back a touch, drives forward
+           to shoulder height in the first quarter of the cycle and draws back
+           over the rest, the shoulder turning into it. A polearm starts
+           upright and is lowered into the line of the thrust as the arm
+           comes through — a pike levelled, not waved. */
+        const th = ph < 0.25 ? smoothstep(0, 1, ph / 0.25) : 1 - smoothstep(0, 1, (ph - 0.25) / 0.75);
+        p.armR.rotation.x = 0.35 - 1.55 * th;
+        p.armL.rotation.x = 0.15 - 0.35 * th;
+        p.armR.rotation.z = -0.06 - 0.10 * th;
+        p.armL.rotation.z = 0.06;
+        p.torso.rotation.y = -0.30 * th;
+        p.torso.rotation.x = -0.06 * th;
+        if (p.wep && p.wep.userData.up) p.wep.rotation.x = (Math.PI - 0.45) * th;
       } else {
       const sw = ph < 0.6 ? smoothstep(0, 1, ph / 0.6) : 1 - smoothstep(0, 1, (ph - 0.6) / 0.4);
       p.armR.rotation.x = 0.25 - 2.6 * sw;
@@ -8670,8 +8699,8 @@ function onNet(m) {
       const R = ensureRemote(m[1]); if (!R) break;
       R.act = m[2] | 0;
       R.acting = R.act ? 1 : 0;
-      R.pose = R.act === 7 ? 1 : R.act === 6 ? 2 : 0;   // draw, cast, or swing
-      R.actSpan = R.act === 5 || R.act === 7 || R.act === 6 ? 4 : 2;
+      R.pose = R.act === 7 ? 1 : R.act === 6 ? 2 : R.act === 8 ? 4 : 0;   // draw, cast, thrust, or swing
+      R.actSpan = R.act >= 5 && R.act <= 8 ? 4 : 2;
       break;
     }
     case 3: {                                  // equipment
@@ -8720,9 +8749,11 @@ function onNet(m) {
 let lastMove = '', lastAct = -1, lastEqSent = '';
 const ACT_CODE = { chop: 1, mine: 2, fish: 3, cook: 4, smelt: 4, smith: 4, attack: 5 };
 // 0 idle, 1 chop, 2 mine, 3 fish, 4 smith/cook, 5 attack, 6 cast
+/* A pointed weapon thrusts rather than swings — the animation, not the maths. */
+const stabbing = () => !!(eq.weapon && ITEMS[eq.weapon].stab);
 function actCode() {
   if (!P.acting || !P.task) return 0;
-  if (P.task.k === 'attack') return P.spell !== null ? 6 : bowRange() ? 7 : 5;
+  if (P.task.k === 'attack') return P.spell !== null ? 6 : bowRange() ? 7 : stabbing() ? 8 : 5;
   return ACT_CODE[P.task.k] || 0;
 }
 function netSend() {
