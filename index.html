@@ -7123,7 +7123,11 @@ invGrid.addEventListener('pointercancel', e => { dgOn = 0; dgEnd(e); });
 invGrid.addEventListener('click', e => {
   if (dragAte) { dragAte = 0; return; }               // that click was a drag
   if (ctxAte) { ctxAte = 0; return; }                 // that click closed the menu
-  const s = e.target.closest('.slot');
+  /* Newer desktop browsers make the click follow the drag system's pointer
+     capture, so it lands on the grid itself rather than the slot under the
+     mouse. The pointer position still knows the truth. */
+  let s = e.target.closest('.slot');
+  if (!s) { const u = slotUnder(e.clientX, e.clientY); if (u >= 0) s = slotEls[u]; }
   if (!s) { clearUse(); return; }                     // dead space in the pack
   const i = +s.dataset.i;
   if (trade && trade.open) { tradeAdd(i); return; }   // the pack feeds the trade window
