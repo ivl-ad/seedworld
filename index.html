@@ -260,6 +260,18 @@
     box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
   .swb.on{outline:2px solid #fff}
   .mk.fon{outline:2px solid #fff}
+  /* the barber's turntable: swatches left, mannequin right, verdict below */
+  .brb{display:flex;gap:10px;align-items:flex-start}
+  .brbL{flex:1;min-width:0}
+  .brbR{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:3px}
+  #brbCv{width:168px;height:226px;border:1px solid var(--bevel);border-radius:3px;
+    background:radial-gradient(ellipse at 50% 30%,rgba(255,205,120,.10),rgba(0,0,0,.34));
+    cursor:grab;touch-action:none}
+  #brbCv:active{cursor:grabbing}
+  .brbHint{margin:0;font-size:9px;letter-spacing:.08em;color:var(--dim)}
+  .brbFoot{margin:9px 0 0}
+  .brbFoot button{flex:1}
+  @media (max-width:560px){.brb{flex-direction:column-reverse;align-items:center}.brbL{width:100%}}
   #modalFoot{padding:5px 9px 7px;font-size:9px;color:#8d7e63;border-top:1px solid rgba(107,83,52,.4)}
   #modalBody .grid{display:grid;grid-template-columns:1fr 1fr;gap:3px}
   /* .mk rows are styled once, in the dev-console section below */
@@ -2464,9 +2476,30 @@ function buildAvatar() {
   // limbs hang from a pivot at the top, so rotating the mesh swings them
   const armL = part(bakeW(shift(box(0.22, 0.6, 0.22), -0.3)), SKIN, 0.47, 1.34, 0);
   const armR = part(bakeW(shift(box(0.22, 0.6, 0.22), -0.3)), SKIN, -0.47, 1.34, 0);
-  const legL = part(bakeW(shift(box(0.26, 0.72, 0.28), -0.36)), PANTS, 0.17, 0.72, 0);
-  const legR = part(bakeW(shift(box(0.26, 0.72, 0.28), -0.36)), PANTS, -0.17, 0.72, 0);
+  // a leg is thigh plus shin so chaps can stop at the knee — shorts over bare
+  // shins — while plate paints the whole limb. The shin rides inside the
+  // thigh's pivot, so the pair still swings as one leg.
+  const legL = part(bakeW(shift(box(0.26, 0.40, 0.28), -0.20)), PANTS, 0.17, 0.72, 0);
+  const legR = part(bakeW(shift(box(0.26, 0.40, 0.28), -0.20)), PANTS, -0.17, 0.72, 0);
+  const calfL = part(bakeW(shift(box(0.24, 0.34, 0.26), -0.17)), PANTS, 0, -0.38, 0);
+  const calfR = part(bakeW(shift(box(0.24, 0.34, 0.26), -0.17)), PANTS, 0, -0.38, 0);
+  legL.add(calfL); legR.add(calfR);
   const helm = part(bakeW(box(0.52, 0.3, 0.52)), 0xffffff, 0, 1.79, 0); helm.visible = false;
+  // the mage's point: brim and cone baked as one piece, recoloured as one
+  const wizHat = part(merge([
+    bakeW(box(0.62, 0.05, 0.62)).translate(0, 1.905, 0),
+    bakeW(shift(new THREE.ConeGeometry(0.30, 0.52, 6), 0.26)).translate(0, 1.93, 0)
+  ]), 0xffffff, 0, 0, 0); wizHat.visible = false;
+  // the ranger's bycocket: a side-view triangle extruded across the head,
+  // long point forward like a bird's beak
+  const rhSh = new THREE.Shape();
+  rhSh.moveTo(-0.36, 0); rhSh.lineTo(0.28, 0); rhSh.lineTo(0.04, 0.34); rhSh.closePath();
+  const rhGeo = new THREE.ExtrudeGeometry(rhSh, { depth: 0.5, bevelEnabled: false });
+  rhGeo.translate(0, 0, -0.25); rhGeo.rotateY(Math.PI / 2);
+  const rhHat = part(bakeW(rhGeo), 0xffffff, 0, 1.90, 0); rhHat.visible = false;
+  // the robe: a hooded-order skirt over the legs, the game's mage silhouette
+  const skirt = part(bakeW(shift(new THREE.CylinderGeometry(0.34, 0.52, 0.80, 7), 0.40)), TUNIC, 0, 0.05, 0);
+  skirt.visible = false;
   const wep = part(bakeW(shift(box(0.12, 1.0, 0.3), -0.42)), 0xffffff, 0, -0.60, 0.05);
   wep.visible = false; armR.add(wep);
   const shl = part(bakeW(shift(box(0.1, 0.66, 0.52), -0.3)), 0xffffff, 0, -0.5, 0);
@@ -2479,62 +2512,113 @@ function buildAvatar() {
   const beard = part(bakeW(box(0.38, 0.20, 0.08)), 0x2a1f16, 0, 1.475, 0.21);
   const paint = part(bakeW(box(0.46, 0.05, 0.03)), 0x8a2f27, 0, 1.665, 0.235);
   brow.visible = mo.visible = beard.visible = paint.visible = false;
-  g.add(torso, head, hair, armL, armR, legL, legR, helm, eyeL, eyeR, brow, mo, beard, paint);
-  g.parts = { torso, head, hair, armL, armR, legL, legR, helm, wep, shl,
+  g.add(torso, head, hair, armL, armR, legL, legR, helm, wizHat, rhHat, skirt,
+        eyeL, eyeR, brow, mo, beard, paint);
+  g.parts = { torso, head, hair, armL, armR, legL, legR, calfL, calfR,
+              helm, wizHat, rhHat, skirt, wep, shl, legHid: 0,
               face: { eyeL, eyeR, brow, mo, beard, paint } };
   return g;
 }
 
 /* --------------------- 10b. THE BESTIARY ---------------------------- */
-/* Every creature is a merged geometry with the light already baked in, so a
-   monster costs exactly one draw call however many boxes it is made of. The
-   builders below take a palette and proportions rather than being written out
-   one at a time — a wolf and a bear are the same animal with different numbers.
+/* Every creature is a rig: one merged `body` with the light baked in, plus a
+   short list of `limbs` — each a geometry pivoted at its joint and mounted at
+   `x,y,z`, so rotating the mesh swings it exactly like the player's own arms
+   and legs. `kind` picks the motion (biped leg or arm, quadruped leg, wing)
+   and `s` the phase, so opposite limbs alternate. Anything with nothing to
+   swing — ghosts, spiders — carries an empty list and still renders as the
+   single mesh it always was. The builders take a palette and proportions
+   rather than being written out one at a time — a wolf and a bear are the
+   same animal with different numbers.
 
    `sz` is the pick radius in tiles and doubles as the reach for anything
    larger than a person: a hill giant you have to stand next to is a hill giant
    whose arms go through you. */
+function rig(core, limbs, bodyC) {
+  return { body: merge(core), limbs: limbs || [], bodyC };
+}
+const limb = (kind, s, geo, x, y, z) => ({ kind, s, geo, x, y, z });
+/* The instanced pools (shopkeepers, far players) still want one geometry:
+   bake the limbs back into the body at their mounts. */
+function flatGeo(spec) {
+  if (!spec.limbs.length) return spec.body;
+  return merge([spec.body].concat(spec.limbs.map(L => L.geo.clone().translate(L.x, L.y, L.z))));
+}
+/* One creature on stage: a lone mesh when nothing swings, otherwise a group
+   whose children share the type's geometries — same buffers, new joints. */
+function riggedMesh(spec) {
+  if (!spec.limbs.length) {
+    const m = new THREE.Mesh(spec.body, mat);
+    m.frustumCulled = false;
+    return m;
+  }
+  const g = new THREE.Group();
+  g.limbs = [];
+  const b = new THREE.Mesh(spec.body, mat);
+  b.frustumCulled = false;
+  g.add(b);
+  for (const L of spec.limbs) {
+    const m = new THREE.Mesh(L.geo, mat);
+    m.position.set(L.x, L.y, L.z);
+    m.frustumCulled = false;
+    g.add(m);
+    g.limbs.push({ m, kind: L.kind, s: L.s });
+  }
+  return g;
+}
 function humanoid(o) {
   const w = o.w, h = o.h, body = o.body, skin = o.skin || o.body;
-  const l = [
+  const core = [
     shade(shift(box(w, h * 0.46, w * 0.6), h * 0.74), body),                 // torso
-    shade(shift(box(w * 0.6, w * 0.58, w * 0.6), h * 1.0), skin),            // head
-    shade(shift(box(w * 0.3, h * 0.52, w * 0.3), h * 0.26).translate(w * 0.26, 0, 0), body),
-    shade(shift(box(w * 0.3, h * 0.52, w * 0.3), h * 0.26).translate(-w * 0.26, 0, 0), body)
+    shade(shift(box(w * 0.6, w * 0.58, w * 0.6), h * 1.0), skin)             // head
   ];
-  if (o.arms !== 0) l.push(
-    shade(shift(box(w * 0.26, h * 0.44, w * 0.26), h * 0.72).translate(w * 0.63, 0, 0), o.arm || body),
-    shade(shift(box(w * 0.26, h * 0.44, w * 0.26), h * 0.72).translate(-w * 0.63, 0, 0), o.arm || body));
   if (o.horns) for (const s of [-1, 1])
-    l.push(shade(shift(new THREE.ConeGeometry(w * 0.12, h * 0.26, 4), h * 1.28)
+    core.push(shade(shift(new THREE.ConeGeometry(w * 0.12, h * 0.26, 4), h * 1.28)
       .translate(s * w * 0.22, 0, 0), o.horn || [0.9, 0.88, 0.82]));
   if (o.ears) for (const s of [-1, 1])
-    l.push(shade(shift(new THREE.ConeGeometry(w * 0.1, w * 0.4, 4), h * 1.02)
+    core.push(shade(shift(new THREE.ConeGeometry(w * 0.1, w * 0.4, 4), h * 1.02)
       .rotateZ(s * 1.1).translate(s * w * 0.38, 0, 0), skin));
+  if (o.belt) core.push(shade(shift(box(w * 1.04, h * 0.08, w * 0.64), h * 0.6), o.belt));
+  // legs and arms pivot at hip and shoulder; both sides share one geometry
+  const legG = shade(shift(box(w * 0.3, h * 0.52, w * 0.3), -h * 0.26), body);
+  const limbs = [
+    limb('leg',  1, legG,  w * 0.26, h * 0.52, 0),
+    limb('leg', -1, legG, -w * 0.26, h * 0.52, 0)
+  ];
+  if (o.arms !== 0) {
+    const armG = shade(shift(box(w * 0.26, h * 0.44, w * 0.26), -h * 0.22), o.arm || body);
+    limbs.push(limb('arm',  1, armG,  w * 0.63, h * 0.94, 0),
+               limb('arm', -1, armG, -w * 0.63, h * 0.94, 0));
+  }
   if (o.wings) for (const s of [-1, 1])
-    l.push(shade(box(w * 0.1, h * 0.6, h * 0.5).translate(s * w * 0.72, h * 0.85, -w * 0.3)
-      .rotateY(s * 0.5), o.wing || [0.22, 0.14, 0.14]));
-  if (o.belt) l.push(shade(shift(box(w * 1.04, h * 0.08, w * 0.64), h * 0.6), o.belt));
-  const g = merge(l); g.bodyC = body; return g;
+    limbs.push(limb('wing', s,
+      shade(box(w * 0.1, h * 0.6, h * 0.5).translate(s * w * 0.72, h * 0.85, -w * 0.3)
+        .rotateY(s * 0.5).translate(-s * w * 0.35, -h * 0.85, w * 0.3), o.wing || [0.22, 0.14, 0.14]),
+      s * w * 0.35, h * 0.85, -w * 0.3));
+  return rig(core, limbs, body);
 }
 function quadruped(o) {
   const w = o.w, h = o.h, L = o.len || w * 1.7, body = o.body;
-  const l = [
+  const core = [
     shade(shift(box(w, h * 0.5, L), h * 0.62), body),                        // barrel
     shade(shift(box(w * 0.62, h * 0.44, w * 0.66), h * 0.8).translate(0, 0, L * 0.56), o.head || body)
   ];
-  // legs: 0 keeps the barrel on the ground — a rat is a quadruped in denial
-  if (o.legs !== 0) for (const sx of [-1, 1]) for (const sz of [-1, 1])
-    l.push(shade(shift(box(w * 0.24, h * 0.5, w * 0.24), h * 0.25)
-      .translate(sx * w * 0.34, 0, sz * L * 0.34), o.leg || body));
-  if (o.tail) l.push(shade(shift(box(w * 0.16, w * 0.16, L * 0.5), h * 0.68)
+  if (o.tail) core.push(shade(shift(box(w * 0.16, w * 0.16, L * 0.5), h * 0.68)
     .translate(0, 0, -L * 0.66), o.tail));
   if (o.horns) for (const s of [-1, 1])
-    l.push(shade(shift(new THREE.ConeGeometry(w * 0.11, h * 0.3, 4), h * 1.0)
+    core.push(shade(shift(new THREE.ConeGeometry(w * 0.11, h * 0.3, 4), h * 1.0)
       .translate(s * w * 0.24, 0, L * 0.5), [0.92, 0.9, 0.84]));
-  if (o.snout) l.push(shade(shift(box(w * 0.34, h * 0.2, w * 0.4), h * 0.72)
+  if (o.snout) core.push(shade(shift(box(w * 0.34, h * 0.2, w * 0.4), h * 0.72)
     .translate(0, 0, L * 0.86), o.head || body));
-  const g = merge(l); g.bodyC = body; return g;
+  // legs: 0 keeps the barrel on the ground — a rat is a quadruped in denial.
+  // Diagonal pairs share a phase, which is what makes four legs read as a trot.
+  const limbs = [];
+  if (o.legs !== 0) {
+    const legG = shade(shift(box(w * 0.24, h * 0.5, w * 0.24), -h * 0.25), o.leg || body);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1])
+      limbs.push(limb('qleg', sx * sz, legG, sx * w * 0.34, h * 0.5, sz * L * 0.34));
+  }
+  return rig(core, limbs, body);
 }
 /* Eight legs radiating from a low body reads as a spider at any size. `h`
    sets the stance — how high the body rides — independent of footprint. */
@@ -2549,7 +2633,7 @@ function spiderGeo(o) {
     l.push(shade(box(w * 0.09, w * 0.09, w * 1.0)
       .rotateX(0.5).rotateY(s * a).translate(s * w * 0.42, h * 0.34, w * 0.1 - (i % 4) * w * 0.22), o.leg || body));
   }
-  const g = merge(l); g.bodyC = body; return g;
+  return rig(l, [], body);
 }
 /* A long neck, a tail, and wings you can see from behind. */
 function dragonGeo(o) {
@@ -2560,19 +2644,22 @@ function dragonGeo(o) {
     shade(shift(box(w * 0.5, h * 0.34, w * 0.7), h * 1.16).translate(0, 0, w * 1.6), o.head || body),
     shade(shift(box(w * 0.3, h * 0.14, w * 0.34), h * 1.06).translate(0, 0, w * 2.0), o.head || body)
   ];
-  for (const sx of [-1, 1]) for (const sz of [-1, 1])
-    l.push(shade(shift(box(w * 0.26, h * 0.5, w * 0.3), h * 0.25)
-      .translate(sx * w * 0.4, 0, sz * w * 0.66), body));
-  for (const s of [-1, 1]) {
-    l.push(shade(box(w * 0.1, h * 0.9, w * 1.5)
-      .translate(s * w * 0.7, h * 1.05, -w * 0.2).rotateY(s * 0.35), o.wing || body));
+  for (const s of [-1, 1])
     l.push(shade(shift(new THREE.ConeGeometry(w * 0.12, h * 0.34, 4), h * 1.34)
       .translate(s * w * 0.16, 0, w * 1.62), [0.92, 0.9, 0.84]));
-  }
   for (let i = 0; i < 4; i++)
     l.push(shade(shift(box(w * (0.4 - i * 0.07), h * 0.16, w * 0.5), h * 0.66)
       .translate(0, 0, -w * (1.0 + i * 0.42)), body));
-  const g = merge(l); g.bodyC = body; return g;
+  const legG = shade(shift(box(w * 0.26, h * 0.5, w * 0.3), -h * 0.25), body);
+  const limbs = [];
+  for (const sx of [-1, 1]) for (const sz of [-1, 1])
+    limbs.push(limb('qleg', sx * sz, legG, sx * w * 0.4, h * 0.5, sz * w * 0.66));
+  for (const s of [-1, 1])
+    limbs.push(limb('wing', s,
+      shade(box(w * 0.1, h * 0.9, w * 1.5).translate(s * w * 0.7, h * 1.05, -w * 0.2)
+        .rotateY(s * 0.35).translate(-s * w * 0.3, -h * 1.05, w * 0.2), o.wing || body),
+      s * w * 0.3, h * 1.05, -w * 0.2));
+  return rig(l, limbs, body);
 }
 /* Bones: everything thin, nothing filled in. */
 function skeletonGeo(o) {
@@ -2583,23 +2670,34 @@ function skeletonGeo(o) {
   ];
   for (let i = 0; i < 4; i++)
     l.push(shade(shift(box(w * 0.66, h * 0.05, w * 0.4), h * 0.86 - i * h * 0.09), c));
-  for (const s of [-1, 1]) {
-    l.push(shade(shift(box(w * 0.14, h * 0.44, w * 0.14), h * 0.68).translate(s * w * 0.42, 0, 0), c));
-    l.push(shade(shift(box(w * 0.16, h * 0.5, w * 0.16), h * 0.25).translate(s * w * 0.2, 0, 0), c));
-  }
-  const g = merge(l); g.bodyC = c; return g;
+  const armG = shade(shift(box(w * 0.14, h * 0.44, w * 0.14), -h * 0.22), c);
+  const legG = shade(shift(box(w * 0.16, h * 0.5, w * 0.16), -h * 0.25), c);
+  const limbs = [
+    limb('arm',  1, armG,  w * 0.42, h * 0.9, 0),
+    limb('arm', -1, armG, -w * 0.42, h * 0.9, 0),
+    limb('leg',  1, legG,  w * 0.2, h * 0.5, 0),
+    limb('leg', -1, legG, -w * 0.2, h * 0.5, 0)
+  ];
+  return rig(l, limbs, c);
 }
 /* A ghost has no legs and a hem that trails off. In opaque colours the same
-   silhouette is every hooded human in the game: monks, wizards, druids. */
+   silhouette is every hooded human in the game: monks, wizards, druids.
+   `hat` adds the pointed cap that says magic — the same shape the player's
+   wizard hat wears. */
 function ghostGeo(o) {
   const w = o.w, h = o.h, c = o.body;
-  const g = merge([
+  const l = [
     shade(shift(new THREE.ConeGeometry(w * 0.7, h * 0.8, 7), h * 0.4), c),
     shade(shift(box(w * 0.56, w * 0.54, w * 0.52), h * 0.94), o.head || c),
     shade(shift(box(w * 0.2, h * 0.34, w * 0.2), h * 0.66).translate(w * 0.5, 0, 0), c),
     shade(shift(box(w * 0.2, h * 0.34, w * 0.2), h * 0.66).translate(-w * 0.5, 0, 0), c)
-  ]);
-  g.bodyC = c; return g;
+  ];
+  if (o.hat) {
+    const top = h * 0.94 + w * 0.27;
+    l.push(shade(shift(box(w * 0.68, h * 0.03, w * 0.68), top + h * 0.015), c),
+           shade(shift(new THREE.ConeGeometry(w * 0.34, h * 0.26, 6), top + h * 0.16), c));
+  }
+  return rig(l, [], c);
 }
 
 /* Levels and hitpoints follow the 2007 tables closely; attack, strength and
@@ -2735,9 +2833,9 @@ const NPC_TYPES = [
   { k: 'monk', n: 'Monk', lv: 5, hp: 10, atk: 4, str: 4, def: 3, db: 2, abon: 2, spd: 5, sz: 0.95, body: [0.48, 0.36, 0.24],
     build: () => ghostGeo({ w: 0.7, h: 1.65, body: [0.48, 0.36, 0.24], head: [0.8, 0.62, 0.46] }) },
   { k: 'wizard', n: 'Wizard', lv: 9, agg: 1, at: 'mg', rng: 5, bolt: 0x6a5ad0, hp: 18, atk: 6, str: 7, def: 6, db: 4, abon: 3, spd: 5, sz: 0.95, body: [0.24, 0.28, 0.56],
-    build: () => ghostGeo({ w: 0.7, h: 1.7, body: [0.24, 0.28, 0.56], head: [0.8, 0.62, 0.46] }) },
+    build: () => ghostGeo({ w: 0.7, h: 1.7, body: [0.24, 0.28, 0.56], head: [0.8, 0.62, 0.46], hat: 1 }) },
   { k: 'darkwizard', n: 'Dark wizard', lv: 20, agg: 1, at: 'mg', rng: 5, bolt: 0x6a5ad0, hp: 40, atk: 14, str: 15, def: 13, db: 9, abon: 7, spd: 5, sz: 0.95, body: [0.14, 0.12, 0.2],
-    build: () => ghostGeo({ w: 0.7, h: 1.7, body: [0.14, 0.12, 0.2], head: [0.72, 0.56, 0.42] }) },
+    build: () => ghostGeo({ w: 0.7, h: 1.7, body: [0.14, 0.12, 0.2], head: [0.72, 0.56, 0.42], hat: 1 }) },
   { k: 'banshee', n: 'Banshee', lv: 23, agg: 1, hp: 46, atk: 17, str: 17, def: 15, db: 10, abon: 8, spd: 5, mspd: 0.9, sz: 0.95, body: [0.72, 0.74, 0.66],
     build: () => ghostGeo({ w: 0.68, h: 1.72, body: [0.72, 0.74, 0.66], head: [0.84, 0.86, 0.78] }) },
   { k: 'druid', n: 'Druid', lv: 30, agg: 1, at: 'mg', rng: 5, bolt: 0x5ad06a, hp: 60, atk: 22, str: 22, def: 20, db: 14, abon: 10, spd: 5, sz: 0.95, body: [0.24, 0.4, 0.24],
@@ -2845,8 +2943,9 @@ for (const t of NPC_TYPES) {
 NPC_TYPES.forEach((t, i) => { t.i = i; });
 const NPC_BY = Object.create(null); NPC_TYPES.forEach(t => NPC_BY[t.k] = t);
 
-/* Shopkeepers stand behind a counter and never fight. */
-function npcGeo(bodyC, headC, w, h) { return humanoid({ w, h, body: bodyC, skin: headC }); }
+/* Shopkeepers stand behind a counter and never fight — and never walk, so
+   their rig is flattened back into the single instanced geometry. */
+function npcGeo(bodyC, headC, w, h) { return flatGeo(humanoid({ w, h, body: bodyC, skin: headC })); }
 const KEEP_GEO = npcGeo([0.55, 0.42, 0.28], [0.82, 0.66, 0.5], 0.66, 1.55);
 
 /* ================= STAGE 2 — THE PLAN OF A TOWN ====================
@@ -4483,27 +4582,47 @@ function placePlayer(x, z) {
   P.path.length = 0; P.goal = null; P.task = null;
   focus.set(x, P.ry, z);
 }
-function dressAvatar() {
-  const p = avatar.parts, L = P.look;
-  const bodyIt = eq.body ? ITEMS[eq.body] : null;
-  const legsIt = eq.legs ? ITEMS[eq.legs] : null;
-  const headIt = eq.head ? ITEMS[eq.head] : null;
-  const wepIt  = eq.weapon ? ITEMS[eq.weapon] : null;
-  const shlIt  = eq.shield ? ITEMS[eq.shield] : null;
-  // armour paints over the barber's work; bare slots show the chosen look
-  p.torso.material.color.set(bodyIt ? bodyIt.c : SHIRTS[L.shirt]);
-  p.armL.material.color.set(bodyIt ? bodyIt.c : SKINS[L.skin]);
-  p.armR.material.color.set(bodyIt ? bodyIt.c : SKINS[L.skin]);
-  p.legL.material.color.set(legsIt ? legsIt.c : LEGSC[L.legs]);
-  p.legR.material.color.set(legsIt ? legsIt.c : LEGSC[L.legs]);
-  p.head.material.color.set(SKINS[L.skin]);
-  applyFace(p, L.face);
-  p.helm.visible = !!headIt; p.hair.visible = !headIt;
-  if (headIt) p.helm.material.color.set(headIt.c);
+/* Which discipline a piece of armour dresses you as: a magic bonus reads as
+   robes, a ranged bonus as hide, anything else as metal. Shape, not stats. */
+const gearClass = it => !it ? '' : it.mag ? 'mage' : it.rat ? 'range' : 'melee';
+/* One dresser for every articulated human — the local avatar and every
+   remote rig. Armour paints over the barber's work; bare slots show the
+   given look. Each discipline wears its own silhouette: metal keeps the
+   helm and full legs, robes fall past the knee under a pointed hat, hide
+   stops at the knee — shorts over bare shins — under the bycocket. */
+function dressRig(p, look, headIt, bodyIt, legsIt, wepIt, shlIt) {
+  const skin = SKINS[look.skin], shirt = SHIRTS[look.shirt], pants = LEGSC[look.legs];
+  const hc = gearClass(headIt), bc = gearClass(bodyIt), lc = gearClass(legsIt);
+  p.torso.material.color.set(bodyIt ? bodyIt.c : shirt);
+  p.armL.material.color.set(bodyIt ? bodyIt.c : skin);
+  p.armR.material.color.set(bodyIt ? bodyIt.c : skin);
+  p.head.material.color.set(skin);
+  // a robe on either slot hides the legs the way every hooded order does;
+  // the skirt takes the robe bottom's colour when one is worn
+  const robed = bc === 'mage' || lc === 'mage';
+  p.legHid = robed ? 1 : 0;
+  p.skirt.visible = robed;
+  if (robed) p.skirt.material.color.set(lc === 'mage' ? legsIt.c : bodyIt.c);
+  p.legL.visible = p.legR.visible = !robed;
+  const thigh = legsIt ? legsIt.c : pants;
+  const shin = legsIt ? (lc === 'range' ? skin : legsIt.c) : pants;
+  p.legL.material.color.set(thigh); p.legR.material.color.set(thigh);
+  p.calfL.material.color.set(shin); p.calfR.material.color.set(shin);
+  // three heads for three disciplines: helm, pointed hat, bycocket
+  p.helm.visible = hc === 'melee';
+  p.wizHat.visible = hc === 'mage';
+  p.rhHat.visible = hc === 'range';
+  p.hair.visible = !headIt;
+  if (headIt) (hc === 'mage' ? p.wizHat : hc === 'range' ? p.rhHat : p.helm).material.color.set(headIt.c);
   holdWeapon(p.wep, wepIt);
-  shownTool = '';                  // re-shows the task tool next tick if one is due
   p.shl.visible = !!shlIt;
   if (shlIt) p.shl.material.color.set(shlIt.c);
+}
+function dressAvatar() {
+  const p = avatar.parts, it = s => (eq[s] && ITEMS[eq[s]]) || null;
+  dressRig(p, P.look, it('head'), it('body'), it('legs'), it('weapon'), it('shield'));
+  applyFace(p, P.look.face);
+  shownTool = '';                  // re-shows the task tool next tick if one is due
   sendEquip();
 }
 const atkSpeed = () => {
@@ -4825,13 +4944,13 @@ function spawnNpc(t, x, z, key, pw) {
     const r = hash2(kh ^ (tickN - b), tickN - b, S + 777);
     if (r % 6 === 0) dest = { x: x + ((r >>> 8) % 11) - 5, z: z + ((r >>> 16) % 11) - 5 };
   }
-  if (!t.geo) t.geo = t.build();                   // built on first meeting, kept forever
-  const mesh = new THREE.Mesh(t.geo, mat);
-  mesh.frustumCulled = false;
+  if (!t.rig) t.rig = t.build();                   // built on first meeting, kept forever
+  const mesh = riggedMesh(t.rig);
   scene.add(mesh);
   npcs.push({
     npc: 1, t, key, name: t.n, tx: x, tz: z, px: x, pz: z, rx: x, rz: z, ry: walkY(x, z),
     home: { x, z }, hp: t.hp, maxhp: t.hp, face: 0, faceT: 0, mesh, atkT: 0, atkStyle: 'm',
+    limbs: mesh.limbs || null, walkPhase: 0,
     cd: 2 + (hash2(x, z, S) & 3), target: null, dead: 0, mv: 0,
     pw: pw !== undefined ? pw : powerAt(x, z),     // callers who know it pass it
     kh, dest, owner: null, lastNet: 0, netAct: 0
@@ -5502,9 +5621,60 @@ function bankWithdraw(bi, n) {
 }
 /* The barber's chair: swatches for skin, shirt and trousers, and the short
    book of faces. Armour paints over clothes while it is worn. */
+/* The barber's chair: swatches on the left, a turntable on the right. The
+   look is fitted to a private mannequin — bare, no armour — and paid for on
+   Apply; walking out, or the ×, changes nothing and costs nothing. The
+   mannequin has its own little renderer, built once and kept: a canvas that
+   died with the modal would leak a GL context per haircut. */
+const BARBER_FEE = 10;
+let barberOn = 0, barberSel = null, barberRAF = 0;
+let barberCv = null, barberGL = null, barberScene = null, barberCam = null, barberRig = null;
+function ensureBarberGL() {
+  if (barberCv) return;
+  barberCv = document.createElement('canvas');
+  barberCv.id = 'brbCv';
+  barberGL = new THREE.WebGLRenderer({ canvas: barberCv, antialias: true, alpha: true });
+  barberGL.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  barberGL.setSize(168, 226);
+  barberScene = new THREE.Scene();
+  barberCam = new THREE.PerspectiveCamera(34, 168 / 226, 0.1, 30);
+  barberCam.position.set(0, 1.35, 4.0);
+  barberCam.lookAt(0, 1.02, 0);
+  barberRig = buildAvatar();
+  barberScene.add(barberRig);
+  // a drag — mouse or finger — spins the mannequin; nothing else moves it
+  let px = 0, down = 0;
+  barberCv.addEventListener('pointerdown', e => {
+    down = 1; px = e.clientX;
+    barberCv.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  barberCv.addEventListener('pointermove', e => {
+    if (!down) return;
+    barberRig.rotation.y += (e.clientX - px) * 0.02;
+    px = e.clientX;
+  });
+  barberCv.addEventListener('pointerup', () => { down = 0; });
+  barberCv.addEventListener('pointercancel', () => { down = 0; });
+}
+function dressBarberRig() {
+  const p = barberRig.parts, L = barberSel;
+  p.torso.material.color.set(SHIRTS[L.shirt]);
+  p.armL.material.color.set(SKINS[L.skin]);
+  p.armR.material.color.set(SKINS[L.skin]);
+  p.head.material.color.set(SKINS[L.skin]);
+  p.legL.material.color.set(LEGSC[L.legs]); p.legR.material.color.set(LEGSC[L.legs]);
+  p.calfL.material.color.set(LEGSC[L.legs]); p.calfR.material.color.set(LEGSC[L.legs]);
+  applyFace(p, L.face);
+}
+function barberFrame() {
+  barberRAF = barberOn ? requestAnimationFrame(barberFrame) : 0;
+  if (barberOn) barberGL.render(barberScene, barberCam);
+}
 function openBarber() {
   clearUse();
   say('The barber sizes you up.');
+  barberSel = { skin: P.look.skin, shirt: P.look.shirt, legs: P.look.legs, face: P.look.face };
   drawBarber();
 }
 function drawBarber() {
@@ -5512,13 +5682,41 @@ function drawBarber() {
     '<b class="swb' + (i === cur ? ' on' : '') + '" data-lk="' + key + ':' + i +
     '" style="background:' + c + '"></b>').join('') + '</div>';
   const html =
-    '<p class="blab">Skin</p>' + sw(SKINS, 'skin', P.look.skin) +
-    '<p class="blab">Shirt</p>' + sw(SHIRTS, 'shirt', P.look.shirt) +
-    '<p class="blab">Trousers</p>' + sw(LEGSC, 'legs', P.look.legs) +
+    '<div class="brb"><div class="brbL">' +
+    '<p class="blab">Skin</p>' + sw(SKINS, 'skin', barberSel.skin) +
+    '<p class="blab">Shirt</p>' + sw(SHIRTS, 'shirt', barberSel.shirt) +
+    '<p class="blab">Trousers</p>' + sw(LEGSC, 'legs', barberSel.legs) +
     '<p class="blab">Face</p><div class="grid">' + FACES.map((f, i) =>
-      '<div class="mk' + (i === P.look.face ? ' fon' : '') + '" data-lk="face:' + i +
-      '"><span>' + f.n + '</span></div>').join('') + '</div>';
-  showModal('Barber', html, 'Pick a look. Worn armour covers clothes until you take it off.');
+      '<div class="mk' + (i === barberSel.face ? ' fon' : '') + '" data-lk="face:' + i +
+      '"><span>' + f.n + '</span></div>').join('') + '</div>' +
+    '</div><div class="brbR" id="brbSlot"><p class="brbHint">drag to turn</p></div></div>' +
+    '<div class="wrow2 brbFoot"><button id="brbOk">Apply — ' + BARBER_FEE + ' gp</button>' +
+    '<button id="brbNo">Cancel</button></div>';
+  showModal('Barber', html,
+    'Nothing changes, and nothing is charged, until you Apply. Worn armour covers clothes until you take it off.');
+  ensureBarberGL();
+  el('brbSlot').prepend(barberCv);
+  dressBarberRig();
+  el('brbOk').onclick = barberApply;
+  el('brbNo').onclick = closeOverlays;
+  if (barberRAF) cancelAnimationFrame(barberRAF);
+  barberOn = 1;
+  barberFrame();
+}
+function barberApply() {
+  const L = P.look, s = barberSel;
+  if (s.skin === L.skin && s.shirt === L.shirt && s.legs === L.legs && s.face === L.face) {
+    say('The barber finds nothing to change.');
+    closeOverlays();
+    return;
+  }
+  if (coins() < BARBER_FEE) { say('A restyle costs ' + BARBER_FEE + ' coins.', 'bad'); return; }
+  invRemove('coins', BARBER_FEE);
+  Object.assign(P.look, s);
+  dressAvatar();
+  markDirty(1);
+  say('The barber restyles you for ' + BARBER_FEE + ' coins.', 'good');
+  closeOverlays();
 }
 function shopBuy(id) {
   const it = ITEMS[id], price = buyPrice(it);
@@ -5652,6 +5850,7 @@ function drawOrbs() {
    panel alone, so you can see what you own while you spend it. */
 const modalEl = el('modal'), modalBody = el('modalBody'), modalTitle = el('modalTitle'), modalFoot = el('modalFoot');
 function showModal(title, html, foot) {
+  barberOn = 0;                    // any other content in the box ends the fitting
   modalTitle.textContent = title;
   modalBody.innerHTML = html;
   modalFoot.textContent = foot || '';
@@ -5659,7 +5858,7 @@ function showModal(title, html, foot) {
   showTab('inv');
 }
 function closeOverlays() {
-  modalEl.classList.remove('on'); openShop = null; makeRows = null; bankOpen = 0;
+  modalEl.classList.remove('on'); openShop = null; makeRows = null; bankOpen = 0; barberOn = 0;
   // dismissing the border warning any way but Continue cancels the walk
   if (pvpHold) { pvpHold = 0; P.path.length = 0; P.goal = null; }
 }
@@ -5701,10 +5900,13 @@ function drawShop() {
 }
 modalBody.addEventListener('click', e => {
   const lk = e.target.closest('[data-lk]');
-  if (lk) {                                       // the barber's swatches
+  if (lk) {                                       // the barber's swatches fit the mannequin only
+    if (!barberOn) return;
     const [k, i] = lk.dataset.lk.split(':');
-    P.look[k] = +i;
-    dressAvatar(); markDirty(); drawBarber();
+    barberSel[k] = +i;
+    for (const b of modalBody.querySelectorAll('[data-lk^="' + k + ':"]'))
+      b.classList.toggle(k === 'face' ? 'fon' : 'on', b.dataset.lk === lk.dataset.lk);
+    dressBarberRig();
     return;
   }
   const all = e.target.closest('[data-wall]');
@@ -6786,7 +6988,7 @@ function animate(E, parts, dt) {
     p.armL.rotation.z = p.armR.rotation.z = 0;
   } else {
     if (bt) bt.visible = false;
-    p.legL.visible = p.legR.visible = true;
+    p.legL.visible = p.legR.visible = !p.legHid;   // a robe keeps the legs under it
     if (rig) rig.scale.setScalar(1);
     const s = moving ? Math.sin(E.walkPhase) * 0.62 : 0;
     p.legL.rotation.x = s; p.legR.rotation.x = -s;
@@ -6847,6 +7049,21 @@ function animate(E, parts, dt) {
     if (p.wep && E.pose === 2 && E.acting && !moving) p.wep.rotation.x = -p.armR.rotation.x;
     if (rig) rig.position.y = moving ? Math.abs(Math.sin(E.walkPhase)) * 0.045 : 0;
   }
+}
+
+/* The bestiary walks with the same gait: rigged bipeds swing the player's own
+   stride, quadrupeds trot in diagonal pairs, and anything with wings beats
+   them on a slow shared clock — one animation for every demon and dragon,
+   offset per creature so a flock is not a metronome. */
+function animateNpc(n, dt) {
+  const moving = n.tx !== n.px || n.tz !== n.pz;
+  if (moving) n.walkPhase += dt * 7.5 * Math.max(Math.abs(n.tx - n.px), Math.abs(n.tz - n.pz));
+  const s = moving ? Math.sin(n.walkPhase) * 0.62 : 0;
+  for (const L of n.limbs) {
+    if (L.kind === 'wing') L.m.rotation.z = L.s * (0.12 + Math.sin(tSec * 3.1 + (n.kh & 7)) * 0.30);
+    else L.m.rotation.x = s * L.s * (L.kind === 'arm' ? 0.85 : L.kind === 'qleg' ? 0.72 : 1);
+  }
+  if (moving && !(n.atkT > 0)) n.mesh.position.y += Math.abs(Math.sin(n.walkPhase)) * 0.045;
 }
 
 /* Repopulate the instance pools from whatever is near enough to matter.
@@ -6983,6 +7200,7 @@ function frame(now) {
       n.mesh.position.set(n.rx, n.ry, n.rz);
     }
     n.mesh.rotation.y = n.face;
+    if (n.limbs) animateNpc(n, dt);
     /* A bar for anything in the fight, not only anything already bleeding —
        miss the first few swings and the old rule showed nothing at all. The
        height follows the monster, or a giant wears its bar in its chest. */
@@ -7638,22 +7856,15 @@ function dropRemote(pid) {
 function clearRemotes() { for (const pid of [...remotes.keys()]) dropRemote(pid); }
 
 /* Remote gear reuses the local dressing rules, so a rune platebody is the same
-   colour on someone else as it is on you. */
+   colour — and a robe the same silhouette — on someone else as it is on you.
+   The barber's look does not travel, so remotes wear the fresh-character one. */
+const REMOTE_LOOK = { skin: 0, shirt: 0, legs: 0 };
 function dressRemote(R) {
   R.eqDirty = 0;
   if (!R.parts) return;
-  const p = R.parts, e = R.eq || [];
+  const e = R.eq || [];
   const it = i => (e[i] && ITEMS[e[i]]) || null;
-  const head = it(0), body = it(1), legs = it(2), wep = it(3), shl = it(4);
-  p.torso.material.color.set(body ? body.c : '#6a5a3f');
-  p.armL.material.color.set(body ? body.c : '#d8a878');
-  p.armR.material.color.set(body ? body.c : '#d8a878');
-  p.legL.material.color.set(legs ? legs.c : '#4a4030');
-  p.legR.material.color.set(legs ? legs.c : '#4a4030');
-  p.helm.visible = !!head; p.hair.visible = !head;
-  if (head) p.helm.material.color.set(head.c);
-  holdWeapon(p.wep, wep);
-  p.shl.visible = !!shl; if (shl) p.shl.material.color.set(shl.c);
+  dressRig(R.parts, REMOTE_LOOK, it(0), it(1), it(2), it(3), it(4));
 }
 
 /* Everyone past the nearest twelve renders from one instanced pool: forty
