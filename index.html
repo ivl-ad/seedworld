@@ -35,7 +35,14 @@
   #hover .obj{color:#0f0}
   #hover .lvl{color:#ff0}
 
-  #budget{position:fixed;top:30px;left:10px;padding:7px 9px 6px;min-width:200px;z-index:5}
+  #budget{position:fixed;top:72px;left:10px;padding:7px 9px 6px;min-width:200px;z-index:5}
+  /* mode flags under the hover line: stuck crawl, and the skull that means
+     other players can attack you here */
+  #stuckTag{position:fixed;top:28px;left:10px;z-index:6;display:none;font-size:12px;
+    font-weight:700;color:#ff5a3a;text-shadow:1px 1px 0 #000;letter-spacing:.04em}
+  #pvpTag{position:fixed;top:46px;left:10px;z-index:6;display:none;align-items:center;gap:5px;
+    font-size:12px;font-weight:700;color:#ff5a3a;text-shadow:1px 1px 0 #000;letter-spacing:.04em}
+  #pvpTag img{width:20px;height:20px;image-rendering:pixelated;filter:drop-shadow(1px 1px 0 #000)}
   #budget h1{margin:0 0 5px;font-size:9px;letter-spacing:.2em;font-weight:700;
     color:var(--dim);text-transform:uppercase}
   .bigbytes{display:flex;align-items:baseline;gap:6px;margin:0}
@@ -457,6 +464,8 @@
 <div id="app"></div>
 
 <div id="hover" class="sh"></div>
+<div id="stuckTag">STUCK MODE — 5× slower</div>
+<div id="pvpTag"><img alt=""><span>PVP — players can attack you</span></div>
 
 <section id="budget" class="panel" aria-label="World storage budget">
   <h1>World state on disk</h1>
@@ -1600,7 +1609,7 @@ ITEMS.bones.bury = 4.5;
    console and the options tab both write to the same place. */
 const OPT = {
   camSpeed: 2.0, viewRadius: 7, fog: 1, timers: 1, xpDrops: 1, roofs: 1, hideRoofs: 0,
-  brightness: 1, runMul: 1, retaliate: 1, stuck: 0
+  brightness: 1, runMul: 1, retaliate: 1, stuck: 0, pvpWarn: 1
 };
 
 /* --------------------------- 6. ICONS ------------------------------- */
@@ -4417,7 +4426,7 @@ const P = {
   tx: 0, tz: 0, px: 0, pz: 0,                      // tile now / tile last tick
   rx: 0, ry: 0, rz: 0,                             // interpolated render position
   face: 0, faceT: 0,
-  path: [], task: null, actT: 0, acting: 0, actSpan: 2,
+  path: [], goal: null, task: null, actT: 0, acting: 0, actSpan: 2,
   walkPhase: 0, bobPhase: 0, swingPhase: 0,          // per-entity, so remotes don't share them
   run: 1, energy: 100, hp: 10, maxhp: 10,
   style: 0, rstyle: 1, ammoN: 0, pose: 0, spell: null, prayers: 0, pray: 10, maxpray: 10,
@@ -4446,7 +4455,7 @@ function placePlayer(x, z) {
      bed until you moved. Decide it on arrival too. */
   P.afloat = isWater(walkY(x, z)) ? 1 : 0;
   P.ry = P.afloat ? 0 : walkY(x, z);
-  P.path.length = 0; P.task = null;
+  P.path.length = 0; P.goal = null; P.task = null;
   focus.set(x, P.ry, z);
 }
 function dressAvatar() {
@@ -4519,15 +4528,34 @@ function stepsThisTick(E) {
   const base = E.afloat ? 2 : (!E.run || E.energy <= 0) ? 1 : 2;
   return Math.max(1, Math.round(base * OPT.runMul));
 }
+/* Inside a settlement's ring you are safe; everywhere else is the
+   wilderness, where other players may attack you. One rule, no map data. */
+function inSafe(x, z) {
+  const n = nearVillage(x, z);
+  return !!(n && n.d < n.v.r * 1.05);
+}
+let pvpAck = 0, pvpHold = 0;                       // crossing consent, and the pause while asking
+function askPvp() {
+  pvpHold = 1;
+  showModal('Leaving the safe zone',
+    '<p class="smsg">Beyond the town\'s edge is the wilderness: <b>other players can attack ' +
+    'you</b>, and dying to one costs everything you carry.</p>' +
+    '<div class="wrow2"><button id="pvpGo">Continue</button><button id="pvpStay">Cancel</button></div>',
+    'This warning can be turned off in Setup.');
+  el('pvpGo').onclick = () => { pvpAck = 1; pvpHold = 0; closeOverlays(); };
+  el('pvpStay').onclick = closeOverlays;           // closing without consent cancels the walk
+}
 function walkTick() {
   // Sync the interpolation anchor FIRST, unconditionally. Leaving it stale
   // when standing still makes the render lerp slide the character between
   // last tick's tile and this one, forever — a permanent shuffle on the spot.
   P.px = P.tx; P.pz = P.tz;
-  if (!P.path.length) { P.moved = 0; return; }
+  if (pvpHold) { P.moved = 0; return; }            // stood at the border, being asked
+  if (!P.path.length) { P.moved = 0; chainGoal(); return; }
   let want = stepsThisTick();
-  // Stuck mode crawls: one tile every fifth tick, which is a fifth of a
-  // walk. Rowing is unaffected — the boat was never the thing stuck.
+  // Stuck mode crawls: one tile every fifth tick — a fifth of a walk, and
+  // run does not apply at all. Rowing is unaffected; the boat was never the
+  // thing stuck.
   if (OPT.stuck && !P.afloat) {
     if (++P.stuckT < 5) { P.moved = 0; return; }
     P.stuckT = 0; want = 1;
@@ -4535,9 +4563,13 @@ function walkTick() {
   let took = 0;
   for (let i = 0; i < want && P.path.length; i++) {
     const n = P.path[0];
-    if (!canStep(P.tx, P.tz, n.x, n.z)) { P.path.length = 0; break; }   // the world changed under us
+    if (!canStep(P.tx, P.tz, n.x, n.z)) { P.path.length = 0; P.goal = null; break; }   // the world changed under us
+    // the border asks once: stepping from safe ground into the wilderness
+    // halts here, path intact, until the player answers
+    if (OPT.pvpWarn && !pvpAck && !P.afloat && !inSafe(n.x, n.z) && inSafe(P.tx, P.tz)) { askPvp(); break; }
     P.path.shift();
     P.tx = n.x; P.tz = n.z; took++;
+    if (pvpAck && inSafe(P.tx, P.tz)) pvpAck = 0;  // home again: the next crossing asks anew
   }
   P.moved = took;
   if (took) {
@@ -4548,7 +4580,20 @@ function walkTick() {
     if (P.afloat) gainXp('sailing', 1.1 * took);
     else if (P.run && P.energy > 0 && took > 1) { P.energy = Math.max(0, P.energy - 0.7); dirty.orb = 1; }
   }
-  if (!P.path.length && !P.task) { markT = 0; marker.visible = false; }
+  if (!P.path.length) chainGoal();
+  if (!P.path.length && !P.task && !P.goal) { markT = 0; marker.visible = false; }
+}
+/* A long click across mountains outruns the pathfinder's node budget, which
+   returns its best partial leg. Chaining walks leg after leg toward the
+   remembered click, and the progress guard means an unreachable goal is
+   dropped rather than circled forever. */
+function chainGoal() {
+  if (!P.goal || P.task || pvpHold) return;
+  const d = Math.hypot(P.tx - P.goal.x, P.tz - P.goal.z);
+  if (d < 1 || d >= P.goal.best - 0.5) { P.goal = null; return; }
+  P.goal.best = d;
+  const p = findPath(P.tx, P.tz, P.goal.x, P.goal.z, 0);
+  if (p && p.length) P.path = p; else P.goal = null;
 }
 function showMark(x, z, hostile) {
   marker.position.set(x, Math.max(groundY(x, z), 0) + 0.12, z);
@@ -4560,10 +4605,11 @@ function walkTo(wx, wz) {
   closeOverlays();
   P.task = null;
   const p = findPath(P.tx, P.tz, x, z, 0);
-  if (!p || !p.length) { say("You can't reach that."); return; }
+  if (!p || !p.length) { say("You can't reach that."); P.goal = null; return; }
+  // the click is the promise: partial legs chain until this point is reached
+  P.goal = { x, z, best: Math.hypot(P.tx - x, P.tz - z) + 1 };
   P.path = p;
-  const last = p[p.length - 1];
-  showMark(last.x, last.z, 0);
+  showMark(x, z, 0);
 }
 
 /* ------------------------- 21. GROUND ITEMS ------------------------- */
@@ -5070,6 +5116,7 @@ function respawnTick() {
 
 function startTask(o, kind) {
   if (P.afloat && kind !== 'fish' && kind !== 'attack') { say("You can't do that from a boat.", 'bad'); return; }
+  P.goal = null;                                   // the task owns the walking now
   P.task = { k: kind, o }; P.actT = 0;
 }
 function taskTick() {
@@ -5118,6 +5165,12 @@ function taskTick() {
        Letting an attacker write someone else's health directly would be worse
        in every way, and without a server-side simulation this is the closest
        honest arrangement. */
+    // checked per swing, not just at the option: either of us stepping onto
+    // town ground mid-chase ends the fight there
+    if (inSafe(P.tx, P.tz) || inSafe(o.tx, o.tz)) {
+      say('The town watch does not allow fighting here.', 'bad');
+      P.task = null; return;
+    }
     const sp = P.spell !== null ? SPELLS[P.spell] : null;
     const bw = sp ? null : bowItem();
     P.acting = 1; P.actSpan = sp ? 5 : atkSpeed();
@@ -5569,7 +5622,11 @@ function showModal(title, html, foot) {
   modalEl.classList.add('on');
   showTab('inv');
 }
-function closeOverlays() { modalEl.classList.remove('on'); openShop = null; makeRows = null; bankOpen = 0; }
+function closeOverlays() {
+  modalEl.classList.remove('on'); openShop = null; makeRows = null; bankOpen = 0;
+  // dismissing the border warning any way but Continue cancels the walk
+  if (pvpHold) { pvpHold = 0; P.path.length = 0; P.goal = null; }
+}
 el('modalX').onclick = closeOverlays;
 
 let makeRows = null, makeFn = null;
@@ -5717,6 +5774,7 @@ const OPT_ROWS = [
   { k: 'xpDrops', n: 'Xp drops', tog: 1 },
   { k: 'roofs', n: 'Lift roofs indoors', tog: 1 },
   { k: 'hideRoofs', n: 'Hide all roofs', tog: 1 },
+  { k: 'pvpWarn', n: 'PvP border warning', tog: 1 },
   { k: 'brightness', n: 'Brightness', min: 0.7, max: 1.4, step: 0.1, fmt: v => Math.round(v * 100) + '%' }
 ];
 const optList = el('optList');
@@ -5967,8 +6025,9 @@ el('devBody').addEventListener('click', e => {
       if (d < bd) { bd = d; best = v; }
     }
     if (!best) { say('No city within range.', 'bad'); return; }
-    focus.set(best.x, 0, best.z); refresh(); pump(400);
-    placePlayer(best.x, best.z); rebuildNear(); refreshNpcs();
+    // beside the square, not on it — the fountain claims the exact centre
+    focus.set(best.x + 4, 0, best.z + 3); refresh(); pump(400);
+    placePlayer(best.x + 4, best.z + 3); rebuildNear(); refreshNpcs();
     mapOX = 1e9; mapRow = MW; mapImg = null;
     say('Warped to ' + villageName(best) + '.', 'lv');
   }
@@ -6014,7 +6073,9 @@ function optionsFor(o) {
     // across a field was the odd one out
     opts.push({ t: 'Trade with', o: o.name,
       f: () => { flashTarget(o, 0); P.task = { k: 'ui', o, fn: tradeRequest }; } });
-    opts.push({ t: 'Attack', o: o.name, f: () => { flashTarget(o, 1); startTask(o, 'attack'); } });
+    // town ground is truce ground: the option only exists out in the wilds
+    if (!inSafe(P.tx, P.tz) && !inSafe(o.tx, o.tz))
+      opts.push({ t: 'Attack', o: o.name, f: () => { flashTarget(o, 1); startTask(o, 'attack'); } });
   }
   else if (o.npc)  opts.push({ t: 'Attack', o: o.name + ' <span class="lvl">(level ' + o.t.lv + ')</span>', f: () => { flashTarget(o, 1); startTask(o, 'attack'); } });
   else if (o.drop) {
@@ -6572,14 +6633,22 @@ function openStuck() {
     on ? 'Stuck mode is ON — you are crawling.' : 'Stuck mode is off.');
   el('stuckTog').onclick = () => {
     OPT.stuck = OPT.stuck ? 0 : 1;
-    P.stuckT = 0; P.path.length = 0;                 // the old route was judged by old rules
+    P.stuckT = 0; P.path.length = 0; P.goal = null;  // the old route was judged by old rules
     el('stuck').classList.toggle('on', !!OPT.stuck);
     say(OPT.stuck ? 'Stuck mode on — you can climb almost anything, slowly.'
                   : 'Stuck mode off — back to normal footing.', 'lv');
-    openStuck();
+    updateZoneTags();
+    closeOverlays();                                 // the answer was the whole conversation
   };
 }
 el('stuck').onclick = openStuck;
+/* The little flags under the hover line: the stuck crawl, and the skull that
+   says other players can reach you here. Cheap — nearVillage is cached. */
+function updateZoneTags() {
+  el('stuckTag').style.display = OPT.stuck ? 'block' : 'none';
+  el('pvpTag').style.display = inSafe(P.tx, P.tz) ? 'none' : 'flex';
+}
+el('pvpTag').querySelector('img').src = drawIcon('skull', '#ff5a3a', '#ffd9c9');
 
 /* ------------------------ 30. THE GAME TICK ------------------------- */
 /* Everything with consequences happens here, ten times per six seconds.
@@ -6762,6 +6831,8 @@ function hud() {
   // the travel boxes double as a readout, unless you are busy typing in one
   const a = document.activeElement;
   if (a !== wxEl && a !== wzEl) { wxEl.value = P.tx; wzEl.value = P.tz; }
+  updateZoneTags();
+  if (pvpAck && inSafe(P.tx, P.tz)) pvpAck = 0;    // teleports home also reset the consent
   el('pos').textContent = P.tx + ', ' + P.tz;
   el('posr').textContent = P.tx + ', ' + P.tz;
   el('elev').textContent = P.ry.toFixed(1);
@@ -7262,6 +7333,7 @@ function onNet(m) {
       const R = ensureRemote(m[1]);
       const dmg = clamp(m[2] | 0, 0, 60);       // clamp: the sender is not trusted
       if (P.dead) break;
+      if (inSafe(P.tx, P.tz)) break;            // town ground shrugs the blow off
       if (!pvpOn) { pvpOn = 1; say('You are under attack!', 'bad'); }
       hurtPlayer(dmg, 1);
       retaliate(R);
