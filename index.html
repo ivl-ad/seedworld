@@ -1356,6 +1356,7 @@ function gainXp(k, amount) {
     say('Congratulations, you just advanced a ' + skName(i) + ' level.', 'lv');
     say('Your ' + skName(i) + ' level is now ' + lvl[i] + '.', 'lv');
     if (i === SK.hitpoints) { P.maxhp = lvl[i]; P.hp = P.maxhp; }
+    if (i === SK.defence) sendEquip();             // the room rolls against it
     dirty.sk = dirty.orb = 1;
     markDirty(1);                                  // a level is never worth losing
   }
@@ -2450,17 +2451,30 @@ const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
    blinks out the moment you rotate the origin off screen. This hands each
    chunk's instances their own geometry view — same attribute buffers, so no
    extra bytes on the GPU — carrying a bounding sphere that actually contains
-   them. Never dispose these: the buffers belong to the shared geometry. */
+   them. Never dispose these: the buffers belong to the shared geometry.
+   Disposing a view would fire the shared attributes' dispose and pull the
+   prop library out from under every other chunk, and never disposing them
+   was a slow bleed — ~90 geometries a journey, for as long as the session
+   ran. So views are pooled per source: a chunk that unloads hands its view
+   back, and the next chunk to want one for the same prop takes it and
+   overwrites the sphere. The count caps at the most chunks alive at once. */
+const _viewPool = new Map();                          // source geometry -> free views
 function boundView(geo, cx, cz, lo, hi) {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', geo.attributes.position);
-  g.setAttribute('color', geo.attributes.color);
-  const cy = (lo + hi) * 0.5;
-  g.boundingSphere = new THREE.Sphere(
-    new THREE.Vector3(cx * CHUNK + CHUNK * 0.5, cy, cz * CHUNK + CHUNK * 0.5),
-    Math.hypot(CHUNK * 0.72, (hi - lo) * 0.5) + 10);
+  let free = _viewPool.get(geo);
+  if (!free) _viewPool.set(geo, free = []);
+  let g = free.pop();
+  if (!g) {
+    g = new THREE.BufferGeometry();
+    g.setAttribute('position', geo.attributes.position);
+    g.setAttribute('color', geo.attributes.color);
+    g.boundingSphere = new THREE.Sphere();
+    g._src = geo;
+  }
+  g.boundingSphere.center.set(cx * CHUNK + CHUNK * 0.5, (lo + hi) * 0.5, cz * CHUNK + CHUNK * 0.5);
+  g.boundingSphere.radius = Math.hypot(CHUNK * 0.72, (hi - lo) * 0.5) + 10;
   return g;
 }
+const freeView = g => { const free = g._src && _viewPool.get(g._src); if (free && free.indexOf(g) < 0) free.push(g); };
 
 /* One merged geometry per chunk for every static prop in it: unlimited
    variety for a single draw call. Scratch buffers are reused, so building a
@@ -4909,10 +4923,11 @@ function disposeChunk(rec) {
   scene.remove(rec.mesh); rec.mesh.geometry.dispose();
   // Batched meshes own their buffers; instanced ones share a geometry view
   // whose attributes belong to the prop library, so only the instance
-  // attributes are theirs to release.
+  // attributes are theirs to release — and the view goes back to its pool.
   for (const e of rec.extra) {
     scene.remove(e);
-    if (e.isInstancedMesh) e.dispose(); else e.geometry.dispose();
+    if (e.isInstancedMesh) { e.dispose(); freeView(e.geometry); }
+    else e.geometry.dispose();
   }
   for (const b of rec.roofs) b.roof = null;
   for (const k of rec.blk) unblock(k);
@@ -5365,8 +5380,9 @@ function dressRig(p, look, it) {
   // a robe on either slot hides the legs the way every hooded order does,
   // and a plateskirt borrows the same fall in metal; the skirt takes the
   // leg slot's colour when that is what put it there
-  //const robed = bc === 'mage' || lc === 'mage' || (legsIt && legsIt.g === 'skirt');
-  const robed = bc === 'mage' || lc === 'mage' || !!(legsIt && legsIt.g === 'skirt');
+  // a robe top only hangs past the knee when the legs slot is empty; robe
+  // bottoms and plateskirts make the skirt on their own, whatever is above
+  const robed = lc === 'mage' || !!(legsIt && legsIt.g === 'skirt') || (bc === 'mage' && !legsIt);
   p.legHid = robed ? 1 : 0;
   p.skirt.visible = robed;
   if (robed) p.skirt.material.color.set(legsIt && (lc === 'mage' || legsIt.g === 'skirt') ? legsIt.c : bodyIt.c);
@@ -6230,9 +6246,10 @@ function taskTick() {
     if (--P.actT > 0) return;
     P.actT = sp ? 5 : atkSpeed();
     let dmg;
+    const rd = remoteDef(o);                       // their level and their armour, not a constant
     if (bw && bowRange()) {
       const st = RSTYLES[P.rstyle];
-      const c = hitChance(lvl[SK.ranged] * st.acc, bonus('rat'), 20, 30);
+      const c = hitChance(lvl[SK.ranged] * st.acc, bonus('rat'), rd[0], rd[1]);
       dmg = Math.random() < c ? Math.floor(Math.random() * (rangedMax() + 1)) : 0;
       shootArrow(P, o, dmg, ITEMS[eq.ammo].c ? parseInt(ITEMS[eq.ammo].c.slice(1), 16) : 0xc3c8d0);
       for (const k of st.xp) gainXp(k, Math.max(1, dmg * 4 / st.xp.length));
@@ -6245,7 +6262,7 @@ function taskTick() {
     if (sp) {
       if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return; }
       spendRunes(sp);
-      const c = hitChance(lvl[SK.magic], bonus('mag'), lvl[SK.defence], 0);
+      const c = hitChance(lvl[SK.magic], bonus('mag'), rd[0], rd[1]);
       dmg = Math.random() < c ? Math.floor(Math.random() * (sp.max + Math.floor(bonus('mag') / 8) + 1)) : 0;
       castFx(o, sp, dmg);
       // The victim draws the bolt from this, and without it a spell duel looks
@@ -6257,7 +6274,7 @@ function taskTick() {
       drawSpells();
     } else {
       const st = STYLES[P.style];
-      const c = hitChance(lvl[SK.attack] * st.acc * prayerMul('atk'), bonus('atk'), 20, 30);
+      const c = hitChance(lvl[SK.attack] * st.acc * prayerMul('atk'), bonus('atk'), rd[0], rd[1]);
       dmg = Math.random() < c ? Math.floor(Math.random() * (maxHit() + 1)) : 0;
       hitsplat(o.rx, o.ry + 1.5, o.rz, dmg);
       if (dmg > 0) for (const k of st.xp) gainXp(k, dmg * 4 / st.xp.length);
@@ -9260,13 +9277,32 @@ function netSend() {
     try { ws.send(JSON.stringify([2, tickN, a])); } catch {}
   }
 }
+/* The worn list rides the wire with one extra entry: the Defence level, as
+   'd:NN', so whoever attacks us can roll against the real thing. It sits
+   past every slot, so a dresser never reads it, and a room that predates the
+   twelfth entry simply drops it. */
 function sendEquip() {
   if (!ws || ws.readyState !== 1) return;
   const arr = EQ_SLOTS.map(s => eq[s] || null);
+  arr.push('d:' + lvl[SK.defence]);
   const sig = arr.join('|');
   if (sig === lastEqSent) return;
   lastEqSent = sig;
   try { ws.send(JSON.stringify([3, arr])); } catch {}
+}
+/* What another player defends with: their Defence level off the wire — or,
+   from an older room that dropped it, the hitpoints they report — and the
+   defence bonus of everything they are wearing. */
+function remoteDef(R) {
+  const e = R.eq || [];
+  let lv = 0, b = 0;
+  for (const id of e) {
+    if (typeof id !== 'string') continue;
+    if (id.startsWith('d:')) { lv = clamp(parseInt(id.slice(2), 10) || 0, 1, MAXL); continue; }
+    const it = ITEMS[id];
+    if (it && it.def) b += it.def;
+  }
+  return [lv || clamp(R.maxhp | 0, 1, MAXL), b];
 }
 
 /* ========================= 36. OTHER PLAYERS ======================== */
