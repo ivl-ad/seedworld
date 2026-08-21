@@ -229,6 +229,33 @@
   .sty u,.pry u,.spl u{display:block;text-decoration:none;color:var(--dim);font-size:9px}
   .spl.no,.pry.no{opacity:.4;cursor:default}
   .opt b{margin-left:auto;color:#ff0;font-weight:700}
+  .opt input[type=range]{margin-left:auto;width:46%;accent-color:var(--amber)}
+  /* the world map: the minimap's big brother, framed like the 2007 one */
+  #wmap{position:fixed;inset:0;z-index:45;display:none;background:rgba(8,6,4,.72)}
+  #wmap.on{display:block}
+  #wmBox{position:absolute;inset:12px;display:flex;flex-direction:column}
+  #wmHead{display:flex;align-items:center;gap:10px;padding:6px 9px;border-bottom:1px solid #171209;
+    font-size:11px;font-weight:700;letter-spacing:.12em;color:var(--amber);text-transform:uppercase;
+    background:rgba(0,0,0,.2)}
+  #wmPos{flex:1;font-weight:400;letter-spacing:.04em;text-transform:none;color:var(--dim);font-size:10px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #wmHead b{cursor:pointer;font-size:16px;color:var(--dim);line-height:1;padding:0 3px}
+  #wmHead b:hover{color:#fff}
+  #wmBody{position:relative;flex:1;min-height:0}
+  #wmCv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab;
+    image-rendering:pixelated;background:#1a2430}
+  #wmCv:active{cursor:grabbing}
+  #wmKey{position:absolute;left:8px;bottom:8px;padding:6px 9px;display:grid;gap:3px;font-size:9px;
+    letter-spacing:.04em;color:var(--bone);background:rgba(30,24,16,.92);border:1px solid #171209;
+    box-shadow:inset 0 0 0 1px var(--bevel);max-height:46%;overflow:auto}
+  #wmKey div{display:flex;align-items:center;gap:6px;white-space:nowrap}
+  #wmKey canvas{width:16px;height:16px;image-rendering:pixelated;flex:0 0 auto}
+  #wmCtl{position:absolute;right:8px;bottom:8px;display:flex;flex-direction:column;gap:4px}
+  #wmCtl button{width:34px;height:34px;font-size:17px;padding:0;line-height:1}
+  /* the music button lives on the loading screens; the slider takes over in-game */
+  #bgmBtn{position:fixed;top:10px;right:12px;z-index:80;font-size:18px;padding:4px 8px;line-height:1}
+  body.ingame #bgmBtn{display:none}
+  @media (max-width:820px){#wmBox{inset:6px} #wmKey{font-size:8px;max-height:36%}}
   #cbStats{margin-top:7px;border-top:1px solid rgba(107,83,52,.55);padding-top:5px;
     display:grid;grid-template-columns:1fr auto;font-size:10px;gap:0 8px}
   #cbStats i{font-style:normal;color:var(--dim)}
@@ -766,6 +793,21 @@
       the bigger the disc, the greater the city.</p>
   </div>
 </div>
+<div id="wmap">
+  <div id="wmBox" class="panel">
+    <div id="wmHead"><span>World map</span><span id="wmPos"></span><b id="wmX" title="close (Esc)">×</b></div>
+    <div id="wmBody">
+      <canvas id="wmCv"></canvas>
+      <div id="wmKey"></div>
+      <div id="wmCtl">
+        <button id="wmIn" title="zoom in">+</button>
+        <button id="wmOut" title="zoom out">−</button>
+        <button id="wmHome" title="centre on you">◎</button>
+      </div>
+    </div>
+  </div>
+</div>
+<button id="bgmBtn" title="music">🔊</button>
 <div id="boot">BUILDING WORLD…</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -6501,7 +6543,7 @@ function ensureBarberGL() {
   let px = 0, down = 0;
   barberCv.addEventListener('pointerdown', e => {
     down = 1; px = e.clientX;
-    barberCv.setPointerCapture(e.pointerId);
+    try { barberCv.setPointerCapture(e.pointerId); } catch {}
     e.preventDefault();
   });
   barberCv.addEventListener('pointermove', e => {
@@ -7156,7 +7198,11 @@ const optList = el('optList');
 function drawOpts() {
   optList.innerHTML = OPT_ROWS.map(r => '<div class="opt" data-o="' + r.k + '"><span>' + r.n + '</span><b>' +
     (r.tog ? (OPT[r.k] ? 'ON' : 'OFF') : r.fmt(OPT[r.k])) + '</b></div>').join('') +
+    // hard left is mute; the slider and the loading-screen button share one dial
+    '<div class="opt"><span>Music volume</span><input type="range" id="volSlider" min="0" max="100" ' +
+    'value="' + Math.round(vol * 100) + '" aria-label="Music volume"></div>' +
     '<div class="opt" data-o="dev"><span>Developer console</span><b>OPEN</b></div>';
+  el('volSlider').oninput = e => setVol(+e.target.value / 100);
 }
 optList.addEventListener('click', e => {
   const d = e.target.closest('[data-o]'); if (!d) return;
@@ -7672,7 +7718,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') showTab('mg');
   if (e.code === 'KeyP') showTab('pr');
   if (e.code === 'Backquote') { e.preventDefault(); devEl.classList.contains('on') ? closeDev() : openDev(); }
-  if (e.code === 'Escape') { closeCtx(); closeOverlays(); closeDev(); clearUse(); }
+  if (e.code === 'Escape') { closeCtx(); closeOverlays(); closeDev(); clearUse(); closeWorldMap(); }
   if (['KeyW','KeyA','KeyS','KeyD','Space','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].indexOf(e.code) >= 0) e.preventDefault();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -7900,14 +7946,236 @@ addEventListener('keydown', e => {
   if (e.key === 'Enter' && document.activeElement !== chatIn &&
       document.activeElement.tagName !== 'INPUT') { e.preventDefault(); chatIn.focus(); }
 }, true);
+/* A click on the minimap opens the world map; a right-click still walks you
+   to the spot, which is what the left button used to do. */
 mini.addEventListener('click', e => {
   const r = mini.getBoundingClientRect();
   const px = (e.clientX - r.left) / r.width * MW - MW / 2;
   const pz = (e.clientY - r.top) / r.height * MW - MW / 2;
   if (px * px + pz * pz > (MW / 2) * (MW / 2)) return;      // outside the disc
+  openWorldMap();
+});
+mini.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const r = mini.getBoundingClientRect();
+  const px = (e.clientX - r.left) / r.width * MW - MW / 2;
+  const pz = (e.clientY - r.top) / r.height * MW - MW / 2;
+  if (px * px + pz * pz > (MW / 2) * (MW / 2)) return;
   const a = -(yaw + Math.PI), cs = Math.cos(a), sn = Math.sin(a);   // undo the spin
   walkTo(P.rx + (px * cs - pz * sn) * MSTEP, P.rz + (px * sn + pz * cs) * MSTEP);
 });
+
+/* --------------------------- 27b. WORLD MAP ------------------------- */
+/* The minimap's big brother: the same paint at eight tiles a pixel, kept in
+   a cache of 64-pixel squares that fill in a few per frame, nearest first —
+   so opening the map costs nothing up front and the far corners arrive as
+   you pan toward them. Town names and the icons of everyone worth visiting
+   are drawn on top straight from the settlement plans; you are the only
+   person on it. Drag to pan, wheel or middle-drag or pinch to zoom. */
+const wmEl = el('wmap'), wmCv = el('wmCv'), wmCtx = wmCv.getContext('2d'), wmPos = el('wmPos');
+/* Zoom 1 is eight tiles a pixel. The art comes in two grades: eight tiles a
+   pixel for the overview, two a pixel once you are in past 4x, where the
+   streets of a town start to matter. */
+const WM_TPP = 8, WM_TILE = 64;
+const wmTiles = new Map(), wmRow = new Float32Array(WM_TILE + 1);
+let wmOpen = 0, wmZoom = 2, wmCx = 0, wmCz = 0, wmW = 0, wmH = 0;
+const wmLod = () => wmZoom >= 4 ? 2 : 8;
+function wmPaintTile(tx, tz, tpp) {
+  const span = WM_TILE * tpp;
+  const c = document.createElement('canvas'); c.width = c.height = WM_TILE;
+  const g = c.getContext('2d'), im = g.createImageData(WM_TILE, WM_TILE);
+  const ox = tx * span, oz = tz * span;
+  let p = 0;
+  for (let j = 0; j < WM_TILE; j++) {
+    const z = oz + (j + 0.5) * tpp;
+    for (let i = 0; i <= WM_TILE; i++) wmRow[i] = macroHeight(ox + (i + 0.5) * tpp, z);
+    for (let i = 0; i < WM_TILE; i++) {
+      const h = wmRow[i], grad = wmRow[i + 1] - h;
+      let R, G, B;
+      if (h < 0) { const t = clamp(-h / 14, 0, 1); R = 46 - t * 22; G = 92 - t * 44; B = 116 - t * 50; }
+      else {
+        const cc = colorAt(ox + (i + 0.5) * tpp, z, h, Math.abs(grad) / tpp);
+        const sh = clamp(0.94 - grad * (tpp >= 8 ? 0.06 : 0.12), 0.45, 1.3);
+        R = cc[0] * 255 * sh; G = cc[1] * 255 * sh; B = cc[2] * 255 * sh;
+      }
+      im.data[p++] = R; im.data[p++] = G; im.data[p++] = B; im.data[p++] = 255;
+    }
+  }
+  g.putImageData(im, 0, 0);
+  return c;
+}
+/* One icon, drawn with the same vector glyphs the inventory uses, on a dark
+   disc so it reads against any ground. */
+function wmIcon(g, c, d, x, y, r) {
+  const R = r || 8;
+  wmCtx.beginPath(); wmCtx.arc(x, y, R, 0, TAU);
+  wmCtx.fillStyle = 'rgba(0,0,0,.62)'; wmCtx.fill();
+  wmCtx.save(); wmCtx.translate(x - R * 0.78, y - R * 0.78); wmCtx.scale(R * 1.56 / 32, R * 1.56 / 32);
+  wmCtx.lineWidth = 1.2; wmCtx.lineJoin = 'round';
+  (GLYPH[g] || GLYPH.star)(wmCtx, c, d);
+  wmCtx.restore();
+}
+const WM_KEY = [
+  ['coins', '#ffd94a', '#9a7414', 'Bank'], ['coins', '#ffb02a', '#b05a10', 'Grand Exchange'],
+  ['hat', '#e87ac8', '#8a3a72', 'Barber'], ['flame', '#ff8c2a', '#ffd9a0', 'Furnace'],
+  ['hammer', '#d8dbe2', '#8a8f98', 'Anvil'], ['cfish', '#ffb04a', '#7a4a20', 'Cooking range'],
+  ['star', '#fff2b0', '#c9a24a', 'Altar']
+].concat(SHOP_KINDS.map(s => [s.g, s.c, '#f0e6c8', s.n]));
+(function buildKey() {
+  const key = el('wmKey'), h = [];
+  for (const row of WM_KEY) {
+    const c = document.createElement('canvas'); c.width = c.height = 32;
+    const g = c.getContext('2d');
+    g.beginPath(); g.arc(16, 16, 15, 0, TAU); g.fillStyle = 'rgba(0,0,0,.62)'; g.fill();
+    g.save(); g.translate(3, 3); g.scale(26 / 32, 26 / 32); g.lineWidth = 1.2; g.lineJoin = 'round';
+    (GLYPH[row[0]] || GLYPH.star)(g, row[1], row[2]); g.restore();
+    const d = document.createElement('div');
+    d.appendChild(c); d.appendChild(document.createTextNode(row[3]));
+    key.appendChild(d);
+  }
+  const you = document.createElement('div');
+  const yc = document.createElement('canvas'); yc.width = yc.height = 32;
+  const yg = yc.getContext('2d');
+  yg.beginPath(); yg.arc(16, 16, 8, 0, TAU); yg.fillStyle = '#fff'; yg.fill(); yg.lineWidth = 3; yg.strokeStyle = '#000'; yg.stroke();
+  you.appendChild(yc); you.appendChild(document.createTextNode('You'));
+  key.appendChild(you);
+})();
+function wmResize() {
+  const r = wmCv.getBoundingClientRect();
+  wmW = Math.max(1, Math.round(r.width)); wmH = Math.max(1, Math.round(r.height));
+  wmCv.width = wmW; wmCv.height = wmH;
+}
+function wmDraw() {
+  const W = wmW, H = wmH, s = wmZoom / WM_TPP;               // screen pixels per tile
+  const px = wx => (wx - wmCx) * s + W / 2, pz = wz => (wz - wmCz) * s + H / 2;
+  wmCtx.imageSmoothingEnabled = false;
+  wmCtx.fillStyle = '#141c26'; wmCtx.fillRect(0, 0, W, H);
+  const half = W / 2 / s, halfZ = H / 2 / s;
+  const tpp = wmLod(), span = WM_TILE * tpp, size = span * s;
+  const x0 = Math.floor((wmCx - half) / span), x1 = Math.floor((wmCx + half) / span);
+  const z0 = Math.floor((wmCz - halfZ) / span), z1 = Math.floor((wmCz + halfZ) / span);
+  const missing = [];
+  for (let tz = z0; tz <= z1; tz++) for (let tx = x0; tx <= x1; tx++) {
+    const key = tpp + ':' + tx + ':' + tz, c = wmTiles.get(key);
+    if (c) wmCtx.drawImage(c, Math.floor(px(tx * span)), Math.floor(pz(tz * span)), Math.ceil(size) + 1, Math.ceil(size) + 1);
+    else missing.push([tx, tz, Math.hypot((tx + 0.5) * span - wmCx, (tz + 0.5) * span - wmCz)]);
+  }
+  // ten milliseconds of painting a frame, nearest the centre first
+  missing.sort((a, b) => a[2] - b[2]);
+  const t0 = performance.now();
+  for (let i = 0; i < missing.length && (i === 0 || performance.now() - t0 < 10); i++) {
+    const [tx, tz] = missing[i];
+    if (wmTiles.size > 1200) wmTiles.clear();            // a bound, not a strategy
+    wmTiles.set(tpp + ':' + tx + ':' + tz, wmPaintTile(tx, tz, tpp));
+  }
+  // settlements: names always past half zoom, their doors past double
+  const cx0 = Math.floor((wmCx - half) * INV_CELL) - 1, cx1 = Math.floor((wmCx + half) * INV_CELL) + 1;
+  const cz0 = Math.floor((wmCz - halfZ) * INV_CELL) - 1, cz1 = Math.floor((wmCz + halfZ) * INV_CELL) + 1;
+  if (wmZoom >= 0.75 && (cx1 - cx0) * (cz1 - cz0) < 400) {
+    wmCtx.font = 'bold ' + Math.round(clamp(9 + wmZoom * 1.2, 10, 15)) + 'px system-ui, sans-serif';
+    wmCtx.textAlign = 'center'; wmCtx.textBaseline = 'bottom';
+    for (let a = cx0; a <= cx1; a++) for (let b = cz0; b <= cz1; b++) {
+      const v = villageAt(a, b); if (!v) continue;
+      const x = px(v.x), y = pz(v.z);
+      if (x < -80 || y < -40 || x > W + 80 || y > H + 40) continue;
+      if (wmZoom >= 2.5) {
+        villageBuildings(v);
+        for (const bd of v.b) {
+          if (bd.shop !== null) { const k = SHOP_KINDS[bd.shop]; wmIcon(k.g, k.c, '#f0e6c8', px(bd.x), pz(bd.z)); }
+          else if (bd.bank) wmIcon('coins', '#ffd94a', '#9a7414', px(bd.x), pz(bd.z));
+          else if (bd.barber) wmIcon('hat', '#e87ac8', '#8a3a72', px(bd.x), pz(bd.z));
+        }
+        for (const f of v.f) wmIcon(f.t === 3 ? 'flame' : f.t === 4 ? 'hammer' : 'cfish',
+          f.t === 3 ? '#ff8c2a' : f.t === 4 ? '#d8dbe2' : '#ffb04a',
+          f.t === 3 ? '#ffd9a0' : f.t === 4 ? '#8a8f98' : '#7a4a20', px(f.x), pz(f.z));
+        if (v.lm && v.lm.t === 0) wmIcon('star', '#fff2b0', '#c9a24a', px(v.lm.x), pz(v.lm.z));
+        if (v.ge) wmIcon('coins', '#ffb02a', '#b05a10', px(v.ge.x), pz(v.ge.z), 10);
+      }
+      const nm = villageName(v);
+      wmCtx.lineWidth = 3; wmCtx.strokeStyle = 'rgba(0,0,0,.85)'; wmCtx.strokeText(nm, x, y - 4);
+      wmCtx.fillStyle = v.rank >= 3 ? '#ffd34a' : '#f4ead0'; wmCtx.fillText(nm, x, y - 4);
+    }
+  }
+  // you, and only you
+  const sx = px(P.rx), sy = pz(P.rz);
+  if (sx > -10 && sy > -10 && sx < W + 10 && sy < H + 10) {
+    wmCtx.beginPath(); wmCtx.arc(sx, sy, 5, 0, TAU);
+    wmCtx.fillStyle = '#fff'; wmCtx.fill(); wmCtx.lineWidth = 2; wmCtx.strokeStyle = '#000'; wmCtx.stroke();
+    wmCtx.beginPath();
+    wmCtx.moveTo(sx + Math.sin(P.face) * 11, sy + Math.cos(P.face) * 11);
+    wmCtx.lineTo(sx + Math.sin(P.face + 2.5) * 6, sy + Math.cos(P.face + 2.5) * 6);
+    wmCtx.lineTo(sx + Math.sin(P.face - 2.5) * 6, sy + Math.cos(P.face - 2.5) * 6);
+    wmCtx.closePath(); wmCtx.fillStyle = '#fff'; wmCtx.fill(); wmCtx.stroke();
+  }
+}
+function wmLoop() {
+  if (!wmOpen) return;
+  wmDraw();
+  requestAnimationFrame(wmLoop);
+}
+function openWorldMap() {
+  if (wmOpen) return;
+  wmOpen = 1; wmEl.classList.add('on');
+  wmCx = P.rx; wmCz = P.rz;
+  wmResize();
+  wmLoop();
+}
+function closeWorldMap() { wmOpen = 0; wmEl.classList.remove('on'); }
+el('wmX').onclick = closeWorldMap;
+addEventListener('resize', () => { if (wmOpen) wmResize(); });
+/* Zoom about a screen point: the tile under the cursor stays under it. */
+function wmZoomAt(sx, sy, f) {
+  const s0 = wmZoom / WM_TPP;
+  const wx = wmCx + (sx - wmW / 2) / s0, wz = wmCz + (sy - wmH / 2) / s0;
+  wmZoom = clamp(wmZoom * f, 0.5, 10);
+  const s1 = wmZoom / WM_TPP;
+  wmCx = wx - (sx - wmW / 2) / s1; wmCz = wz - (sy - wmH / 2) / s1;
+}
+el('wmIn').onclick = () => wmZoomAt(wmW / 2, wmH / 2, 1.4);
+el('wmOut').onclick = () => wmZoomAt(wmW / 2, wmH / 2, 1 / 1.4);
+el('wmHome').onclick = () => { wmCx = P.rx; wmCz = P.rz; };
+wmCv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = wmCv.getBoundingClientRect();
+  wmZoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.2 : 1 / 1.2);
+}, { passive: false });
+// one finger or the left button pans, two fingers pinch, the middle button
+// drags up to zoom in and down to zoom out
+const wmPtr = new Map();
+let wmPinch = 0;
+const wmSpan = () => { const it = wmPtr.values(), a = it.next().value, b = it.next().value; return Math.hypot(a.x - b.x, a.y - b.y); };
+wmCv.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  try { wmCv.setPointerCapture(e.pointerId); } catch {}
+  wmPtr.set(e.pointerId, { x: e.clientX, y: e.clientY, b: e.button });
+  if (wmPtr.size === 2) wmPinch = wmSpan();
+});
+wmCv.addEventListener('pointermove', e => {
+  const r = wmCv.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  const s = wmZoom / WM_TPP;
+  const wx = Math.round(wmCx + (mx - wmW / 2) / s), wz = Math.round(wmCz + (my - wmH / 2) / s);
+  wmPos.textContent = wx + ', ' + wz + ' — ' + biomeName(heightAt(wx, wz), wx, wz);
+  const prev = wmPtr.get(e.pointerId);
+  if (!prev) return;
+  wmPtr.set(e.pointerId, { x: e.clientX, y: e.clientY, b: prev.b });
+  if (wmPtr.size === 2) {
+    const d = wmSpan();
+    if (wmPinch > 0 && d > 0) {
+      const it = wmPtr.values(), a = it.next().value, b = it.next().value;
+      wmZoomAt((a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top, d / wmPinch);
+    }
+    wmPinch = d;
+  } else if (prev.b === 1) {
+    wmZoomAt(wmW / 2, wmH / 2, Math.exp(-(e.clientY - prev.y) * 0.012));
+  } else {
+    wmCx -= (e.clientX - prev.x) / s; wmCz -= (e.clientY - prev.y) / s;
+  }
+});
+const wmUp = e => { wmPtr.delete(e.pointerId); if (wmPtr.size < 2) wmPinch = 0; };
+wmCv.addEventListener('pointerup', wmUp);
+wmCv.addEventListener('pointercancel', wmUp);
+wmCv.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('contextmenu', e => { if (e.target.closest('#ctx')) e.preventDefault(); });
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -8477,6 +8745,43 @@ const store = {
   set(k, v) { try { localStorage[k] = v; } catch {} },
   del(k) { try { delete localStorage[k]; } catch {} }
 };
+
+/* ----------------------------- MUSIC -------------------------------- */
+/* One track, looping from the moment the page loads. Browsers may hold
+   sound back until the first gesture; the first click or key lets it go.
+   The volume is remembered: hard left is mute, and a fresh install sits in
+   the middle. The button lives on the loading screens, the slider in Setup. */
+const BGM_URL = 'https://oldschool.runescape.wiki/images/7th_Realm_%28v1%29.ogg?d3762';
+const bgm = new Audio(BGM_URL);
+bgm.loop = true; bgm.preload = 'auto';
+const volSaved = store.get('seedworld.vol');
+let vol = volSaved === '' ? 0.5 : clamp(parseFloat(volSaved) || 0, 0, 1);
+let lastVol = vol > 0 ? vol : 0.5;
+function bgmPlay() {
+  if (vol <= 0 || !bgm.paused) return;
+  const p = bgm.play();
+  if (p && p.catch) p.catch(() => {});           // held until a gesture; the kick below retries
+}
+function drawVol() {
+  el('bgmBtn').textContent = vol <= 0 ? '🔇' : vol < 0.5 ? '🔉' : '🔊';
+  const s = el('volSlider');
+  if (s) s.value = Math.round(vol * 100);
+}
+function setVol(v) {
+  vol = clamp(v, 0, 1);
+  if (vol > 0) lastVol = vol;
+  bgm.volume = vol; bgm.muted = vol <= 0;
+  store.set('seedworld.vol', vol.toFixed(2));
+  drawVol();
+  if (vol > 0) bgmPlay(); else bgm.pause();
+}
+el('bgmBtn').onclick = () => setVol(vol > 0 ? 0 : lastVol);
+bgm.volume = vol; bgm.muted = vol <= 0;
+drawVol();
+bgmPlay();
+const bgmKick = () => { if (vol > 0 && bgm.paused) bgmPlay(); };
+addEventListener('pointerdown', bgmKick, { passive: true });
+addEventListener('keydown', bgmKick, { passive: true });
 async function useKey(raw) {
   const k = normKey(raw);
   if (k.length !== 25) return 0;
@@ -9344,6 +9649,7 @@ async function enterWorld(seed) {
   el('welGo').disabled = false;
   el('welGo').textContent = 'Enter this world';
   started = 1;
+  document.body.classList.add('ingame');         // the music button yields to the slider
   if (!OFFLINE && AUTH) { connect(); markDirty(1); geGreet(); }
 }
 
@@ -9582,6 +9888,8 @@ function toWorldSelect() {
   if (trade) tradeCancel(1);
   hideBye();
   started = 0;
+  document.body.classList.remove('ingame');    // the music button is back on the loading screen
+  closeWorldMap();
   saveArmed = 0;                               // nothing may write until a world is entered again
   wsWant = 0;                                  // and the backoff must not resurrect the socket
   clearTimeout(wsTimer);
