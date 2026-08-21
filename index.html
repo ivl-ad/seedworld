@@ -36,13 +36,13 @@
   #hover .lvl{color:#ff0}
 
   #budget{position:fixed;top:72px;left:10px;padding:7px 9px 6px;min-width:200px;z-index:5}
-  /* mode flags under the hover line: stuck crawl, and the skull that means
-     other players can attack you here */
-  #stuckTag{position:fixed;top:28px;left:10px;z-index:6;display:none;font-size:12px;
-    font-weight:700;color:#ff5a3a;text-shadow:1px 1px 0 #000;letter-spacing:.04em}
-  #pvpTag{position:fixed;top:46px;left:10px;z-index:6;display:none;align-items:center;gap:5px;
+  /* mode flags under the hover line: the skull that means other players can
+     attack you here, and the stuck crawl beneath it */
+  #pvpTag{position:fixed;top:28px;left:10px;z-index:6;display:none;align-items:center;gap:5px;
     font-size:12px;font-weight:700;color:#ff5a3a;text-shadow:1px 1px 0 #000;letter-spacing:.04em}
   #pvpTag img{width:20px;height:20px;image-rendering:pixelated;filter:drop-shadow(1px 1px 0 #000)}
+  #stuckTag{position:fixed;top:52px;left:10px;z-index:6;display:none;font-size:12px;
+    font-weight:700;color:#ff5a3a;text-shadow:1px 1px 0 #000;letter-spacing:.04em}
   #budget h1{margin:0 0 5px;font-size:9px;letter-spacing:.2em;font-weight:700;
     color:var(--dim);text-transform:uppercase}
   .bigbytes{display:flex;align-items:baseline;gap:6px;margin:0}
@@ -4425,7 +4425,7 @@ scene.add(player);
 const P = {
   tx: 0, tz: 0, px: 0, pz: 0,                      // tile now / tile last tick
   rx: 0, ry: 0, rz: 0,                             // interpolated render position
-  face: 0, faceT: 0,
+  face: 0, faceT: 0, span: 1,
   path: [], goal: null, task: null, actT: 0, acting: 0, actSpan: 2,
   walkPhase: 0, bobPhase: 0, swingPhase: 0,          // per-entity, so remotes don't share them
   run: 1, energy: 100, hp: 10, maxhp: 10,
@@ -4450,6 +4450,7 @@ const globalTick = () => Math.floor((netNow() - EPOCH) / TICK);
 function placePlayer(x, z) {
   P.tx = P.px = x; P.tz = P.pz = z;
   P.rx = x; P.rz = z;
+  P.span = 1; P.stuckT = 0;                        // no glide survives a teleport
   /* Being afloat was only ever decided by taking a step, so arriving on water
      — a saved position, a respawn, a teleport — left you standing on the sea
      bed until you moved. Decide it on arrival too. */
@@ -4546,20 +4547,24 @@ function askPvp() {
   el('pvpStay').onclick = closeOverlays;           // closing without consent cancels the walk
 }
 function walkTick() {
-  // Sync the interpolation anchor FIRST, unconditionally. Leaving it stale
-  // when standing still makes the render lerp slide the character between
-  // last tick's tile and this one, forever — a permanent shuffle on the spot.
-  P.px = P.tx; P.pz = P.tz;
   if (pvpHold) { P.moved = 0; return; }            // stood at the border, being asked
-  if (!P.path.length) { P.moved = 0; chainGoal(); return; }
-  let want = stepsThisTick();
-  // Stuck mode crawls: one tile every fifth tick — a fifth of a walk, and
-  // run does not apply at all. Rowing is unaffected; the boat was never the
-  // thing stuck.
-  if (OPT.stuck && !P.afloat) {
-    if (++P.stuckT < 5) { P.moved = 0; return; }
-    P.stuckT = 0; want = 1;
+  /* A stuck step is one tile spread over five ticks: the interpolation
+     anchor stays on the departed tile while `stuckT` counts the window up,
+     and the frame lerp divides by `span`. Resyncing the anchor every tick —
+     the normal rule — is exactly what made the crawl walk-then-freeze. */
+  if (P.span > 1 && (P.px !== P.tx || P.pz !== P.tz) && P.stuckT < P.span - 1) {
+    P.stuckT++; P.moved = 0;
+    return;
   }
+  // Sync the interpolation anchor. Leaving it stale when standing still
+  // makes the render lerp slide the character between last tick's tile and
+  // this one, forever — a permanent shuffle on the spot.
+  P.px = P.tx; P.pz = P.tz; P.span = 1;
+  if (!P.path.length) { P.moved = 0; chainGoal(); return; }
+  // Stuck mode crawls at a fifth of a walk regardless of run; the pace comes
+  // from the five-tick glide, so the step itself happens every sync tick.
+  const crawl = OPT.stuck && !P.afloat;
+  let want = crawl ? 1 : stepsThisTick();
   let took = 0;
   for (let i = 0; i < want && P.path.length; i++) {
     const n = P.path[0];
@@ -4579,6 +4584,7 @@ function walkTick() {
     else if (!wet && P.afloat) { say('You step ashore.'); P.afloat = 0; }
     if (P.afloat) gainXp('sailing', 1.1 * took);
     else if (P.run && P.energy > 0 && took > 1) { P.energy = Math.max(0, P.energy - 0.7); dirty.orb = 1; }
+    if (crawl && !P.afloat) { P.span = 5; P.stuckT = 0; }   // begin the slow glide
   }
   if (!P.path.length) chainGoal();
   if (!P.path.length && !P.task && !P.goal) { markT = 0; marker.visible = false; }
@@ -6633,7 +6639,7 @@ function openStuck() {
     on ? 'Stuck mode is ON — you are crawling.' : 'Stuck mode is off.');
   el('stuckTog').onclick = () => {
     OPT.stuck = OPT.stuck ? 0 : 1;
-    P.stuckT = 0; P.path.length = 0; P.goal = null;  // the old route was judged by old rules
+    P.stuckT = 0; P.span = 1; P.path.length = 0; P.goal = null;  // the old route was judged by old rules
     el('stuck').classList.toggle('on', !!OPT.stuck);
     say(OPT.stuck ? 'Stuck mode on — you can climb almost anything, slowly.'
                   : 'Stuck mode off — back to normal footing.', 'lv');
@@ -6708,8 +6714,10 @@ function cameraKeys(dt) {
    group, which is why the caller passes both. */
 function animate(E, parts, dt) {
   const p = parts;
-  const moving = (E.path && E.path.length > 0) || E.moved > 0;
-  E.walkPhase += dt * (moving ? (E.afloat ? 4.4 : 7.5 * stepsThisTick(E)) : 0);
+  // gliding through a stuck step is still walking, even when the path is spent
+  const moving = (E.path && E.path.length > 0) || E.moved > 0 ||
+                 (E.span > 1 && (E.px !== E.tx || E.pz !== E.tz));
+  E.walkPhase += dt * (moving ? (E.afloat ? 4.4 : 7.5 * stepsThisTick(E) / (E.span > 1 ? E.span : 1)) : 0);
   E.bobPhase += dt;
 
   let d = E.faceT - E.face;
@@ -6886,8 +6894,10 @@ function frame(now) {
   while (tickN < gt) gameTick();                     // gameTick increments tickN itself
   const alpha = ((netNow() - EPOCH) % TICK) / TICK;
 
-  P.rx = P.px + (P.tx - P.px) * alpha;
-  P.rz = P.pz + (P.tz - P.pz) * alpha;
+  // a stuck step spans five ticks; the glide reads its progress off stuckT
+  const sub = P.span > 1 ? Math.min(1, (P.stuckT + alpha) / P.span) : alpha;
+  P.rx = P.px + (P.tx - P.px) * sub;
+  P.rz = P.pz + (P.tz - P.pz) * sub;
   P.ry = P.afloat ? 0 : groundY(P.rx, P.rz);
   player.position.set(P.rx, P.ry, P.rz);
   focus.set(P.rx, P.ry, P.rz);
