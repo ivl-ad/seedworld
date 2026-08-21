@@ -4597,12 +4597,16 @@ const npcDead = new Map();
    with frustum culling off, so each one renders whichever way you look. */
 const npcCap = () => Math.min(28, 16 + Math.floor(Math.max(0, powerAt(P.tx, P.tz)) * 4));
 
+/* The gradient's centre is the seed's canonical spawn, not (0,0): loadSeed
+   derives it purely from the seed, so every client agrees on it, and a seed
+   whose start site lands far from the numeric origin still starts tame. */
+const ORIGIN = { x: 0, z: 0 };
 /* How far into the world this ground is: an unclamped float that only ever
    grows with travel and altitude. Distance does most of the work, the way
    2007 pushed its wilderness north; noise stays a seasoning (at 0.9 it
    outweighed the first nine hundred tiles and destroyed the gradient). */
 function powerAt(x, z) {
-  return Math.hypot(x, z) / 1000
+  return Math.hypot(x - ORIGIN.x, z - ORIGIN.z) / 1000
        + Math.max(0, (heightAt(x, z) - 30) / 40)
        + fbm(x * 0.00055, z * 0.00055, S + 111, 2) * 0.35;
 }
@@ -4614,18 +4618,24 @@ function powerAt(x, z) {
    asymmetric sigma lets weak monsters linger everywhere while strong ones
    fall off twice as fast below their home ground. Every constant here is
    wire format: all clients must roll the same monster for the same hash. */
+/* The sanctuary is a slope, not a cliff: inside 50 tiles of the spawn the
+   ceiling is level 15, and over the next hundred tiles it climbs a geometric
+   ramp to nothing at all — a dragon at 151 tiles was worse than the hard
+   cutoff it replaced. Quantised to tenths so the tables stay cacheable. */
 const SANCTUARY = 150, SANCTUARY_LV = 15;
+const sanctuaryCap = sT => sT <= 0 ? Infinity : Math.round(SANCTUARY_LV * Math.pow(250 / SANCTUARY_LV, 1 - sT));
 const _spawnTabs = new Map();
-function spawnTable(p, sanct) {
+function spawnTable(p, sT) {
   const bucket = Math.max(0, Math.round(p * 10));      // one decimal is plenty
-  const key = bucket * 2 + (sanct ? 1 : 0);
+  const key = bucket * 12 + Math.round(sT * 10);
   let t = _spawnTabs.get(key);
   if (t) return t;
   const targetLv = 4 * Math.pow(1 + bucket / 10, 3);
+  const cap = sanctuaryCap(Math.round(sT * 10) / 10);
   const cum = [], types = [];
   let sum = 0;
   for (const q of NPC_TYPES) {
-    if (sanct && q.lv > SANCTUARY_LV) continue;        // the respawn field stays soft
+    if (q.lv > cap) continue;                          // the respawn field stays soft
     const r = Math.log(q.lv / targetLv), sg = r < 0 ? 0.95 : 0.55;
     sum += 1 / Math.pow(1 + Math.pow(r / sg, 2), 2);
     cum.push(sum); types.push(q);
@@ -4634,8 +4644,10 @@ function spawnTable(p, sanct) {
   _spawnTabs.set(key, t);
   return t;
 }
-function pickMonster(x, z, h) {
-  const t = spawnTable(powerAt(x, z), Math.hypot(x, z) < SANCTUARY);
+function pickMonster(x, z, h, p) {
+  if (p === undefined) p = powerAt(x, z);              // callers with it to hand pass it
+  const d = Math.hypot(x - ORIGIN.x, z - ORIGIN.z);
+  const t = spawnTable(p, clamp((SANCTUARY - d) / 100, 0, 1));
   // bits 11+: 0–7 and 8–15 already place the spawn inside its cell, and
   // reusing them would correlate the species with the position
   const u = ((h >>> 11) & 1048575) / 1048576 * t.sum;
@@ -4644,6 +4656,15 @@ function pickMonster(x, z, h) {
   while (lo < hi) { const m = (lo + hi) >> 1; if (c[m] < u) lo = m + 1; else hi = m; }
   return t.types[lo];
 }
+/* Who walks a town's streets, by settlement rank: hamlets get farmhands,
+   cities get wizards and the watch. Picked by hash like everything else. */
+const TOWNFOLK = [
+  ['man', 'woman', 'farmer', 'goblin'],
+  ['man', 'woman', 'farmer', 'monk', 'dwarf', 'barbarian'],
+  ['man', 'woman', 'farmer', 'monk', 'dwarf', 'guard'],
+  ['man', 'woman', 'monk', 'wizard', 'thug', 'guard'],
+  ['man', 'woman', 'wizard', 'pirate', 'thug', 'guard']
+];
 /* Creatures out in the world, on their own lattice so they do not depend on a
    settlement existing. One roaming pack per 64-tile cell, seeded by the cell. */
 const WILD_CELL = 64;
@@ -4654,8 +4675,11 @@ function spawnWild() {
     for (let b = -1; b <= 1 && npcs.length < CAP; b++) {
       const gx = cx + a, gz = cz + b;
       const h = hash2(gx, gz, S + 112);
-      // occupancy rises with the ground's power: the deep wilds are crowded
+      /* One powerAt per cell serves the occupancy roll, the lottery and the
+         spawned record — it varies over hundreds of tiles, and every client
+         using the cell centre keeps the choice identical everywhere. */
       const pc = powerAt(gx * WILD_CELL + WILD_CELL / 2, gz * WILD_CELL + WILD_CELL / 2);
+      // occupancy rises with the ground's power: the deep wilds are crowded
       if ((h % 100) > 58 + Math.min(30, Math.max(0, pc) * 8)) continue;
       const packed = 1 + (h >>> 7) % 4;
       for (let i = 0; i < packed && npcs.length < CAP; i++) {
@@ -4669,7 +4693,7 @@ function spawnWild() {
         if (isWater(y) || y > 70 || blocked.has(tk(x, z)) || floorMap.has(tk(x, z))) continue;
         const nv = nearVillage(x, z);
         if (nv && nv.d < nv.v.r * 1.1) continue;        // towns keep their own guards
-        spawnNpc(pickMonster(x, z, hh), x, z, key);
+        spawnNpc(pickMonster(x, z, hh, pc), x, z, key, pc);
       }
     }
 }
@@ -4690,7 +4714,7 @@ function refreshNpcs() {
         const key = 'n' + v.x + '_' + v.z + '_' + i;
         if (npcDead.has(key) || npcs.some(n => n.key === key)) continue;
         const h = hash2(v.x + i * 71, v.z - i * 37, S + 52);
-        let x, z, t;
+        let x, z, t, pw;
         villageBuildings(v);
         if (v.keep && i < 2 + v.rank) {                    // castle garrison
           const c = v.keep, sp = 6 + ((h >>> 3) & 7);      // clear of the bigger hall
@@ -4699,20 +4723,22 @@ function refreshNpcs() {
         } else if (v.spots && v.spots.length && (h & 1)) {
           const sp = v.spots[(h >>> 6) % v.spots.length];  // townsfolk on the streets
           x = sp.x; z = sp.z;
-          t = v.rank >= 3 ? NPC_BY.guard : ((h >>> 17) & 1 ? NPC_BY.barbarian : NPC_BY.goblin);
+          const folk = TOWNFOLK[Math.min(TOWNFOLK.length - 1, v.rank)];
+          t = NPC_BY[folk[(h >>> 17) % folk.length]];
         } else {
           const ang = (h & 1023) / 1024 * TAU, rad = v.r * (0.9 + ((h >>> 10) & 63) / 64 * 0.6);
           x = Math.round(v.x + Math.cos(ang) * rad); z = Math.round(v.z + Math.sin(ang) * rad);
-          t = pickMonster(x, z, h);                     // the outskirts belong to the wilds
+          pw = powerAt(x, z);
+          t = pickMonster(x, z, h, pw);                 // the outskirts belong to the wilds
         }
         if (Math.abs(x - P.tx) > 60 || Math.abs(z - P.tz) > 60) continue;
         if (isWater(walkY(x, z)) || blocked.has(tk(x, z))) continue;
-        spawnNpc(t, x, z, key);
+        spawnNpc(t, x, z, key, pw);
       }
     }
   spawnWild();
 }
-function spawnNpc(t, x, z, key) {
+function spawnNpc(t, x, z, key, pw) {
   /* kh seeds the shared wander; a late joiner scans back a few ticks so it
      adopts the leg the rest of the room is already walking. Dev-menu spawns
      have no key: they stay local and roll a private seed. */
@@ -4729,7 +4755,8 @@ function spawnNpc(t, x, z, key) {
   npcs.push({
     npc: 1, t, key, name: t.n, tx: x, tz: z, px: x, pz: z, rx: x, rz: z, ry: walkY(x, z),
     home: { x, z }, hp: t.hp, maxhp: t.hp, face: 0, faceT: 0, mesh, atkT: 0, atkStyle: 'm',
-    cd: 2 + (hash2(x, z, S) & 3), target: null, dead: 0, mv: 0, pw: powerAt(x, z),
+    cd: 2 + (hash2(x, z, S) & 3), target: null, dead: 0, mv: 0,
+    pw: pw !== undefined ? pw : powerAt(x, z),     // callers who know it pass it
     kh, dest, owner: null, lastNet: 0, netAct: 0
   });
 }
@@ -4751,7 +4778,12 @@ function releaseMon(n) {
   if (key) netWorld([21, key, n.tx, n.tz, 0, n.maxhp, '', 255]);
 }
 function netMon() {
-  for (const q of npcs) if (q.key && q.owner === PID && q.target && !q.dead) sendMonFrame(q);
+  /* Frames flow for anything we own that is off the shared script: a fight,
+     or a hurt animal running from us. Without the second clause a fleeing
+     chicken moved only on the attacker's screen — everyone else kept walking
+     it along the deterministic wander, and the two never met again. */
+  for (const q of npcs)
+    if (q.key && q.owner === PID && !q.dead && (q.target || (q.t.flee && q.hp < q.maxhp))) sendMonFrame(q);
 }
 /* Which of its attacks a monster reaches for this tick. Out of melee range it
    has to use something that flies, or it has no attack at all. */
@@ -4791,13 +4823,17 @@ function npcTick(n) {
   }
   const near = Math.max(Math.abs(n.tx - P.tx), Math.abs(n.tz - P.tz));
   if (n.target && (near > 12 || P.dead)) { n.target = null; releaseMon(n); }
+  // hurt prey that got away is released the same way a broken fight is:
+  // healed, sent home, and handed back to the shared wander on every client
+  if (!n.target && n.t.flee && n.owner === PID && n.hp < n.maxhp && (near > 12 || P.dead)) releaseMon(n);
   /* The 2007 aggression rules: the mean ones start it, within a few tiles,
      unless you have outgrown them (twice their level and they lose interest)
      or overstayed. The tolerance that familiarity buys stretches thin as the
      ground's power rises and never arrives past p = 1.5 — the deep wilds do
      not get used to you, which is what keeps camping there a decision. */
+  const npw = Math.max(0, n.pw);                 // noise can dip powerAt below zero near home
   if (!n.target && n.t.agg && !P.dead && near <= 5 &&
-      (n.pw >= 1.5 || tickN - P.regionT < 1000 / (1 - n.pw / 1.5)) &&
+      (npw >= 1.5 || tickN - P.regionT < 1000 / (1 - npw / 1.5)) &&
       combatLevel() < n.t.lv * 2 + 1) {
     n.target = P;
     claimMon(n);
@@ -4860,6 +4896,19 @@ function npcTick(n) {
   if (n.target) n.faceT = Math.atan2(P.tx - n.tx, P.tz - n.tz);
   else if (n.tx !== n.px || n.tz !== n.pz) n.faceT = Math.atan2(n.tx - n.px, n.tz - n.pz);
 }
+/* The rare table the whole bestiary shares: any kill can pay out, weighted
+   toward the cheap end. Weights are relative within the table only — the
+   chance of rolling on it at all lives in killNpc. */
+const RARE_DROPS = [
+  { id: 'coins', w: 22, n: 900 },
+  { id: 'mithril_ore', w: 14, n: 8 }, { id: 'adamantite_ore', w: 10, n: 4 },
+  { id: 'chaos_rune', w: 12, n: 40 }, { id: 'runite_ore', w: 6, n: 2 },
+  { id: 'adamant_scimitar', w: 8 }, { id: 'adamant_platebody', w: 6 },
+  { id: 'mystic_hat', w: 5 }, { id: 'mystic_robe_bottom', w: 4 }, { id: 'mystic_robe_top', w: 3 },
+  { id: 'rune_med_helm', w: 4 }, { id: 'rune_scimitar', w: 3 },
+  { id: 'rune_kiteshield', w: 2 }, { id: 'rune_platebody', w: 1 }
+];
+const RARE_W = RARE_DROPS.reduce((s, d) => s + d.w, 0);
 function killNpc(n) {
   n.dead = 1;
   if (n.plate) { freePlate(n.plate); n.plate = null; }
@@ -4881,12 +4930,23 @@ function killNpc(n) {
       unique = 1; break;
     }
   }
+  /* And every kill buys one ticket in the rare lottery, on top of whatever
+     else fell. Level buys more tickets, but even a steel dragon tops out at
+     one in fifty — the dragon earns chances, not a salary. */
+  if (Math.random() < Math.min(0.02, 0.002 + lv * 0.00008)) {
+    let r = Math.random() * RARE_W;
+    for (const d of RARE_DROPS) if ((r -= d.w) < 0) {
+      dropItem(d.id, d.n || 1, n.tx, n.tz);
+      say('Something rare tumbles from the ' + n.name + '!', 'lv');
+      break;
+    }
+  }
   if (!unique) {
-    // the tier tracks what you beat OR where you beat it: a goblin at 2,500
-    // tiles pays adamant (floor(2.5 * 2.2) = 5 on this seven-rung ladder),
-    // and a dragon dragged home still pays rune
+    // the tier tracks what you beat OR where you beat it: iron at 1,000
+    // tiles, adamant at 2,500 (floor(2.5 * 2.4) - 1 = 5 on this seven-rung
+    // ladder), and a dragon dragged home still pays rune
     const tierLv = lv >= 80 ? 6 : lv >= 60 ? 5 : lv >= 40 ? 4 : lv >= 25 ? 3 : lv >= 12 ? 2 : 0;
-    const tier = clamp(Math.max(tierLv, Math.floor(p * 2.2)), 0, 6);
+    const tier = clamp(Math.max(tierLv, Math.floor(p * 2.4) - 1), 0, 6);
     const roll = Math.random();
     if (roll < 0.16) dropItem(TIERS[tier].k + '_med_helm', 1, n.tx, n.tz);
     else if (roll < 0.26) dropItem(TIERS[tier].k + '_scimitar', 1, n.tx, n.tz);
@@ -6448,6 +6508,8 @@ function loadSeed(str) {
       if (sc > best) { best = sc; bx = x; bz = z; }
     }
   }
+  // the canonical spawn anchors the danger gradient for every client alike
+  ORIGIN.x = bx; ORIGIN.z = bz;
   focus.set(bx, 0, bz);
   refresh(); pump(300);
   placePlayer(bx, bz);
@@ -7036,8 +7098,10 @@ let ackPending = 0, ackWarned = 0;
 const NEED_BUILD = 3;                          // the wire contract this client speaks
 /* Bumped whenever anything in powerAt / spawnTable / pickMonster changes —
    two clients disagreeing on those constants see different monsters on the
-   same spawn key. Rev 2 is the power-lottery bestiary. */
-const SPAWN_REV = 2;
+   same spawn key. Rev 2 was the power-lottery bestiary; rev 3 anchors the
+   gradient at the seed's spawn, ramps the sanctuary, and picks wild spawns
+   from the cell-centre power. */
+const SPAWN_REV = 3;
 let worldSync = 0;                             // build >= 4: rooms relay 20/21/22
 function netWorld(msg) {
   if (worldSync && ws && ws.readyState === 1) { try { ws.send(JSON.stringify(msg)); } catch {} }
