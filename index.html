@@ -35,7 +35,9 @@
   #hover .obj{color:#0f0}
   #hover .lvl{color:#ff0}
 
-  #budget{position:fixed;top:72px;left:10px;padding:7px 9px 6px;min-width:200px;z-index:5}
+  /* the storage ledger is a developer's readout: off unless switched on in the console */
+  #budget{position:fixed;top:72px;left:10px;padding:7px 9px 6px;min-width:200px;z-index:5;display:none}
+  body.budget #budget{display:block}
   /* mode flags under the hover line: the skull that means other players can
      attack you here, and the stuck crawl beneath it */
   #pvpTag{position:fixed;top:28px;left:10px;z-index:6;display:none;align-items:center;gap:5px;
@@ -528,7 +530,7 @@
     background:#10131a;transition:opacity .5s;font-size:12px;letter-spacing:.2em;color:var(--dim)}
   #boot.gone{opacity:0;pointer-events:none}
 
-  @media (max-width:900px){ #chatwrap{width:280px} #chat{height:104px} #budget{display:none}
+  @media (max-width:900px){ #chatwrap{width:280px} #chat{height:104px} body.budget #budget{display:none}
     #chatbar{width:280px;bottom:122px} }
   @media (max-width:680px){
     #side{width:180px} #panes{height:236px} #minimap{width:112px;height:112px} #mm{width:112px}
@@ -701,6 +703,7 @@
           <button data-d="heal">Heal</button><button data-d="coins">+10k gp</button>
           <button data-d="runes">Runes</button><button data-d="kit">Rune kit</button>
           <button data-d="city">Nearest city</button><button data-d="clear">Empty pack</button>
+          <button data-d="budget" id="devBudget">World state panel</button>
         </div>
       <div class="dsec">
         <h4>Items</h4>
@@ -1943,7 +1946,8 @@ ITEMS.bones.bury = 4.5;
    console and the options tab both write to the same place. */
 const OPT = {
   camSpeed: 2.0, viewRadius: 7, fog: 1, timers: 1, xpDrops: 1, roofs: 1, hideRoofs: 0,
-  brightness: 1, runMul: 1, retaliate: 1, stuck: 0, pvpWarn: 1
+  brightness: 1, runMul: 1, retaliate: 1, stuck: 0, pvpWarn: 1,
+  budget: 0                                        // the on-disk ledger: a developer's readout
 };
 
 /* --------------------------- 6. ICONS ------------------------------- */
@@ -7299,6 +7303,8 @@ function applyOpts(r) {
   // every standing roof re-evaluates against the current rules
   for (const rec of chunks.values())
     for (const b of rec.roofs) if (b.roof) b.roof.visible = roofShown(b);
+  document.body.classList.toggle('budget', !!OPT.budget);
+  const db = el('devBudget'); if (db) db.classList.toggle('on', !!OPT.budget);
   store.set('seedworld.opt', JSON.stringify(OPT));   // settings outlive the tab
 }
 
@@ -7502,6 +7508,10 @@ el('devBody').addEventListener('click', e => {
       if (ITEMS['rune_' + p]) invAdd('rune_' + p, 1);
   }
   else if (k === 'clear') { inv.fill(null); dirty.inv = 1; say('Pack emptied.', 'lv'); }
+  else if (k === 'budget') {
+    OPT.budget = OPT.budget ? 0 : 1; applyOpts();
+    say('World state panel ' + (OPT.budget ? 'shown' : 'hidden') + '.', 'lv');
+  }
   else if (k === 'here') { el('devTx').value = P.tx; el('devTz').value = P.tz; }
   else if (k === 'run') {
     OPT.runMul = clamp(+el('devRun').value || 1, 0.25, 8);
