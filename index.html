@@ -436,13 +436,14 @@
       <button id="devSet">Set</button><button id="devAll">Set all</button><button id="devReset">Reset</button></div></div>
     <div class="dsec"><h4>World</h4><div class="drow">
       <button data-d="heal">Heal</button><button data-d="coins">+10k gp</button><button data-d="runes">Runes</button><button data-d="kit">Rune kit</button>
-      <button data-d="city">Nearest city</button><button data-d="clear">Empty pack</button><button data-d="budget" id="devBudget">World state panel</button></div></div>
+      <button data-d="clear">Empty pack</button><button data-d="budget" id="devBudget">World state panel</button></div></div>
+    <div class="dsec"><h4>Teleport</h4><div class="drow"><input id="devTx" type="number" placeholder="x" value="0"><input id="devTz" type="number" placeholder="z" value="0">
+      <button data-d="tp">Go</button><button data-d="here">Use current</button><button data-d="city">Nearest city</button><button data-d="ge">Nearest exchange</button></div>
+      <div class="drow"><select id="devTpNpc"></select><button data-d="npc">Nearest NPC</button><select id="devTpPlace"></select><button data-d="place">Nearest place</button></div></div>
     <div class="dsec"><h4>Items</h4><div class="drow"><input id="devFind" placeholder="search items…" autocomplete="off">
       <input id="devQty" type="number" min="1" max="10000" value="1"></div><div id="devItems"></div></div>
     <div class="dsec"><h4>Monsters</h4><div class="drow"><input id="devMonFind" placeholder="search monsters…" autocomplete="off">
       <input id="devMonQty" type="number" min="1" max="20" value="1"></div><div id="devMons"></div></div>
-    <div class="drow"><span class="dlab">Teleport</span><input id="devTx" type="number" placeholder="x" value="0"><input id="devTz" type="number" placeholder="z" value="0">
-      <button data-d="tp">Go</button><button data-d="here">Use current</button></div>
     <div class="drow"><span class="dlab">Run speed</span><input id="devRun" type="number" min="0.25" max="8" step="0.25" value="1">
       <button data-d="run">Apply</button><span class="dnote" id="devRunNow">1x · 2 tiles/tick</span></div>
   </div>
@@ -1997,7 +1998,7 @@ function ghostGeo(o) {
 }
 
 /* Stats follow the 2007 tables. db: defence bonus on the player-gear scale; abon: attack bonus; max: max-hit override; mspd: tiles per
-   tick; flee: runs when struck; drops: [id, weight, min, max] rolled before the generic ladder; at: attack styles (m/r/g); agg: retaliates from range.
+   tick; flee: livestock, never a slayer task; drops: [id, weight, min, max] rolled before the generic ladder; at: attack styles (m/r/g); agg: retaliates from range.
    build(body) returns the rig; body is the row's primary colour. */
 const H = (w, h, x) => b => humanoid(Object.assign({ w, h, body: b }, x));
 const Q = (w, h, len, x) => b => quadruped(Object.assign({ w, h, len, body: b }, x));
@@ -2150,7 +2151,7 @@ const BOSSES = [
 ];
 for (const [k, n, bk, lv, hp, atk, str, def, db, abon, max, at, rng, spd, mspd, scale, tint, bolt, arrow, loot, gp] of BOSSES) {
   const base = NPC_TYPES.find(t => t.k === bk);
-  NPC_TYPES.push({ k, n, boss: 1, big: 1, agg: 1, flee: 0, fire: base.fire || 0, lv, hp, atk, str, def, db, abon, max, at, rng, spd, mspd, sz: base.sz * scale, scale,
+  NPC_TYPES.push({ k, n, boss: 1, big: 1, agg: 1, fire: base.fire || 0, lv, hp, atk, str, def, db, abon, max, at, rng, spd, mspd, sz: base.sz * scale, scale,
     bolt: bolt || base.bolt, arrow: arrow || base.arrow, tint: tint || null, body: base.body, drops: bossLoot(loot, gp), build: base.build });
 }
 NPC_TYPES.forEach((t, i) => {
@@ -2158,7 +2159,6 @@ NPC_TYPES.forEach((t, i) => {
   if (t.abon === undefined) t.abon = Math.round(t.lv * 0.35);
   if (t.max === undefined) t.max = null;
   if (t.mspd === undefined) t.mspd = 1;
-  if (t.flee === undefined) t.flee = 0;
   if (t.drops === undefined) t.drops = null;
   t.i = i;
 });
@@ -3543,21 +3543,24 @@ const TOWNFOLK = [['man', 'woman', 'farmer', 'goblin', 'masterfarmer'], ['man', 
   ['man', 'woman', 'monk', 'wizard', 'thug', 'guard', 'watchman', 'rogue'], ['man', 'woman', 'wizard', 'pirate', 'thug', 'guard', 'watchman', 'rogue']];
 const hasNpc = key => npcDead.has(key) || npcs.some(q => q.key === key);
 const WILD_CELL = 64;                                     // one roaming pack per cell, one species to a cell
+/* the cell's pack, or null: its hash, the ground's power at the centre (one powerAt a cell), how many, and the species the lottery picks */
+function wildPack(gx, gz) {
+  const h = hash2(gx, gz, S + 112), x = gx * WILD_CELL + WILD_CELL / 2, z = gz * WILD_CELL + WILD_CELL / 2, pc = powerAt(x, z);
+  return (h % 100) > 58 + Math.min(30, Math.max(0, pc) * 8) ? null : { h, pc, n: 1 + (h >>> 7) % 4, t: pickMonster(x, z, h, pc) };
+}
+const wildSpot = (gx, gz, i) => { const hh = hash2(gx * 31 + i, gz * 17 - i, S + 113); return { x: gx * WILD_CELL + (hh % WILD_CELL), z: gz * WILD_CELL + ((hh >>> 8) % WILD_CELL) }; };
 function spawnWild() {
   const cx = Math.floor(P.tx / WILD_CELL), cz = Math.floor(P.tz / WILD_CELL), CAP = npcCap();
   for (let a = -1; a <= 1 && npcs.length < CAP; a++) for (let b = -1; b <= 1 && npcs.length < CAP; b++) {
-    const gx = cx + a, gz = cz + b, h = hash2(gx, gz, S + 112);
-    const pc = powerAt(gx * WILD_CELL + WILD_CELL / 2, gz * WILD_CELL + WILD_CELL / 2);   // one powerAt per cell, from its centre
-    if ((h % 100) > 58 + Math.min(30, Math.max(0, pc) * 8)) continue;
-    const packed = 1 + (h >>> 7) % 4, species = pickMonster(gx * WILD_CELL + WILD_CELL / 2, gz * WILD_CELL + WILD_CELL / 2, h, pc);
-    for (let i = 0; i < packed && npcs.length < CAP; i++) {
+    const gx = cx + a, gz = cz + b, pk = wildPack(gx, gz);
+    for (let i = 0; pk && i < pk.n && npcs.length < CAP; i++) {
       const key = 'w' + gx + '_' + gz + '_' + i;
       if (hasNpc(key)) continue;
-      const hh = hash2(gx * 31 + i, gz * 17 - i, S + 113), x = gx * WILD_CELL + (hh % WILD_CELL), z = gz * WILD_CELL + ((hh >>> 8) % WILD_CELL);
+      const { x, z } = wildSpot(gx, gz, i);
       if (Math.abs(x - P.tx) > 58 || Math.abs(z - P.tz) > 58 || walkY(x, z) > 70 || !dryOpen(x, z)) continue;
       const nv = nearVillage(x, z);
       if (nv && nv.d < nv.v.r * 1.1) continue;
-      spawnNpc(species, x, z, key, pc);
+      spawnNpc(pk.t, x, z, key, pk.pc);
     }
   }
 }
@@ -3586,6 +3589,17 @@ function openNear(x, z, r) {
     if (Math.max(Math.abs(i), Math.abs(j)) === ring && dryOpen(x + i, z + j)) return { x: x + i, z: z + j };
   return null;
 }
+/* the nearest thing round the player on a lattice of `cell` tiles: fn(gx, gz) answers an {x, z} or null; the spiral stops a ring past its last improvement, or at `rings` */
+function nearestOf(cell, rings, fn) {
+  const cx = Math.floor(P.tx / cell), cz = Math.floor(P.tz / cell);
+  let best = null, bd = 1e18, hit = 1e9;
+  for (let r = 0; r <= rings && r <= hit + 1; r++) for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) {
+    if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
+    const p = fn(cx + i, cz + j), d = p ? Math.hypot(p.x - P.tx, p.z - P.tz) : bd;
+    if (d < bd) { bd = d; best = p; hit = r; }
+  }
+  return best;
+}
 function spawnBosses() {
   const hour = Math.floor(tickN / BOSS_HOUR), cx = Math.floor(P.tx / BOSS_CELL), cz = Math.floor(P.tz / BOSS_CELL);
   for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
@@ -3607,29 +3621,32 @@ function refreshNpcs() {
   for (let a = -1; a <= 1 && npcs.length < CAP; a++) for (let b = -1; b <= 1 && npcs.length < CAP; b++) {
     const v = villageAt(gx + a, gz + b);
     if (!v) continue;
-    const count = 4 + v.rank * 3 + hash2(v.x, v.z, S + 51) % 4;
-    for (let i = 0; i < count && npcs.length < CAP; i++) {
+    villageBuildings(v);
+    for (let i = 0, n = villageSpawnN(v); i < n && npcs.length < CAP; i++) {
       const key = 'n' + v.x + '_' + v.z + '_' + i;
       if (hasNpc(key)) continue;
-      const h = hash2(v.x + i * 71, v.z - i * 37, S + 52);
-      let x, z, t, pw;
-      villageBuildings(v);
-      if (v.keep && i < 2 + v.rank) {                     // castle garrison
-        const c = v.keep, sp = 6 + ((h >>> 3) & 7);
-        x = c.x + (((h & 1) ? 1 : -1) * sp); z = c.z + ((((h >>> 1) & 1) ? 1 : -1) * sp); t = NPC_BY.guard;
-      } else if (v.spots && v.spots.length && (h & 1)) {   // townsfolk on the streets
-        const sp = v.spots[(h >>> 6) % v.spots.length], folk = TOWNFOLK[Math.min(TOWNFOLK.length - 1, v.rank)];
-        x = sp.x; z = sp.z; t = NPC_BY[folk[(h >>> 17) % folk.length]];
-      } else {                                             // the outskirts belong to the wilds
-        const ang = (h & 1023) / 1024 * TAU, rad = v.r * (0.9 + ((h >>> 10) & 63) / 64 * 0.6);
-        x = Math.round(v.x + Math.cos(ang) * rad); z = Math.round(v.z + Math.sin(ang) * rad);
-        pw = powerAt(x, z); t = pickMonster(x, z, h, pw);
-      }
-      if (Math.abs(x - P.tx) > 60 || Math.abs(z - P.tz) > 60 || !dry(x, z)) continue;
-      spawnNpc(t, x, z, key, pw);
+      const s = villageSpawn(v, i);
+      if (Math.abs(s.x - P.tx) > 60 || Math.abs(s.z - P.tz) > 60 || !dry(s.x, s.z)) continue;
+      spawnNpc(s.t, s.x, s.z, key, s.pw);
     }
   }
   spawnWild();
+}
+/* the i-th spawn a settlement owns: castle garrison, townsfolk on the streets, else the outskirts' monsters. Before the plan is laid out the
+   rank stands in for the keep, every street for the spots and the centre for the tile, so a finder can read a settlement it never built */
+const villageSpawnN = v => 4 + v.rank * 3 + hash2(v.x, v.z, S + 51) % 4;
+function villageSpawn(v, i) {
+  const h = hash2(v.x + i * 71, v.z - i * 37, S + 52), B = v.b, r = { v, i };
+  if ((B ? v.keep : RANKS[v.rank].keep) && i < 2 + v.rank) {
+    const c = B ? v.keep : v, sp = 6 + ((h >>> 3) & 7);
+    return Object.assign(r, { t: NPC_BY.guard, x: c.x + (((h & 1) ? 1 : -1) * sp), z: c.z + ((((h >>> 1) & 1) ? 1 : -1) * sp) });
+  }
+  if ((!B || v.spots.length) && (h & 1)) {
+    const folk = TOWNFOLK[Math.min(TOWNFOLK.length - 1, v.rank)], sp = B ? v.spots[(h >>> 6) % v.spots.length] : v;
+    return Object.assign(r, { t: NPC_BY[folk[(h >>> 17) % folk.length]], x: sp.x, z: sp.z });
+  }
+  const ang = (h & 1023) / 1024 * TAU, rad = v.r * (0.9 + ((h >>> 10) & 63) / 64 * 0.6), x = Math.round(v.x + Math.cos(ang) * rad), z = Math.round(v.z + Math.sin(ang) * rad), pw = powerAt(x, z);
+  return Object.assign(r, { t: pickMonster(x, z, h, pw), x, z, pw });
 }
 /* the shared wander: destination is a pure function of (key hash, shared tick) */
 const wanderAt = (kh, tick, hx, hz) => { const r = hash2(kh ^ tick, tick, S + 777); return r % 6 === 0 ? { x: hx + ((r >>> 8) % 11) - 5, z: hz + ((r >>> 16) % 11) - 5 } : null; };
@@ -3657,7 +3674,7 @@ function sendMonFrame(n) {
 const leash = n => { n.owner = null; n.hp = n.maxhp; n.dest = { x: n.home.x, z: n.home.z }; };
 function releaseMon(n) { const key = n.key; leash(n); if (key) netWorld([21, key, n.tx, n.tz, 0, n.maxhp, '', 255]); }
 function netMon() {                                       // frames for anything we own that is off the shared script
-  for (const q of npcs) if (q.key && q.owner === PID && !q.dead && (q.target || (q.t.flee && q.hp < q.maxhp))) sendMonFrame(q);
+  for (const q of npcs) if (q.key && q.owner === PID && !q.dead && q.target) sendMonFrame(q);
 }
 function npcStyle(n, near) {
   const at = n.t.at || 'm', far = at.replace('m', '');
@@ -3687,7 +3704,6 @@ function npcTick(n) {
   if (n.owner && n.owner !== PID) { if (tickN - n.lastNet > 5) leash(n); return; }   // someone else's fight; fall back if frames stop
   const near = chebDist(n.tx, n.tz, P.tx, P.tz);
   if (n.target && (near > 12 || P.dead)) { n.target = null; releaseMon(n); }
-  if (!n.target && n.t.flee && n.owner === PID && n.hp < n.maxhp && (near > 12 || P.dead)) releaseMon(n);
   // 2007 aggression: the mean ones start it within a few tiles, unless outgrown or overstayed; the deep wilds never get used to you
   const npw = Math.max(0, n.pw);
   if (!n.target && n.t.agg && !P.dead && near <= (n.t.boss ? 7 : 5) && (n.t.boss || npw >= 1.5 || tickN - P.regionT < 1000 / (1 - npw / 1.5)) &&
@@ -3728,9 +3744,8 @@ function npcTick(n) {
       retaliate(n);
     }
   } else {
-    // un-aggroed monsters mill about deterministically; a struck fleeing animal runs from you (local, like any fight)
-    if (n.t.flee && n.hp < n.maxhp && near <= 8 && !P.dead) n.dest = { x: n.tx + Math.sign(n.tx - P.tx || 1) * 6, z: n.tz + Math.sign(n.tz - P.tz || 1) * 6 };
-    else { const d = wanderAt(n.kh, tickN, n.home.x, n.home.z); if (d) n.dest = d; }
+    const d = wanderAt(n.kh, tickN, n.home.x, n.home.z);   // un-aggroed monsters mill about deterministically
+    if (d) n.dest = d;
     if (n.dest && (n.dest.x !== n.tx || n.dest.z !== n.tz)) {
       for (n.mv += n.t.mspd; n.mv >= 1 && n.dest; n.mv--) {
         if (!npcStep(n, n.dest.x, n.dest.z, 1)) n.dest = null;
@@ -3969,7 +3984,7 @@ function taskTick() {
     if (dmg < 0) return;
     o.hp -= dmg;
     if (P.pose === 0 || P.pose === 4) healthBar(o);        // a bolt draws the bar when it lands
-    if (o.hp <= 0) killNpc(o); else if (!o.t.flee) o.target = P;   // prey runs, it does not turn
+    if (o.hp <= 0) killNpc(o); else o.target = P;
     return;
   }
   P.acting = 1; P.actSpan = 2; P.pose = t.k === 'pray' ? 3 : 0;   // gathering swings twice per roll
@@ -4728,19 +4743,6 @@ const DEV = {
     if (Math.abs(x) > 2e6 || Math.abs(z) > 2e6) return say('Those coordinates are off the lattice.', 'bad');
     teleport(x, z, 400);
     say('Teleported to ' + x + ', ' + z + ' — ' + biomeName(walkY(x, z), x, z) + '.', 'lv');
-  },
-  city() {
-    const gx = Math.floor(P.tx * INV_CELL), gz = Math.floor(P.tz * INV_CELL);
-    let best = null, bd = 1e9;
-    for (let a = -4; a <= 4; a++) for (let b2 = -4; b2 <= 4; b2++) {
-      const v = villageAt(gx + a, gz + b2);
-      if (!v || v.rank < 3) continue;
-      const d = Math.hypot(v.x - P.tx, v.z - P.tz);
-      if (d < bd) { bd = d; best = v; }
-    }
-    if (!best) return say('No city within range.', 'bad');
-    teleport(best.x + 4, best.z + 3, 400);                  // beside the square: the fountain claims the centre
-    say('Warped to ' + villageName(best) + '.', 'lv');
   }
 };
 on(el('devBody'), 'click', e => { const b = e.target.closest('[data-d]'); if (b && DEV[b.dataset.d]) DEV[b.dataset.d](); });
@@ -4817,8 +4819,8 @@ function itemOptions(i) {
   if (it.equip) opts.push(itm('Wield', nm, () => equip(i)));
   if (it.heal) opts.push(itm('Eat', nm, () => eat(i)));
   if (it.opt) opts.push(itm(it.opt[0], nm, () => it.opt[1](i)));
-  opts.push(itm(useSel && useSel.i === i ? 'Cancel use' : 'Use', nm, () => { if (useSel && useSel.i === i) clearUse(); else { useSel = { i, id: s.id, name: nm }; dirty.inv = 1; hoverObj = undefined; } }));
   if (it.bury) opts.push(itm('Bury', nm, () => bury(s.id)));
+  opts.push(itm(useSel && useSel.i === i ? 'Cancel use' : 'Use', nm, () => { if (useSel && useSel.i === i) clearUse(); else { useSel = { i, id: s.id, name: nm }; dirty.inv = 1; hoverObj = undefined; } }));
   if (it.fire) opts.push(itm('Light', nm, () => lightLogs(s.id)));
   opts.push(itm('Drop', nm, () => { dropItem(s.id, s.n, P.tx, P.tz); inv[i] = null; dirty.inv = 1; }), examineOpt(it));
   return opts;
@@ -7018,17 +7020,9 @@ RING_NOTES.ring_of_dueling = ' Rub it to be carried to the nearest settlement.';
 /* teleports: every one ends what you were doing and lands you on a street tile */
 function tpTo(x, z, where) { closeOverlays(); teleport(x, z, 400); say('You teleport ' + where + '.'); return 1; }
 const tpV = (v, what) => { if (!v) return say('There is no ' + what + ' near enough to reach.', 'bad'); const s = safeSpotIn(v); return tpTo(s.x, s.z, 'to ' + villageName(v)); };
-function nearCity(x, z, R) {                                // nearest settlement of city rank, the DEV.city scan
-  const gx = Math.floor(x * INV_CELL), gz = Math.floor(z * INV_CELL);
-  let best = null, bd = 1e9;
-  for (let a = -R; a <= R; a++) for (let b = -R; b <= R; b++) {
-    const v = villageAt(gx + a, gz + b), d = v ? Math.hypot(v.x - x, v.z - z) : 1e9;
-    if (v && v.rank >= 3 && d < bd) { bd = d; best = v; }
-  }
-  return best;
-}
+const nearCity = R => nearestOf(SETTLE_CELL, R, (a, b) => { const v = villageAt(a, b); return v && v.rank >= 3 ? v : null; });   // nearest settlement of city rank, R cells out
 function villageTp() { return tpV(nearestVillageTo(P.tx, P.tz, 12), 'settlement'); }
-function cityTp() { return tpV(nearCity(P.tx, P.tz, 6), 'city'); }
+function cityTp() { return tpV(nearCity(6), 'city'); }
 function homeTp() {
   const left = 3000 - (tickN - P.homeT);                    // half an hour between casts
   if (left > 0) return say('You need to wait another ' + Math.ceil(left / 100) + ' minutes to cast this spell.', 'bad');
@@ -7138,6 +7132,34 @@ function openCasket(s, i) {                                // two rolls, three, 
   for (let k = 0; k < 2 + i; k++) { const d = rollTable(CLUE_LOOT), n = randInt(d[2] || 1, d[3] || d[2] || 1) * (1 + i); if (!invAdd(d[0], n)) dropItem(d[0], n, P.tx, P.tz); }
   say('You open the casket. Its treasures are yours.', 'lv'); markDirty(1);
 }
+
+/* ---- DEV TELEPORTS: the nearest settlement reader (laid out on the way), lattice finder, or spawn of a chosen kind; one spiral serves them all ---- */
+const vFind = fn => (a, b) => { const v = villageAt(a, b); return (v && villageBuildings(v) && fn(v)) || null; };
+const PLACES = [['Rune altar', ruinAt, RUIN_CELL, 30], ['Grand Exchange', vFind(v => v.ge)], ['Bank', vFind(v => v.b.find(b => b.bank))], ['Barber', vFind(v => v.b.find(b => b.barber))],
+  ...Object.keys(FIX_NAME).map(t => [FIX_NAME[t], vFind(v => v.f.find(f => f.t === +t))]), ['Church altar', vFind(v => v.lm && v.lm.t === 0 && v.lm)], ['Rune essence rocks', vFind(v => v.lm && v.lm.t === 2 && v.lm)],
+  ['Slayer master', vFind(slayerSpot)], ['Farming patches', vFind(v => farmPatches(v)[0])], ['Market stall', vFind(v => v.fur.find(f => f.t === 0))], ...SHOP_KINDS.map(s => [s.n, vFind(v => v.b.find(b => b.shop === s.i))])];
+function tpNear(p, what) {
+  if (!p) return say('No ' + what + ' within the scan.', 'bad');
+  teleport(p.x, p.z, 400);
+  const o = openNear(p.x, p.z, 8); if (o) placePlayer(o.x, o.z);   // the chunks are in now: step off the thing itself
+  say('Warped to the nearest ' + what + ' at ' + P.tx + ', ' + P.tz + '.', 'lv');
+}
+Object.assign(DEV, {
+  city() { tpV(nearCity(40), 'city'); },
+  ge() { tpNear(nearestOf(SETTLE_CELL, 40, vFind(v => v.ge)), 'Grand Exchange'); },
+  place() { const [n, fn, cell, rings] = PLACES[+el('devTpPlace').value]; tpNear(nearestOf(cell || SETTLE_CELL, rings || 40, fn), n.toLowerCase()); },
+  npc() {                                                   // wild packs, settlements and boss lairs each answer with their nearest; the closest wins
+    const k = el('devTpNpc').value, t = NPC_BY[k], hour = Math.floor(tickN / BOSS_HOUR);
+    let best = [nearestOf(WILD_CELL, 64, (a, b) => { const pk = wildPack(a, b); if (!pk || pk.t.k !== k) return null; for (let i = 0; i < pk.n; i++) { const o = wildSpot(a, b, i); if (heightAt(o.x, o.z) >= SEA) return o; } return null; }),
+      nearestOf(SETTLE_CELL, 16, (a, b) => { const v = villageAt(a, b); for (let i = 0, n = v ? villageSpawnN(v) : 0; i < n; i++) { const o = villageSpawn(v, i); if (o.t.k === k) return o; } return null; }),
+      t.boss ? nearestOf(BOSS_CELL, 8, (a, b) => { const L = bossAt(a, b, hour); return L && L.t.k === k ? L : null; }) : null
+    ].filter(Boolean).sort((p, q) => Math.hypot(p.x - P.tx, p.z - P.tz) - Math.hypot(q.x - P.tx, q.z - P.tz))[0];
+    if (best && best.v) { villageBuildings(best.v); best = villageSpawn(best.v, best.i); }   // the exact street, now the plan is known
+    tpNear(best && { x: best.x + 2, z: best.z + 2 }, t.n);                       // beside it, not on it
+  }
+});
+el('devTpNpc').innerHTML = NPC_TYPES.slice().sort((a, b) => a.n.localeCompare(b.n)).map(t => '<option value="' + t.k + '">' + t.n + (t.boss ? ' (boss)' : '') + '</option>').join('');
+el('devTpPlace').innerHTML = PLACES.map((p, i) => '<option value="' + i + '">' + p[0] + '</option>').join('');
 
 /* ---- SKILL GUIDES: what each level unlocks, read off the data tables; a click on a skill opens its page. Recipes and the 99 cape join every list ---- */
 const tools = t => TIERS.filter(q => q.tool < 99).map(q => [q.tool, q.n + ' ' + t]), wpn = TIERS.filter(t => !t.armourOnly);
