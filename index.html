@@ -30,6 +30,9 @@
     border-radius:2px;
   }
 
+  #skTip{position:fixed;z-index:32;max-width:200px;padding:5px 8px;font-size:11px;line-height:1.4;
+    color:var(--bone);background:#2c251c;border:1px solid #000;border-radius:3px;
+    box-shadow:inset 0 0 0 1px var(--bevel),2px 2px 0 rgba(0,0,0,.5);pointer-events:none}
   #hover{position:fixed;top:8px;left:10px;z-index:6;font-size:13px;font-weight:700;
     color:#fff;text-shadow:1px 1px 0 #000;pointer-events:none;height:17px}
   #hover .obj{color:#0f0}
@@ -753,7 +756,7 @@
 
 <div id="chatwrap"><b id="chatmin" title="minimise the chat log">–</b>
   <div id="chat" class="panel"></div></div>
-<div id="chatbar"><i id="netdot" title="offline — single player"></i>
+<div id="chatbar"><i id="netdot" title="offline — single player" style="cursor:pointer"></i>
   <input id="chatin" maxlength="120" placeholder="press Enter to chat" spellcheck="false"></div>
 <div id="ctx"></div>
 <div id="fx"></div>
@@ -1961,6 +1964,7 @@ const OPT = {
   brightness: 1, runMul: 1, retaliate: 1, stuck: 0, pvpWarn: 1,
   budget: 0                                        // the on-disk ledger: a developer's readout
 };
+OPT.roofs = 1;                                     // roofs always lift indoors; no longer a setting
 
 /* --------------------------- 6. ICONS ------------------------------- */
 /* Item art is drawn, not loaded: one 32x32 canvas per (glyph, colour)
@@ -3062,12 +3066,13 @@ function buildAvatar() {
     bakeW(box(0.62, 0.05, 0.62)).translate(0, 1.905, 0),
     bakeW(shift(new THREE.ConeGeometry(0.30, 0.52, 6), 0.26)).translate(0, 1.93, 0)
   ]), 0xffffff, 0, 0, 0); wizHat.visible = false;
-  // the ranger's bycocket: a side-view triangle extruded across the head,
-  // long point forward like a bird's beak
+  // the ranger's bycocket: the triangle profile stands in the front-back
+  // plane, its long point a beak out over the brow, and it is thin across
+  // the head — a Robin Hood hat seen from the side, not a cone from the front
   const rhSh = new THREE.Shape();
-  rhSh.moveTo(-0.36, 0); rhSh.lineTo(0.28, 0); rhSh.lineTo(0.04, 0.34); rhSh.closePath();
-  const rhGeo = new THREE.ExtrudeGeometry(rhSh, { depth: 0.5, bevelEnabled: false });
-  rhGeo.translate(0, 0, -0.25); rhGeo.rotateY(Math.PI / 2);
+  rhSh.moveTo(-0.30, 0.02); rhSh.lineTo(0.36, 0.07); rhSh.lineTo(0.02, 0.32); rhSh.closePath();
+  const rhGeo = new THREE.ExtrudeGeometry(rhSh, { depth: 0.22, bevelEnabled: false });
+  rhGeo.translate(0, 0, -0.11); rhGeo.rotateY(-Math.PI / 2);   // beak to +Z (front), width across X
   const rhHat = part(bakeW(rhGeo), 0xffffff, 0, 1.90, 0); rhHat.visible = false;
   // the robe: a hooded-order skirt over the legs, the game's mage silhouette
   const skirt = part(bakeW(shift(new THREE.CylinderGeometry(0.34, 0.52, 0.80, 7), 0.40)), TUNIC, 0, 0.05, 0);
@@ -7075,6 +7080,35 @@ function drawSk() {
   }
   el('skTotal').textContent = totalLevel();
 }
+/* A skill's detail lives in its `title`, which a mouse shows on hover and a
+   touch device can never reach. A long press pops the same text in a floating
+   tip; it clears on the next touch anywhere or after a few seconds. */
+const skTip = document.createElement('div');
+skTip.id = 'skTip'; skTip.style.display = 'none';
+document.body.appendChild(skTip);
+let skTipT = 0, skHold = 0;
+function hideSkTip() { skTip.style.display = 'none'; clearTimeout(skTipT); }
+skGrid.addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'touch') return;              // the mouse still uses the native title
+  const d = e.target.closest('.sk'); if (!d) return;
+  const txt = d.title; if (!txt) return;
+  clearTimeout(skHold);
+  const px = e.clientX, py = e.clientY;
+  skHold = setTimeout(() => {
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch {} }
+    skTip.textContent = txt;
+    skTip.style.display = 'block';
+    skTip.style.left = Math.min(px, innerWidth - skTip.offsetWidth - 6) + 'px';
+    skTip.style.top = Math.max(6, py - skTip.offsetHeight - 12) + 'px';
+    clearTimeout(skTipT); skTipT = setTimeout(hideSkTip, 4000);
+  }, 380);
+});
+skGrid.addEventListener('pointermove', e => {
+  if (Math.abs(e.movementX) + Math.abs(e.movementY) > 6) clearTimeout(skHold);
+});
+skGrid.addEventListener('pointerup', () => clearTimeout(skHold));
+skGrid.addEventListener('pointercancel', () => clearTimeout(skHold));
+addEventListener('pointerdown', e => { if (skTip.style.display === 'block' && e.target !== skTip) hideSkTip(); }, true);
 function drawOrbs() {
   dirty.orb = 0;
   const hp = el('orbHp'), rn = el('orbRun'), pr = el('orbPray');
@@ -7281,7 +7315,6 @@ const OPT_ROWS = [
   { k: 'retaliate', n: 'Auto retaliate', tog: 1 },
   { k: 'timers', n: 'Respawn clocks', tog: 1 },
   { k: 'xpDrops', n: 'Xp drops', tog: 1 },
-  { k: 'roofs', n: 'Lift roofs indoors', tog: 1 },
   { k: 'hideRoofs', n: 'Hide all roofs', tog: 1 },
   { k: 'pvpWarn', n: 'PvP border warning', tog: 1 },
   { k: 'brightness', n: 'Brightness', min: 0.7, max: 1.4, step: 0.1, fmt: v => Math.round(v * 100) + '%' }
@@ -7939,18 +7972,39 @@ function dgPaint(i) {
   dgOver = want;
   if (dgOver >= 0) slotEls[dgOver].classList.add('over');
 }
+/* A finger held still on a slot is a right-click: touch fires no contextmenu
+   event, so the long press is timed here. It only arms while the drag has not
+   begun and disarms the moment the finger moves past the drag slack or lifts,
+   so the drag-to-reorder gesture is untouched. */
+let dgLong = 0, dgTouch = 0;
+function dgClearLong() { if (dgLong) { clearTimeout(dgLong); dgLong = 0; } }
 invGrid.addEventListener('pointerdown', e => {
   if (e.button !== 0 || (trade && trade.open)) return;
   const s = e.target.closest('.slot'); if (!s) return;
   const i = +s.dataset.i; if (!inv[i]) return;
   dgFrom = i; dgX = e.clientX; dgY = e.clientY; dgOn = 0; dgOver = -1;
+  dgTouch = e.pointerType === 'touch';
   try { invGrid.setPointerCapture(e.pointerId); } catch {}
+  dgClearLong();
+  if (dgTouch) {
+    const ci = i, cx = e.clientX, cy = e.clientY;
+    dgLong = setTimeout(() => {
+      dgLong = 0;
+      if (dgFrom !== ci || dgOn) return;               // moved into a drag, or lifted
+      dgFrom = -1;                                       // the press is spent on the menu, not a tap
+      slotEls[ci].classList.remove('drag'); dgPaint(-1); dgEl.style.display = 'none';
+      dragAte = 1;                                       // and not on the click that trails a touch
+      if (navigator.vibrate) { try { navigator.vibrate(12); } catch {} }
+      openCtx(cx, cy, itemOptions(ci));
+    }, 420);
+  }
 });
 invGrid.addEventListener('pointermove', e => {
   if (dgFrom < 0) return;
   if (!dgOn) {
     // a few pixels of slack, so a slightly shaky click is still a click
     if (Math.abs(e.clientX - dgX) + Math.abs(e.clientY - dgY) < 8) return;
+    dgClearLong();                                       // a real drag, not a hold
     dgOn = 1;
     dgEl.innerHTML = '<img src="' + icon(inv[dgFrom].id) + '" alt="">';
     dgEl.style.display = 'block';
@@ -7960,6 +8014,7 @@ invGrid.addEventListener('pointermove', e => {
   dgPaint(slotUnder(e.clientX, e.clientY));
 });
 function dgEnd(e) {
+  dgClearLong();
   if (dgFrom < 0) return;
   const from = dgFrom, moved = dgOn;
   dgFrom = -1; dgOn = 0;
@@ -7976,7 +8031,7 @@ function dgEnd(e) {
   dirty.inv = 1; markDirty();
 }
 invGrid.addEventListener('pointerup', dgEnd);
-invGrid.addEventListener('pointercancel', e => { dgOn = 0; dgEnd(e); });
+invGrid.addEventListener('pointercancel', e => { dgClearLong(); dgOn = 0; dgEnd(e); });
 
 invGrid.addEventListener('click', e => {
   if (dragAte) { dragAte = 0; return; }               // that click was a drag
@@ -8848,7 +8903,8 @@ const store = {
   try { saved = JSON.parse(store.get('seedworld.opt') || 'null'); } catch {}
   if (!saved || typeof saved !== 'object') return;
   // stuck mode is a rescue, not a preference: it never survives a reload
-  for (const k in OPT) if (k !== 'stuck' && typeof saved[k] === 'number' && isFinite(saved[k])) OPT[k] = saved[k];
+  for (const k in OPT) if (k !== 'stuck' && k !== 'roofs' && typeof saved[k] === 'number' && isFinite(saved[k])) OPT[k] = saved[k];
+  OPT.roofs = 1;                                   // no longer a setting; ignore any stored value
   RADIUS = OPT.viewRadius;
   applyOpts();
 })();
@@ -9102,14 +9158,28 @@ function connect() {
     netSend();
     if (saveDirty) flushSave();
   };
-  sock.onclose = () => {
+  sock.onclose = ev => {
     if (ws !== sock) return;                   // a socket we already replaced
     clearInterval(pingTimer);
-    if (netOK) say('Connection lost — still playing offline.', 'bad');
+    const wasOn = netOK;
+    console.warn('[seedworld] socket closed', ev.code, ev.reason || '');
     if (trade) tradeClose('The trade ended when the connection dropped.');
     netStatus(0);
     clearRemotes();
     ws = null;
+    /* The room closes the older socket when the same account arrives on a
+       new one. Reconnecting from here would only kick that newer session
+       straight back, and the two would swap places every second for as long
+       as both windows stayed open — "connection lost" on a loop. So this one
+       stands down: offline and unsaved, since the live session owns the
+       character now, until you choose to take it back. */
+    if (ev.code === 4001) {
+      wsWant = 0; saveArmed = 0;
+      say('Your account was opened somewhere else — this window is now offline and will not save.', 'bad');
+      say('Click the connection dot by the chat box to take the character back here.', 'bad');
+      return;
+    }
+    if (wasOn) say('Connection lost — still playing offline.', 'bad');
     retry();
   };
   sock.onerror = () => { if (ws === sock) { try { sock.close(); } catch {} } };
@@ -9126,6 +9196,18 @@ function retry() {
   const wait = Math.min(30000, 1000 * Math.pow(1.7, wsTries++));
   wsTimer = setTimeout(connect, wait);
 }
+/* The dot by the chat box is also the way back in. After a plain outage it
+   retries at once instead of waiting out the backoff; after standing down
+   for another login it returns you to the world list, because taking the
+   character back means loading whatever that other session saved — never
+   pushing this window's stale copy over it. */
+el('netdot').onclick = () => {
+  if (OFFLINE || !AUTH || !started || netOK) return;
+  if (!wsWant) {
+    say('Back to the world list — enter again to take the character over here.', 'lv');
+    toWorldSelect();
+  } else { wsTries = 0; connect(); }
+};
 function pingClock() {
   if (!ws || ws.readyState !== 1) return;
   try { ws.send(JSON.stringify([9, Date.now()])); } catch {}

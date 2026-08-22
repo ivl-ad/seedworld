@@ -116,8 +116,12 @@ export class World extends DurableObject {
        between — the survivors still list this pid as seen and will therefore
        never be sent an enter for it again. Forget it everywhere so the next
        flush rediscovers them. */
+    /* The older socket is told why it is going: 4001 means "your account
+       just arrived on another connection". A client that hears it stands
+       down rather than reconnecting — otherwise the two windows kick each
+       other off every second for as long as both stay open. */
     const old = this.players.get(pid);
-    if (old && old.ws !== server) { try { old.ws.close(1000); } catch {} }
+    if (old && old.ws !== server) { try { old.ws.close(4001, 'replaced'); } catch {} }
     for (const q of this.players.values()) q.seen.delete(pid);
 
     // savedSeed starts as what the players row already says, so a session in
