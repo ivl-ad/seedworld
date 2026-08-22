@@ -169,6 +169,7 @@
   .sk s{position:absolute;left:0;bottom:0;height:2px;background:var(--amber);text-decoration:none}
   .sk.locked{opacity:.34;background:#2a241b}
   .sk.live{box-shadow:inset 0 0 0 1px rgba(255,155,33,.22)}
+  .sk.up b{color:#8ae08a}.sk.dn b{color:#e08a8a}
   #skFoot{height:18px;display:flex;justify-content:space-between;align-items:flex-end;font-size:10px;color:var(--dim)}
   #skFoot b{color:var(--bone)}
 
@@ -841,20 +842,22 @@ const XP_TABLE = new Float64Array(MAXL + 2);
 for (let L = 2, s = 0; L <= MAXL + 1; L++) { s += Math.floor((L - 1) + 300 * Math.pow(2, (L - 1) / 7)); XP_TABLE[L] = Math.floor(s / 4); }
 const XP_RATE = 4;                                      // prototype pacing: 4x the 2007 rates
 const levelFor = x => { let L = 1; while (L < MAXL && x >= XP_TABLE[L + 1]) L++; return L; };
-/* 28 slots: 24 named, 4 reserved. `live` marks skills with content in this build. */
+/* 28 slots: 24 named, 4 reserved */
 const SKILLS = [
-  ['attack', 'Attack', 'sword', 1], ['strength', 'Strength', 'fist', 1], ['defence', 'Defence', 'shield', 1], ['ranged', 'Ranged', 'arrow'],
-  ['prayer', 'Prayer', 'star'], ['magic', 'Magic', 'rune'], ['runecraft', 'Runecrft', 'rune', 0, 'Runecraft'], ['construction', 'Constr', 'hammer', 0, 'Construction'],
-  ['hitpoints', 'Hitpts', 'heart', 1, 'Hitpoints'], ['agility', 'Agility', 'boot'], ['herblore', 'Herblore', 'leaf'], ['thieving', 'Thieving', 'coins'],
+  ['attack', 'Attack', 'sword'], ['strength', 'Strength', 'fist'], ['defence', 'Defence', 'shield'], ['ranged', 'Ranged', 'arrow'],
+  ['prayer', 'Prayer', 'star'], ['magic', 'Magic', 'rune'], ['runecraft', 'Runecrft', 'rune', 'Runecraft'], ['construction', 'Constr', 'hammer', 'Construction'],
+  ['hitpoints', 'Hitpts', 'heart', 'Hitpoints'], ['agility', 'Agility', 'boot'], ['herblore', 'Herblore', 'leaf'], ['thieving', 'Thieving', 'coins'],
   ['crafting', 'Crafting', 'ring'], ['fletching', 'Fletching', 'arrow'], ['slayer', 'Slayer', 'skull'], ['hunter', 'Hunter', 'net'],
-  ['mining', 'Mining', 'pick', 1], ['smithing', 'Smithing', 'hammer', 1], ['fishing', 'Fishing', 'fish', 1], ['cooking', 'Cooking', 'cfish', 1],
-  ['firemaking', 'Firemkg', 'flame', 1, 'Firemaking'], ['woodcutting', 'Woodcut', 'axe', 1, 'Woodcutting'], ['farming', 'Farming', 'leaf'], ['sailing', 'Sailing', 'anchor', 1],
+  ['mining', 'Mining', 'pick'], ['smithing', 'Smithing', 'hammer'], ['fishing', 'Fishing', 'fish'], ['cooking', 'Cooking', 'cfish'],
+  ['firemaking', 'Firemkg', 'flame', 'Firemaking'], ['woodcutting', 'Woodcut', 'axe', 'Woodcutting'], ['farming', 'Farming', 'leaf'], ['sailing', 'Sailing', 'anchor'],
   ['r25', '—', 'lock'], ['r26', '—', 'lock'], ['r27', '—', 'lock'], ['r28', '—', 'lock']
-].map(([k, n, g, live, f]) => ({ k, n, g, live: live || 0, f: f || n, locked: n === '—' ? 1 : 0 }));
+].map(([k, n, g, f]) => ({ k, n, g, f: f || n, locked: n === '—' ? 1 : 0 }));
 const NSK = 28;
 const SK = Object.create(null);
 SKILLS.forEach((s, i) => SK[s.k] = i);
 const xp = new Float64Array(NSK), lvl = new Uint8Array(NSK);
+const bst = new Int8Array(NSK);                          // potion boosts and drains; each steps one point toward 0 a minute
+const eff = k => lvl[SK[k]] + bst[SK[k]];
 const skName = i => SKILLS[i].f;
 function resetSkills() {
   xp.fill(0); lvl.fill(1);
@@ -955,6 +958,9 @@ const defAmmo = (a, suffix, g, aT, pm) => { const t = TIER[a.k]; defWear({ id: a
   c: a.c || t.c, c2: a.c2 || t.c2, slot: 'ammo', stack: 1, ammo: 1, aT, rst: a.rs, rat: Math.round(a.rs * 0.45), req: { ranged: a.lv }, val: Math.max(1, Math.round(a.rs * pm)) }); };
 for (const a of ARROWS) defAmmo(a, '_arrow', 'arrow', undefined, 0.9);
 for (const a of BOLTS) defAmmo(a, '_bolts', 'bolt', 'bolt', 1.1);
+/* unfinished ammunition: the anvil turns a bar into tips or bolt blanks, fletching finishes them */
+for (const [L, s, n, g] of [[ARROWS, '_arrowtips', ' arrowtips', 'arrow'], [BOLTS, '_bolts_u', ' bolts (unf)', 'bolt']])
+  for (const a of L) { const t = TIER[a.k]; if (t) defItem({ id: a.k + s, name: t.n + n, g, c: t.c, c2: t.c2, stack: 1, val: Math.max(1, a.rs >> 1) }); }
 /* hide: light defence, the only armour that does not fight the draw */
 const HIDES = [
   { k: 'leather', n: 'Leather', lv: 1, df: 1, ra: 2, c: '#8a6438', c2: '#5b4123' }, { k: 'studded', n: 'Studded', lv: 20, df: 20, ra: 6, c: '#6f4a28', c2: '#452c16' },
@@ -980,25 +986,30 @@ const TREES = [
 /* rocks: the ore colour is the vein tint and the icon colour */
 const ORES = [
   ['copper', 'Copper rock', 1, 17, 12, '#b2632a', '#7a3f18', 'copper_ore'], ['tin', 'Tin rock', 1, 17, 12, '#9aa0a8', '#65696f', 'tin_ore'],
-  ['iron', 'Iron rock', 15, 35, 16, '#8a5238', '#5b3423', 'iron_ore'], ['coal', 'Coal rock', 30, 50, 30, '#33333a', '#17171b', 'coal'],
+  ['iron', 'Iron rock', 15, 35, 16, '#8a5238', '#5b3423', 'iron_ore'], ['coal', 'Coal rock', 30, 50, 30, '#33333a', '#17171b', 'coal', 'Coal'],
   ['mithril', 'Mithril rock', 55, 80, 90, '#5c63b8', '#373d84', 'mithril_ore'], ['adamantite', 'Adamantite rock', 70, 95, 140, '#4e7d52', '#2d5232', 'adamantite_ore'],
-  ['runite', 'Runite rock', 85, 125, 250, '#3ab6c4', '#1f7d89', 'runite_ore']
-].map(([k, n, lv, xp, rs, c, c2, ore], i) => {
-  defItem({ id: ore, name: k === 'coal' ? 'Coal' : cap(k) + ' ore', g: 'ore', c, c2, stack: 1, val: 10 + i * 45 });
+  ['runite', 'Runite rock', 85, 125, 250, '#3ab6c4', '#1f7d89', 'runite_ore'],
+  // appended: oreKind's thresholds index this table
+  ['silver', 'Silver rock', 20, 40, 100, '#c8ccd4', '#80848c', 'silver_ore', 'Silver ore', 60], ['gold', 'Gold rock', 40, 65, 100, '#e0b436', '#9a7414', 'gold_ore', 'Gold ore', 150],
+  ['essence', 'Rune essence', 1, 5, 0, '#d8d8e8', '#8a8a9a', 'rune_essence', 'Rune essence', 4]
+].map(([k, n, lv, xp, rs, c, c2, ore, name, val], i) => {
+  defItem({ id: ore, name: name || cap(k) + ' ore', g: 'ore', c, c2, stack: 1, val: val || 10 + i * 45 });
   return { k, n, lv, xp, rs, tint: k === 'coal' ? 0x2b2b30 : parseInt(c.slice(1), 16), ore, i };
 });
 /* smelting: the 2007 ladder, coal-hungry at the top */
 const BARS = [
   ['bronze', 1, 6, [['copper_ore', 1], ['tin_ore', 1]]], ['iron', 15, 12, [['iron_ore', 1]]], ['steel', 30, 17, [['iron_ore', 1], ['coal', 2]]],
-  ['mithril', 50, 30, [['mithril_ore', 1], ['coal', 4]]], ['adamant', 70, 37, [['adamantite_ore', 1], ['coal', 6]]], ['rune', 85, 50, [['runite_ore', 1], ['coal', 8]]]
-].map(([t, lv, xp, need]) => {
-  const T = TIER[t], id = t + '_bar';
-  defItem({ id, name: T.n + ' bar', g: 'bar', c: T.c, c2: T.c2, stack: 1, val: 40 + T.i * 120 });
+  ['mithril', 50, 30, [['mithril_ore', 1], ['coal', 4]]], ['adamant', 70, 37, [['adamantite_ore', 1], ['coal', 6]]], ['rune', 85, 50, [['runite_ore', 1], ['coal', 8]]],
+  ['silver', 20, 13.7, [['silver_ore', 1]], { n: 'Silver', c: '#c8ccd4', c2: '#80848c', i: 0.4 }], ['gold', 40, 22.5, [['gold_ore', 1]], { n: 'Gold', c: '#e0b436', c2: '#9a7414', i: 1.2 }]
+].map(([t, lv, xp, need, T]) => {
+  T = T || TIER[t];
+  const id = t + '_bar';
+  defItem({ id, name: T.n + ' bar', g: 'bar', c: T.c, c2: T.c2, stack: 1, val: 40 + Math.round(T.i * 120) });
   return { id, n: T.n + ' bar', lv, xp, need, t };
 });
-/* bars per piece and the level offset from the metal's smelting level */
+/* bars per piece, the level offset from the metal's smelting level, pieces per go */
 const SMITH = [['dagger', 1, 0], ['hatchet', 1, 1], ['med_helm', 1, 3], ['sword', 1, 4], ['scimitar', 2, 5], ['pickaxe', 2, 6],
-  ['kiteshield', 3, 12], ['platelegs', 3, 16], ['platebody', 5, 18]].map(([p, bars, off]) => ({ p, bars, off }));
+  ['kiteshield', 3, 12], ['platelegs', 3, 16], ['platebody', 5, 18], ['arrowtips', 1, 4, 15], ['bolts_u', 1, 2, 10]].map(([p, bars, off, n]) => ({ p, bars, off, n: n || 1 }));
 /* fish: deep 0 = net/rod, 1 = harpoon */
 const FISH = [
   ['shrimps', 'Shrimps', 1, 10, 30, 1, 0, '#c98a6a'], ['trout', 'Trout', 20, 50, 70, 15, 0, '#9aa6b0'], ['salmon', 'Salmon', 30, 70, 90, 25, 0, '#d1795f'],
@@ -1032,6 +1043,83 @@ for (const [id, name, g, c, c2, val, x] of [['tinderbox', 'Tinderbox', 'tinder',
   ['coins', 'Coins', 'coins', '#e0b436', '#9a7414', 1, { stack: 1 }], ['bones', 'Bones', 'bones', '#e0dcc8', '#9a9484', 1, { stack: 1, bury: 4.5 }],
   ['big_bones', 'Big bones', 'bones', '#e8e4d0', '#a09a88', 3, { stack: 1, bury: 15 }]])
   defItem(Object.assign({ id, name, g, c, c2, val }, x));
+/* ---- 5b. THE LARDER: what the gathering and making skills pass between them; a family is one line ---- */
+const defStack = (id, name, g, c, c2, val, x) => defItem(Object.assign({ id, name, g, c, c2, val, stack: 1 }, x));
+/* runes: level, xp per essence, the level step that adds another rune per essence (0 = never), colours, value, sold by mages */
+const RC = [['air', 1, 5, 11, '#cfd8e0', '#8f9aa6', 5, 1], ['mind', 2, 5.5, 14, '#9a7ad0', '#65509a', 4, 1], ['water', 5, 6, 19, '#4f8fd0', '#2f5f92', 5, 1],
+  ['earth', 9, 6.5, 26, '#8a6a3a', '#5b4524', 5, 1], ['fire', 14, 7, 35, '#d05a2a', '#8f3a16', 5, 1], ['body', 20, 7.5, 46, '#d8cfc4', '#8a8078', 5, 1],
+  ['cosmic', 27, 8, 59, '#e8d86a', '#9a8a2a', 120], ['chaos', 35, 8.5, 74, '#c04a4a', '#802e2e', 90, 1], ['nature', 44, 9, 91, '#5aa04a', '#2f6a28', 180],
+  ['law', 54, 9.5, 0, '#6a8ad8', '#3a4f8a', 200], ['death', 65, 10, 0, '#e8e8f0', '#6a6a74', 220, 1], ['blood', 77, 10.5, 0, '#8a1a24', '#4a0a10', 400]]
+  .map(([k, lv, xp, step, c, c2, val, shop], i) => ({ k, lv, xp, step, c, c2, val, shop: shop || 0, id: k + '_rune', i }));
+const RUNES = RC.map(r => defStack(r.id, cap(r.k) + ' rune', 'rune', r.c, r.c2, r.val, { rune: 1 }));
+const runesPer = r => r.step ? 1 + Math.floor(lvl[SK.runecraft] / r.step) : 1;   // air x2 at 11, x3 at 22...
+defStack('pure_essence', 'Pure essence', 'ore', '#eef0fa', '#a0a2b4', 5);
+defWear({ id: 'tiara', name: 'Tiara', g: 'tiara', c: '#d8d8e0', c2: '#8a8a96', slot: 'head', val: 40 });
+for (const r of RC) {
+  defItem({ id: r.k + '_talisman', name: cap(r.k) + ' talisman', g: 'talisman', c: r.c, c2: r.c2, val: 30 + r.i * 40, tal: r.k });
+  defWear({ id: r.k + '_tiara', name: cap(r.k) + ' tiara', g: 'tiara', c: r.c, c2: r.c2, slot: 'head', tiara: r.k, val: 90 + r.i * 40 });
+}
+/* gems: crafting level and xp to cut; uncut ones turn up while mining, weighted toward the cheap end */
+const GEMS = [['sapphire', 20, 50, '#3a64c8', '#1e3a80', 25, 64], ['emerald', 27, 67.5, '#3aa05a', '#1e6030', 50, 32], ['ruby', 34, 85, '#c82a3a', '#801a24', 100, 16],
+  ['diamond', 43, 107.5, '#e8f0f8', '#8a98a8', 200, 8], ['dragonstone', 55, 137.5, '#b04ad0', '#6a2a80', 1000, 1]].map(([k, lv, xp, c, c2, val, w], i) => {
+  defItem({ id: 'uncut_' + k, name: 'Uncut ' + k, g: 'gem', c, c2, val }); defItem({ id: k, name: cap(k), g: 'gem', c, c2, val: val * 2 });
+  return { k, lv, xp, c, c2, w, i };
+});
+const GEM_T = GEMS.map(g => ['uncut_' + g.k, g.w]);
+/* jewellery: [form, slot, level, xp, per-gem levels, per-gem xp]; a gold bar, then a gem; amulets need a ball of wool */
+const JEWEL = [['ring', 'ring', 5, 15, [20, 27, 34, 43, 55], [40, 55, 70, 85, 100]], ['necklace', 'neck', 6, 20, [22, 29, 40, 56, 72], [55, 60, 75, 90, 105]],
+  ['amulet', 'neck', 8, 30, [24, 31, 50, 70, 80], [65, 70, 85, 100, 150]]].map(([k, slot, lv, xp, lvs, xps]) => {
+  defWear({ id: 'gold_' + k, name: 'Gold ' + k, g: k === 'ring' ? 'ring' : 'amulet', c: '#e0b436', c2: '#9a7414', slot, val: 60 + lv * 12 });
+  for (const g of GEMS) defWear({ id: g.k + '_' + k, name: cap(g.k) + ' ' + k, g: k === 'ring' ? 'ring' : 'amulet', c: g.c, c2: '#9a7414', slot, val: 120 + (g.i + 1) * (g.i + 1) * 160 });
+  return { k, lv, xp, lvs, xps };
+});
+/* herbs: herblore level and xp to clean; grimy ones fall from monsters by tier and grow in herb patches */
+const HERBS = [['guam', 3, 2.5], ['marrentill', 5, 3.8], ['tarromin', 11, 5], ['harralander', 20, 6.3], ['ranarr', 25, 7.5], ['toadflax', 30, 8], ['irit', 40, 8.8],
+  ['avantoe', 48, 10], ['kwuarm', 54, 11.3], ['snapdragon', 59, 11.8], ['cadantine', 65, 12.5], ['lantadyme', 67, 13.1], ['dwarf_weed', 70, 13.8], ['torstol', 75, 15]]
+  .map(([k, lv, xp], i) => {
+    const n = k.replace('_', ' ');
+    defStack('grimy_' + k, 'Grimy ' + n, 'herb', '#5a6a3a', '#2e3a1e', 6 + i * 24); defStack(k, cap(n), 'herb', '#4faa4a', '#2a6a2a', 12 + i * 36);
+    return { k, n, lv, xp, i, grimy: 'grimy_' + k };
+  });
+/* crops: key, level, plant xp, harvest xp (per item, or for checking a tree's health), growth in ticks, t (0 allotment, 1 herb, 2 tree), what it yields;
+   the seed is <key>_seed (an acorn for the oak); seeds stack, produce heals a little */
+const CROP_HERB = [[9, 11, 12.5], [14, 13.5, 15], [19, 16, 18], [26, 21.5, 24], [32, 27, 30.5], [38, 34, 38.5], [44, 43, 48.5], [50, 54.5, 61.5], [56, 69, 78],
+  [62, 87.5, 98.5], [67, 106.5, 120], [73, 134.5, 151.5], [79, 170.5, 192], [85, 199.5, 224.5]];
+const CROPS = [['potato', 1, 8, 9, 4000, 1], ['onion', 5, 9.5, 10.5, 4000, 1], ['cabbage', 7, 10, 11.5, 4000, 1], ['tomato', 12, 12.5, 14, 4000, 2],
+  ['sweetcorn', 20, 17, 19, 6000, 3], ['strawberry', 31, 26, 29, 6000, 4], ['watermelon', 47, 48.5, 54.5, 8000, 5]].map(([k, lv, plant, xp, grow, heal], i) => {
+  defStack(k, cap(k), 'crop', ['#c8a86a', '#d8c8e8', '#9ad07a', '#d8403a', '#e8d05a', '#d83a4a', '#4aa85a'][i], '#4a3a2a', 4 + i * 12, { heal });
+  return { k, n: cap(k), lv, plant, xp, grow, t: 0, yield: k };
+}).concat(HERBS.map((h, i) => ({ k: h.k, n: cap(h.n), lv: CROP_HERB[i][0], plant: CROP_HERB[i][1], xp: CROP_HERB[i][2], grow: 8000, t: 1, yield: h.grimy })),
+  [['oak', 15, 14, 467.3, 20000], ['willow', 30, 25, 1456.5, 28000], ['maple', 45, 45, 3403.4, 32000], ['yew', 60, 81, 7069.9, 40000], ['magic', 75, 145.5, 13768.3, 48000]]
+    .map(([k, lv, plant, xp, grow]) => ({ k, n: cap(k), lv, plant, xp, grow, t: 2, yield: k + '_logs' })));
+CROPS.forEach((c, i) => { c.i = i; c.seed = c.k === 'oak' ? 'acorn' : c.k + '_seed'; defStack(c.seed, c.k === 'oak' ? 'Acorn' : c.n + ' seed', 'seed', ['#c8a86a', '#7ad04a', '#8a6a3a'][c.t], '#4a3a2a', 2 + c.lv * 3); });
+/* hides, fibres and feathers */
+defStack('feather', 'Feather', 'feather', '#f0f0f0', '#8a8a8a', 2);
+defStack('flax', 'Flax', 'herb', '#7aa0d8', '#4a6a9a', 3); defStack('bow_string', 'Bow string', 'string', '#e8e0c8', '#8a8470', 60);
+defStack('wool', 'Wool', 'wool', '#f0ece0', '#9a968a', 2); defStack('ball_of_wool', 'Ball of wool', 'wool', '#f4f0e8', '#a09c90', 4);
+defStack('cowhide', 'Cowhide', 'hide', '#8a6438', '#5b4123', 3); defStack('leather', 'Leather', 'hide', '#a07a48', '#5b4123', 5); defStack('hard_leather', 'Hard leather', 'hide', '#6f4a28', '#452c16', 14);
+for (const h of HIDES) if (h.k.endsWith('_dhide')) {
+  const c = h.k.slice(0, -6), n = cap(c);
+  defStack(c + '_dragonhide', n + ' dragonhide', 'hide', h.c, h.c2, 1800 + h.ra * 40); defStack(c + '_dragon_leather', n + ' dragon leather', 'hide', h.c, h.c2, 1900 + h.ra * 40);
+}
+/* hand tools */
+for (const [id, name, g, val, x] of [['needle', 'Needle', 'needle', 1], ['thread', 'Thread', 'string', 1, { stack: 1 }], ['chisel', 'Chisel', 'chisel', 1], ['knife', 'Knife', 'knife', 6], ['shears', 'Shears', 'knife', 1],
+  ['ring_mould', 'Ring mould', 'mould', 5], ['necklace_mould', 'Necklace mould', 'mould', 5], ['amulet_mould', 'Amulet mould', 'mould', 5], ['tiara_mould', 'Tiara mould', 'mould', 5]])
+  defItem(Object.assign({ id, name, g, c: '#9aa0a8', c2: '#5b5f66', val }, x));
+
+/* ---- 5c. RECIPES: everything made by hand or at a fixture is one row; a make task turns them out one every few ticks ----
+   id made, skill, level, xp, need [[id, n]...]; x: n made per go, tool (kept, must be carried), at (fixture object type, 'tan' for the tanner), tk (ticks per go),
+   fn(r) → [[id, n]] actually made or null for a ruined go (no xp), name, msg. Items used on each other or on a fixture find their rows by id. */
+const RECIPES = [];
+const recipe = (id, sk, lv, xp, need, x) => { const r = Object.assign({ id, sk, lv, xp, need, n: 1 }, x); RECIPES.push(r); return r; };
+const usesItem = (r, id) => r.tool === id || r.need.some(n => n[0] === id);
+const mkOk = r => lvl[SK[r.sk]] >= r.lv && hasAll(r.need) && (!r.tool || invCount(r.tool) > 0);
+const mkWhy = r => lvl[SK[r.sk]] < r.lv ? skName(SK[r.sk]) + ' ' + r.lv : r.tool && !invCount(r.tool) ? 'a ' + ITEMS[r.tool].name.toLowerCase()
+  : r.need.map(([id, n]) => n + ' ' + ITEMS[id].name.toLowerCase()).join(', ');
+const mkName = r => r.name || ITEMS[r.id].name + (r.n > 1 ? ' x' + r.n : '');
+for (const b of BARS) recipe(b.id, 'smithing', b.lv, b.xp, b.need, { at: 3 });
+for (const b of BARS) for (const s of SMITH) if (ITEMS[b.t + '_' + s.p]) recipe(b.t + '_' + s.p, 'smithing', b.lv + s.off, b.xp * s.bars * 2, [[b.id, s.bars]], { at: 4, tool: 'hammer', n: s.n });
+
 /* ---- 6. SHOPS: stock is a function of (kind, settlement tier), derived every time the door opens ---- */
 const SHOP_KINDS = [
   { k: 'general', n: 'General Store', g: 'coins', c: '#c9a24a', base: ['tinderbox', 'hammer', 'small_net', 'fishing_rod', 'bronze_hatchet', 'bronze_pickaxe',
@@ -1041,7 +1129,9 @@ const SHOP_KINDS = [
   { k: 'armour', n: 'Armour Shop', g: 'body', c: '#3b5ea8', armour: 1 },
   { k: 'food', n: 'Fishing Shop', g: 'cfish', c: '#4f8fa8', base: ['small_net', 'fishing_rod', 'harpoon', 'shrimps', 'trout'] },
   { k: 'magic', n: 'Magic Guild', g: 'staff', c: '#6a5ab0', mage: 1 },
-  { k: 'archery', n: 'Archery Shop', g: 'bow', c: '#5f7a3a', range: 1 }
+  { k: 'archery', n: 'Archery Shop', g: 'bow', c: '#5f7a3a', range: 1 },
+  { k: 'craft', n: 'Crafting Shop', g: 'ring', c: '#b08a4a', base: ['needle', 'thread', 'chisel', 'knife', 'shears', 'ring_mould', 'necklace_mould', 'amulet_mould', 'tiara_mould',
+    'bow_string', 'ball_of_wool', 'flax', 'vial_of_water', 'eye_of_newt', 'snape_grass', 'white_berries', 'limpwurt_root', 'bird_snare', 'box_trap'] }
 ];
 const SHOP = Object.create(null); SHOP_KINDS.forEach((s, i) => { s.i = i; SHOP[s.k] = s; });
 const TIER_STOCK = [2, 4, 6];                           // hamlet steel, town mithril, city rune
@@ -1064,7 +1154,7 @@ function shopStock(kind, tier) {
     if (tier >= 1) { push('amulet_of_defence', 3); push('amulet_of_strength', 3); }
     if (tier === 2) push('amulet_of_power', 2);
   }
-  if (s.k === 'food') for (const f of FISH) if (f.lv <= 40) push(f.done, 15);
+  if (s.k === 'food') { for (const f of FISH) if (f.lv <= 40) push(f.done, 15); push('feather', 1000); }
   if (s.range) {
     for (let i = 0; i <= Math.min(5, 1 + tier * 2); i++) {
       push(BOWS[i].k + 'shortbow', 5); push(BOWS[i].k + 'longbow', 5); push(XBOWS[i].k + '_crossbow', 4);
@@ -1083,10 +1173,11 @@ function shopStock(kind, tier) {
     }
     if (tier >= 1) { push('battlestaff', 4); push('apprentice_wand', 4); }
     if (tier === 2) { push('mystic_staff', 3); push('teacher_wand', 3); push('ring_of_life', 2); for (const co of COMBOS) push(co.k + '_battlestaff', 2); }
-    for (const r of RUNES) push(r.id, 500 + tier * 500);
+    for (const r of RC) if (r.shop) push(r.id, 500 + tier * 500);
+    for (const r of RC) if (r.i <= [1, 5, 7][tier]) push(r.k + '_talisman', 3);
   }
   if (s.k === 'general') {
-    for (const r of RUNES) push(r.id, 200 + tier * 300);
+    for (const r of RC) if (r.shop && r.lv < 20) push(r.id, 200 + tier * 300);
     push('bronze_arrow', 500); push('team_cape', 5);
     if (tier >= 1) push('ring_of_recoil', 3);
   }
@@ -1152,9 +1243,6 @@ const RSTYLES = [
   { n: 'Rapid', d: 'Trains Ranged, faster', g: 'bow', xp: ['ranged'], acc: 1.00, str: 1.00, spd: -1 },
   { n: 'Longrange', d: 'Trains Ranged and Defence', g: 'shield', xp: ['ranged', 'defence'], acc: 1.00, str: 1.00, rng: 2, def: 1.10 }
 ];
-const RUNES = [['air', '#cfd8e0', '#8f9aa6'], ['water', '#4f8fd0', '#2f5f92'], ['earth', '#8a6a3a', '#5b4524'], ['fire', '#d05a2a', '#8f3a16'],
-  ['mind', '#9a7ad0', '#65509a'], ['chaos', '#c04a4a', '#802e2e']].map(([k, c, c2], i) =>
-  defItem({ id: k + '_rune', name: cap(k) + ' rune', g: 'rune', c, c2, stack: 1, rune: 1, val: 4 + i * 6 }));
 const SPELLS = [
   ['wind_strike', 'Wind Strike', 1, 5.5, 2, 0xd8e4ee, [['air_rune', 1], ['mind_rune', 1]]],
   ['water_strike', 'Water Strike', 5, 7.5, 4, 0x4f8fd0, [['water_rune', 1], ['air_rune', 1], ['mind_rune', 1]]],
@@ -1163,8 +1251,20 @@ const SPELLS = [
   ['wind_bolt', 'Wind Bolt', 17, 13.5, 9, 0xd8e4ee, [['air_rune', 2], ['chaos_rune', 1]]],
   ['water_bolt', 'Water Bolt', 23, 16.5, 10, 0x4f8fd0, [['water_rune', 2], ['air_rune', 2], ['chaos_rune', 1]]],
   ['earth_bolt', 'Earth Bolt', 29, 19.5, 11, 0x8a6a3a, [['earth_rune', 3], ['air_rune', 2], ['chaos_rune', 1]]],
-  ['fire_bolt', 'Fire Bolt', 35, 22.5, 12, 0xd05a2a, [['fire_rune', 4], ['air_rune', 3], ['chaos_rune', 1]]]
-].map(([k, n, lv, xp, max, tint, need], i) => ({ k, n, lv, xp, max, tint, need, i }));
+  ['fire_bolt', 'Fire Bolt', 35, 22.5, 12, 0xd05a2a, [['fire_rune', 4], ['air_rune', 3], ['chaos_rune', 1]]],
+  ['wind_blast', 'Wind Blast', 41, 25.5, 13, 0xd8e4ee, [['air_rune', 3], ['death_rune', 1]]],
+  ['water_blast', 'Water Blast', 47, 28.5, 14, 0x4f8fd0, [['water_rune', 3], ['air_rune', 3], ['death_rune', 1]]],
+  ['earth_blast', 'Earth Blast', 53, 31.5, 15, 0x8a6a3a, [['earth_rune', 4], ['air_rune', 3], ['death_rune', 1]]],
+  ['fire_blast', 'Fire Blast', 59, 34.5, 16, 0xd05a2a, [['fire_rune', 5], ['air_rune', 4], ['death_rune', 1]]],
+  ['wind_wave', 'Wind Wave', 62, 36, 17, 0xd8e4ee, [['air_rune', 5], ['blood_rune', 1]]],
+  ['water_wave', 'Water Wave', 65, 37.5, 18, 0x4f8fd0, [['water_rune', 7], ['air_rune', 5], ['blood_rune', 1]]],
+  ['earth_wave', 'Earth Wave', 70, 40, 19, 0x8a6a3a, [['earth_rune', 7], ['air_rune', 5], ['blood_rune', 1]]],
+  ['fire_wave', 'Fire Wave', 75, 42.5, 20, 0xd05a2a, [['fire_rune', 7], ['air_rune', 5], ['blood_rune', 1]]],
+  /* curses deal nothing but leave the target weaker: drain names the flag swing sets on it */
+  ['confuse', 'Confuse', 3, 13, 0, 0x9a7ad0, [['body_rune', 1], ['earth_rune', 2], ['water_rune', 3]], 'atk'],
+  ['weaken', 'Weaken', 11, 20.5, 0, 0x9a7ad0, [['body_rune', 1], ['earth_rune', 2], ['water_rune', 3]], 'str'],
+  ['curse', 'Curse', 19, 29, 0, 0x9a7ad0, [['body_rune', 1], ['earth_rune', 3], ['water_rune', 2]], 'def']
+].map(([k, n, lv, xp, max, tint, need, drain], i) => ({ k, n, lv, xp, max, tint, need, drain, i }));
 /* prayers drain points per tick while lit */
 const PRAYERS = [
   ['thick_skin', 'Thick Skin', 1, 0.02, 'def', 1.05, 'shield'], ['burst_str', 'Burst of Str', 4, 0.02, 'str', 1.05, 'fist'],
@@ -1174,6 +1274,8 @@ const PRAYERS = [
 ].map(([k, n, lv, drain, f, m, g], i) => ({ k, n, lv, drain, g, [f]: m, bit: 1 << i }));
 const prayerMul = f => { let m = 1; for (const p of PRAYERS) if ((P.prayers & p.bit) && p[f]) m *= p[f]; return m; };
 
+/* registration points for the skill sections at the foot of the file: extra task kinds, kill/tick/pool/structure hooks, item-on-object handlers */
+const TASKS = Object.create(null), USE_ON = Object.create(null), onKill = [], tickHooks = [], poolHooks = [], structHooks = [];
 /* settings, shared by the options tab and the dev console */
 const OPT = { camSpeed: 2.0, viewRadius: 7, fog: 1, timers: 1, xpDrops: 1, roofs: 1, hideRoofs: 0, brightness: 1, runMul: 1, retaliate: 1, stuck: 0, pvpWarn: 1, budget: 0 };
 
@@ -1886,23 +1988,23 @@ const SKEL = (w, h) => b => skeletonGeo({ w, h, body: b });
 const GH = (w, h, head, hat) => b => ghostGeo({ w, h, body: b, head, hat });
 const NPC_TYPES = [
   // livestock and vermin
-  { k: 'chicken', n: 'Chicken', lv: 1, hp: 2, atk: 1, str: 1, def: 0, db: 0, abon: 0, spd: 7, sz: 0.7, flee: 1, body: [0.92, 0.9, 0.86], build: Q(0.34, 0.5, 0.5, { head: [0.9, 0.86, 0.8], leg: [0.85, 0.62, 0.2], tail: [0.95, 0.93, 0.9] }) },
+  { k: 'chicken', n: 'Chicken', lv: 1, hp: 2, atk: 1, str: 1, def: 0, db: 0, abon: 0, spd: 7, sz: 0.7, flee: 1, body: [0.92, 0.9, 0.86], drops: [['feather', 990, 3, 12]], build: Q(0.34, 0.5, 0.5, { head: [0.9, 0.86, 0.8], leg: [0.85, 0.62, 0.2], tail: [0.95, 0.93, 0.9] }) },
   { k: 'rat', n: 'Giant rat', lv: 3, hp: 3, atk: 1, str: 1, def: 1, db: 0, abon: 1, spd: 6, sz: 0.8, body: [0.42, 0.33, 0.25], build: Q(0.62, 0.5, 1.0, { legs: 0, head: [0.5, 0.4, 0.3], tail: [0.6, 0.45, 0.4] }) },
-  { k: 'cow', n: 'Cow', lv: 2, hp: 5, atk: 1, str: 1, def: 1, db: 0, abon: 1, spd: 7, sz: 1.1, flee: 1, body: [0.88, 0.86, 0.82], build: Q(0.9, 1.15, 1.6, { head: [0.3, 0.26, 0.24], leg: [0.3, 0.26, 0.24], tail: [0.3, 0.26, 0.24], horns: 1, snout: 1 }) },
-  { k: 'spider', n: 'Giant spider', lv: 2, hp: 4, atk: 1, str: 1, def: 1, db: 0, abon: 1, spd: 6, sz: 0.9, body: [0.24, 0.18, 0.2], build: SP(0.8, undefined, [0.36, 0.14, 0.14], [0.16, 0.12, 0.13]) },
+  { k: 'cow', n: 'Cow', lv: 2, hp: 5, atk: 1, str: 1, def: 1, db: 0, abon: 1, spd: 7, sz: 1.1, flee: 1, body: [0.88, 0.86, 0.82], drops: [['cowhide', 990]], build: Q(0.9, 1.15, 1.6, { head: [0.3, 0.26, 0.24], leg: [0.3, 0.26, 0.24], tail: [0.3, 0.26, 0.24], horns: 1, snout: 1 }) },
+  { k: 'spider', n: 'Giant spider', lv: 2, hp: 4, atk: 1, str: 1, def: 1, db: 0, abon: 1, spd: 6, sz: 0.9, body: [0.24, 0.18, 0.2], drops: [['red_spiders_eggs', 600]], build: SP(0.8, undefined, [0.36, 0.14, 0.14], [0.16, 0.12, 0.13]) },
   { k: 'goblin', n: 'Goblin', lv: 5, hp: 5, atk: 1, str: 1, def: 1, db: 6, abon: 2, max: 1, spd: 6, sz: 0.9, body: [0.36, 0.5, 0.26], build: H(0.6, 1.25, { skin: [0.45, 0.62, 0.3], ears: 1 }) },
   { k: 'imp', n: 'Imp', lv: 7, hp: 7, atk: 2, str: 2, def: 2, db: 10, abon: 2, spd: 4, mspd: 1.2, sz: 0.7, body: [0.62, 0.28, 0.2], build: H(0.44, 0.9, { skin: [0.72, 0.34, 0.24], horns: 1, ears: 1 }) },
   // the middle of the game
   { k: 'barbarian', n: 'Barbarian', lv: 10, hp: 14, atk: 5, str: 6, def: 4, db: 14, abon: 4, spd: 5, sz: 0.95, body: [0.55, 0.42, 0.28], build: H(0.72, 1.62, { skin: [0.8, 0.62, 0.46], belt: [0.28, 0.2, 0.14] }) },
   { k: 'zombie', n: 'Zombie', lv: 13, agg: 1, hp: 20, atk: 7, str: 7, def: 6, db: 18, abon: 5, spd: 6, mspd: 0.8, sz: 0.95, body: [0.38, 0.42, 0.32], build: H(0.66, 1.55, { skin: [0.5, 0.56, 0.42], arm: [0.34, 0.38, 0.3] }) },
-  { k: 'bandit', n: 'Bandit', lv: 14, agg: 1, hp: 20, atk: 9, str: 9, def: 8, db: 20, abon: 5, spd: 5, sz: 0.9, body: [0.28, 0.24, 0.22], build: H(0.7, 1.6, { skin: [0.78, 0.6, 0.45], belt: [0.5, 0.14, 0.14] }) },
+  { k: 'bandit', n: 'Bandit', lv: 14, agg: 1, hp: 20, atk: 9, str: 9, def: 8, db: 20, abon: 5, spd: 5, sz: 0.9, body: [0.28, 0.24, 0.22], human: 1, pick: { lv: 45, xp: 65, loot: [['coins', 1, 40]] }, build: H(0.7, 1.6, { skin: [0.78, 0.6, 0.45], belt: [0.5, 0.14, 0.14] }) },
   { k: 'skeleton', n: 'Skeleton', lv: 15, agg: 1, at: 'mr', rng: 5, arrow: 0xd8cfae, hp: 24, atk: 10, str: 10, def: 9, db: 24, abon: 5, spd: 5, sz: 0.9, body: [0.87, 0.86, 0.79], build: SKEL(0.66, 1.6) },
   { k: 'ghost', n: 'Ghost', lv: 19, agg: 1, hp: 26, atk: 12, str: 11, def: 12, db: 22, abon: 7, spd: 5, mspd: 0.9, sz: 0.95, body: [0.62, 0.68, 0.74], build: GH(0.72, 1.7, [0.76, 0.8, 0.84]) },
-  { k: 'guard', n: 'Guard', lv: 21, hp: 32, atk: 15, str: 14, def: 16, db: 40, abon: 7, max: 3, spd: 5, sz: 0.95, body: [0.42, 0.44, 0.5], build: H(0.76, 1.7, { skin: [0.78, 0.6, 0.45], belt: [0.3, 0.3, 0.34] }) },
+  { k: 'guard', n: 'Guard', lv: 21, hp: 32, atk: 15, str: 14, def: 16, db: 40, abon: 7, max: 3, spd: 5, sz: 0.95, body: [0.42, 0.44, 0.5], human: 1, pick: { lv: 40, xp: 46.8, loot: [['coins', 1, 30]] }, build: H(0.76, 1.7, { skin: [0.78, 0.6, 0.45], belt: [0.3, 0.3, 0.34] }) },
   { k: 'scorpion', n: 'King scorpion', lv: 24, agg: 1, hp: 30, atk: 16, str: 15, def: 14, db: 26, abon: 8, spd: 4, sz: 1.0, body: [0.5, 0.34, 0.16], build: SP(1.0, undefined, [0.6, 0.42, 0.2], [0.42, 0.28, 0.14]) },
   { k: 'wolf', n: 'Wolf', lv: 25, agg: 1, hp: 32, atk: 18, str: 17, def: 14, db: 24, abon: 9, spd: 4, mspd: 1.5, sz: 1.0, body: [0.42, 0.42, 0.45], build: Q(0.7, 1.0, 1.5, { head: [0.34, 0.34, 0.37], leg: [0.3, 0.3, 0.33], tail: [0.46, 0.46, 0.49], snout: 1 }) },
   { k: 'bear', n: 'Black bear', lv: 27, agg: 1, hp: 40, atk: 19, str: 20, def: 16, db: 30, abon: 9, spd: 5, mspd: 1.1, sz: 1.2, body: [0.16, 0.14, 0.13], build: Q(1.05, 1.35, 1.8, { head: [0.2, 0.18, 0.16], leg: [0.13, 0.11, 0.1], snout: 1 }) },
-  { k: 'hobgoblin', n: 'Hobgoblin', lv: 28, agg: 1, hp: 42, atk: 20, str: 20, def: 18, db: 34, abon: 10, spd: 5, sz: 1.0, body: [0.4, 0.44, 0.3], build: H(0.86, 1.95, { skin: [0.5, 0.56, 0.32], ears: 1, belt: [0.3, 0.22, 0.16] }) },
+  { k: 'hobgoblin', n: 'Hobgoblin', lv: 28, agg: 1, hp: 42, atk: 20, str: 20, def: 18, db: 34, abon: 10, spd: 5, sz: 1.0, body: [0.4, 0.44, 0.3], drops: [['limpwurt_root', 350]], build: H(0.86, 1.95, { skin: [0.5, 0.56, 0.32], ears: 1, belt: [0.3, 0.22, 0.16] }) },
   // the big ones
   { k: 'hillgiant', n: 'Hill giant', lv: 28, agg: 1, hp: 70, atk: 20, str: 24, def: 18, db: 40, abon: 10, max: 8, spd: 6, mspd: 0.6, sz: 1.9, big: 1, body: [0.62, 0.5, 0.36], build: H(1.9, 4.0, { skin: [0.74, 0.6, 0.45], belt: [0.34, 0.24, 0.16] }) },
   { k: 'mossgiant', n: 'Moss giant', lv: 42, agg: 1, hp: 92, atk: 28, str: 32, def: 26, db: 52, abon: 15, max: 9, spd: 6, mspd: 0.6, sz: 2.1, big: 1, body: [0.29, 0.4, 0.21], build: H(2.1, 4.3, { skin: [0.37, 0.48, 0.25], belt: [0.2, 0.28, 0.14] }) },
@@ -1910,59 +2012,65 @@ const NPC_TYPES = [
   { k: 'icegiant', n: 'Ice giant', lv: 53, agg: 1, hp: 110, atk: 34, str: 38, def: 34, db: 66, abon: 19, max: 14, spd: 6, mspd: 0.6, sz: 2.2, big: 1, body: [0.62, 0.76, 0.86], build: H(2.2, 4.6, { skin: [0.72, 0.85, 0.92], belt: [0.4, 0.55, 0.68] }) },
   { k: 'troll', n: 'Mountain troll', lv: 69, agg: 1, at: 'mr', rng: 6, arrow: 0x8a8479, hp: 132, atk: 44, str: 50, def: 40, db: 72, abon: 24, spd: 6, mspd: 0.6, sz: 2.2, big: 1, body: [0.44, 0.42, 0.4], build: H(2.2, 4.2, { skin: [0.52, 0.5, 0.46], horns: 1, belt: [0.3, 0.28, 0.26] }) },
   { k: 'greendragon', n: 'Green dragon', lv: 79, agg: 1, at: 'mg', rng: 6, bolt: 0x6fd04a, hp: 150, atk: 52, str: 56, def: 48, db: 90, abon: 28, max: 20, spd: 5, mspd: 0.7, sz: 2.6, big: 1, body: [0.22, 0.38, 0.2],
-    drops: [['dragon_dagger', 4], ['dragon_spear', 2]], build: DR(1.6, 2.6, [0.28, 0.45, 0.24], [0.17, 0.3, 0.16]) },
+    drops: [['dragon_dagger', 4], ['dragon_spear', 2], ['green_dragonhide', 990]], build: DR(1.6, 2.6, [0.28, 0.45, 0.24], [0.17, 0.3, 0.16]) },
   { k: 'lesserdemon', n: 'Lesser demon', lv: 82, agg: 1, hp: 158, atk: 56, str: 58, def: 50, db: 84, abon: 29, max: 8, spd: 5, mspd: 0.9, sz: 2.3, big: 1, body: [0.55, 0.16, 0.12], build: H(2.0, 4.4, { skin: [0.66, 0.2, 0.14], horns: 1, wings: 1, wing: [0.3, 0.1, 0.1], belt: [0.2, 0.08, 0.06] }) },
   { k: 'firegiant', n: 'Fire giant', lv: 86, agg: 1, hp: 170, atk: 60, str: 64, def: 54, db: 92, abon: 30, max: 16, spd: 6, mspd: 0.6, sz: 2.4, big: 1, body: [0.72, 0.34, 0.12], build: H(2.3, 4.8, { skin: [0.82, 0.46, 0.16], belt: [0.4, 0.16, 0.06] }) },
   { k: 'greaterdemon', n: 'Greater demon', lv: 92, agg: 1, hp: 190, atk: 66, str: 70, def: 60, db: 104, abon: 32, max: 12, spd: 5, mspd: 0.9, sz: 2.6, big: 1, body: [0.35, 0.1, 0.14],
     drops: [['rune_med_helm', 2]], build: H(2.4, 5.2, { skin: [0.5, 0.14, 0.16], horns: 1, wings: 1, wing: [0.2, 0.06, 0.08], belt: [0.16, 0.05, 0.06] }) },
   { k: 'blackdragon', n: 'Black dragon', lv: 227, agg: 1, at: 'mg', rng: 7, bolt: 0xc04adc, hp: 240, atk: 90, str: 96, def: 88, db: 150, abon: 79, max: 25, spd: 5, mspd: 0.7, sz: 3.0, big: 1, body: [0.13, 0.12, 0.15],
-    drops: [['rune_platebody', 3], ['dragon_longsword', 3], ['dragon_med_helm', 2], ['dragon_battleaxe', 2]], build: DR(2.0, 3.2, [0.19, 0.18, 0.22], [0.09, 0.08, 0.11]) },
+    drops: [['rune_platebody', 3], ['dragon_longsword', 3], ['dragon_med_helm', 2], ['dragon_battleaxe', 2], ['black_dragonhide', 985]], build: DR(2.0, 3.2, [0.19, 0.18, 0.22], [0.09, 0.08, 0.11]) },
   // folk of the road
-  { k: 'man', n: 'Man', lv: 2, hp: 4, atk: 1, str: 2, def: 1, db: 1, abon: 1, spd: 5, sz: 0.95, body: [0.5, 0.42, 0.3], build: H(0.72, 1.6, { skin: [0.8, 0.62, 0.46] }) },
-  { k: 'woman', n: 'Woman', lv: 2, hp: 4, atk: 1, str: 2, def: 1, db: 1, abon: 1, spd: 5, sz: 0.9, body: [0.56, 0.34, 0.42], build: H(0.66, 1.55, { skin: [0.82, 0.64, 0.48] }) },
+  { k: 'man', n: 'Man', lv: 2, hp: 4, atk: 1, str: 2, def: 1, db: 1, abon: 1, spd: 5, sz: 0.95, body: [0.5, 0.42, 0.3], human: 1, pick: { lv: 1, xp: 8, loot: [['coins', 1, 3]] }, build: H(0.72, 1.6, { skin: [0.8, 0.62, 0.46] }) },
+  { k: 'woman', n: 'Woman', lv: 2, hp: 4, atk: 1, str: 2, def: 1, db: 1, abon: 1, spd: 5, sz: 0.9, body: [0.56, 0.34, 0.42], human: 1, pick: { lv: 1, xp: 8, loot: [['coins', 1, 3]] }, build: H(0.66, 1.55, { skin: [0.82, 0.64, 0.48] }) },
   { k: 'mugger', n: 'Mugger', lv: 6, agg: 1, hp: 12, atk: 4, str: 4, def: 4, db: 3, abon: 2, spd: 5, sz: 0.95, body: [0.34, 0.3, 0.26], build: H(0.7, 1.6, { skin: [0.74, 0.56, 0.42] }) },
-  { k: 'farmer', n: 'Farmer', lv: 7, hp: 14, atk: 5, str: 5, def: 5, db: 3, abon: 2, spd: 5, sz: 0.95, body: [0.62, 0.55, 0.32], build: H(0.7, 1.6, { skin: [0.78, 0.6, 0.44] }) },
+  { k: 'farmer', n: 'Farmer', lv: 7, hp: 14, atk: 5, str: 5, def: 5, db: 3, abon: 2, spd: 5, sz: 0.95, body: [0.62, 0.55, 0.32], human: 1, pick: { lv: 10, xp: 14.5, loot: [['coins', 9, 9], ['potato_seed', 1]] }, build: H(0.7, 1.6, { skin: [0.78, 0.6, 0.44] }) },
   { k: 'redgoblin', n: 'Red goblin', lv: 5, agg: 1, hp: 10, atk: 4, str: 4, def: 3, db: 2, abon: 2, max: 1, spd: 6, sz: 0.9, body: [0.55, 0.24, 0.2], build: H(0.6, 1.25, { skin: [0.58, 0.3, 0.24], ears: 1 }) },
   { k: 'dwarf', n: 'Dwarf', lv: 10, hp: 20, atk: 7, str: 8, def: 7, db: 7, abon: 4, spd: 5, mspd: 0.9, sz: 0.85, body: [0.45, 0.35, 0.25], build: H(0.8, 1.15, { skin: [0.8, 0.62, 0.46], belt: [0.3, 0.22, 0.14] }) },
   { k: 'thug', n: 'Thug', lv: 12, agg: 1, hp: 24, atk: 9, str: 9, def: 8, db: 5, abon: 4, spd: 5, sz: 0.95, body: [0.3, 0.28, 0.3], build: H(0.72, 1.62, { skin: [0.72, 0.55, 0.4], belt: [0.2, 0.18, 0.16] }) },
   { k: 'pirate', n: 'Pirate', lv: 23, agg: 1, hp: 46, atk: 17, str: 17, def: 15, db: 10, abon: 8, spd: 5, sz: 0.95, body: [0.2, 0.24, 0.34], build: H(0.72, 1.65, { skin: [0.76, 0.58, 0.42], belt: [0.55, 0.14, 0.14] }) },
   { k: 'blackknight', n: 'Black Knight', lv: 33, agg: 1, hp: 66, atk: 24, str: 25, def: 22, db: 23, abon: 12, spd: 5, sz: 0.95, body: [0.14, 0.14, 0.16], build: H(0.78, 1.72, { skin: [0.74, 0.56, 0.42], belt: [0.1, 0.1, 0.12] }) },
-  { k: 'ghoul', n: 'Ghoul', lv: 42, agg: 1, hp: 84, atk: 30, str: 32, def: 28, db: 19, abon: 15, spd: 5, mspd: 1.1, sz: 0.95, body: [0.44, 0.46, 0.38], build: H(0.68, 1.7, { skin: [0.6, 0.62, 0.5], arm: [0.4, 0.42, 0.34] }) },
+  { k: 'ghoul', n: 'Ghoul', lv: 42, agg: 1, hp: 84, atk: 30, str: 32, def: 28, db: 19, abon: 15, spd: 5, mspd: 1.1, sz: 0.95, body: [0.44, 0.46, 0.38], drops: [['mort_myre_fungus', 450]], build: H(0.68, 1.7, { skin: [0.6, 0.62, 0.5], arm: [0.4, 0.42, 0.34] }) },
   { k: 'whiteknight', n: 'White Knight', lv: 42, agg: 1, hp: 84, atk: 30, str: 32, def: 28, db: 29, abon: 15, spd: 5, sz: 0.95, body: [0.84, 0.86, 0.9],
-    drops: [['white_full_helm', 5], ['white_kiteshield', 4], ['white_platebody', 3], ['white_platelegs', 3]], build: H(0.78, 1.72, { skin: [0.78, 0.6, 0.45], belt: [0.55, 0.58, 0.66] }) },
+    drops: [['white_full_helm', 5], ['white_kiteshield', 4], ['white_platebody', 3], ['white_platelegs', 3]], human: 1, pick: { lv: 55, xp: 84.3, loot: [['coins', 1, 50]] }, build: H(0.78, 1.72, { skin: [0.78, 0.6, 0.45], belt: [0.55, 0.58, 0.66] }) },
   { k: 'chaosdwarf', n: 'Chaos dwarf', lv: 48, agg: 1, hp: 96, atk: 35, str: 36, def: 32, db: 34, abon: 17, spd: 5, mspd: 0.9, sz: 0.9, body: [0.48, 0.18, 0.16], build: H(0.85, 1.2, { skin: [0.66, 0.44, 0.34], belt: [0.28, 0.1, 0.09] }) },
   { k: 'earthwarrior', n: 'Earth warrior', lv: 51, agg: 1, hp: 102, atk: 37, str: 38, def: 34, db: 36, abon: 18, spd: 5, sz: 0.95, body: [0.38, 0.3, 0.2], build: H(0.74, 1.65, { skin: [0.48, 0.4, 0.28], belt: [0.24, 0.18, 0.12] }) },
   { k: 'jogre', n: 'Jogre', lv: 53, agg: 1, hp: 127, atk: 38, str: 40, def: 35, db: 24, abon: 19, max: 12, spd: 6, mspd: 0.6, sz: 2.0, big: 1, body: [0.34, 0.46, 0.24], build: H(2.0, 3.8, { skin: [0.44, 0.56, 0.3], belt: [0.22, 0.3, 0.14] }) },
   { k: 'cyclops', n: 'Cyclops', lv: 56, agg: 1, hp: 134, atk: 40, str: 42, def: 37, db: 25, abon: 20, max: 13, spd: 6, mspd: 0.7, sz: 1.85, big: 1, body: [0.52, 0.48, 0.44], build: H(1.8, 3.4, { skin: [0.62, 0.58, 0.52] }) },
   { k: 'icewarrior', n: 'Ice warrior', lv: 57, agg: 1, hp: 114, atk: 41, str: 43, def: 38, db: 40, abon: 20, spd: 5, sz: 0.95, body: [0.56, 0.72, 0.84], build: H(0.76, 1.7, { skin: [0.7, 0.84, 0.92], belt: [0.36, 0.5, 0.64] }) },
-  { k: 'paladin', n: 'Paladin', lv: 62, agg: 1, hp: 124, atk: 45, str: 46, def: 41, db: 43, abon: 22, spd: 5, sz: 0.95, body: [0.72, 0.66, 0.34], build: H(0.8, 1.75, { skin: [0.78, 0.6, 0.45], belt: [0.46, 0.4, 0.18] }) },
-  { k: 'hero', n: 'Hero', lv: 69, agg: 1, hp: 138, atk: 50, str: 52, def: 46, db: 48, abon: 24, spd: 4, sz: 0.95, body: [0.3, 0.44, 0.62], build: H(0.8, 1.75, { skin: [0.78, 0.6, 0.45], belt: [0.62, 0.56, 0.28] }) },
+  { k: 'paladin', n: 'Paladin', lv: 62, agg: 1, hp: 124, atk: 45, str: 46, def: 41, db: 43, abon: 22, spd: 5, sz: 0.95, body: [0.72, 0.66, 0.34], human: 1, pick: { lv: 70, xp: 151.75, loot: [['coins', 9, 80], ['chaos_rune', 1, 2]] }, build: H(0.8, 1.75, { skin: [0.78, 0.6, 0.45], belt: [0.46, 0.4, 0.18] }) },
+  { k: 'hero', n: 'Hero', lv: 69, agg: 1, hp: 138, atk: 50, str: 52, def: 46, db: 48, abon: 24, spd: 4, sz: 0.95, body: [0.3, 0.44, 0.62], human: 1, pick: { lv: 80, xp: 273.3, loot: [['coins', 6, 200, 300], ['death_rune', 1, 2], ['diamond', 1], ['gold_ore', 1]] }, build: H(0.8, 1.75, { skin: [0.78, 0.6, 0.45], belt: [0.62, 0.56, 0.28] }) },
   { k: 'icetroll', n: 'Ice troll', lv: 74, agg: 1, hp: 178, atk: 53, str: 56, def: 49, db: 33, abon: 26, max: 15, spd: 6, mspd: 0.6, sz: 2.2, big: 1, body: [0.6, 0.72, 0.8], build: H(2.2, 4.2, { skin: [0.7, 0.82, 0.88], horns: 1, belt: [0.4, 0.5, 0.58] }) },
   { k: 'ogrechief', n: 'Ogre chieftain', lv: 81, agg: 1, hp: 194, atk: 58, str: 61, def: 53, db: 36, abon: 28, max: 17, spd: 6, mspd: 0.6, sz: 2.3, big: 1, body: [0.6, 0.52, 0.3], build: H(2.3, 4.4, { skin: [0.7, 0.62, 0.36], belt: [0.4, 0.2, 0.12] }) },
   { k: 'jungledemon', n: 'Jungle demon', lv: 82, agg: 1, hp: 197, atk: 59, str: 62, def: 54, db: 37, abon: 29, max: 8, spd: 5, mspd: 0.9, sz: 2.3, big: 1, body: [0.24, 0.44, 0.22], build: H(2.0, 4.4, { skin: [0.32, 0.54, 0.26], horns: 1, wings: 1, wing: [0.16, 0.3, 0.14], belt: [0.14, 0.26, 0.12] }) },
   { k: 'trollgeneral', n: 'Troll general', lv: 113, agg: 1, hp: 204, atk: 74, str: 77, def: 68, db: 51, abon: 40, max: 22, spd: 6, mspd: 0.6, sz: 2.5, big: 1, body: [0.38, 0.36, 0.42], build: H(2.5, 4.8, { skin: [0.46, 0.44, 0.5], horns: 1, belt: [0.26, 0.24, 0.28] }) },
   { k: 'blackdemon', n: 'Black demon', lv: 172, agg: 1, hp: 222, atk: 82, str: 87, def: 78, db: 77, abon: 60, max: 26, spd: 5, mspd: 0.9, sz: 2.8, big: 1, body: [0.11, 0.09, 0.12], build: H(2.7, 5.8, { skin: [0.18, 0.14, 0.18], horns: 1, wings: 1, wing: [0.07, 0.05, 0.08], belt: [0.06, 0.05, 0.07] }) },
+  { k: 'masterfarmer', n: 'Master Farmer', lv: 32, town: 1, hp: 64, atk: 23, str: 24, def: 21, db: 12, abon: 11, spd: 5, sz: 0.95, body: [0.46, 0.5, 0.26], human: 1,
+    pick: { lv: 38, xp: 43, loot: [500, 300, 250, 180, 80, 50, 20, 60, 40, 30, 20, 12, 10, 8, 6, 5, 3, 3, 2, 2, 1].map((w, i) => [CROPS[i].seed, w]) }, build: H(0.72, 1.62, { skin: [0.76, 0.58, 0.42], belt: [0.3, 0.22, 0.14] }) },
+  { k: 'rogue', n: 'Rogue', lv: 15, town: 1, hp: 30, atk: 11, str: 11, def: 10, db: 6, abon: 5, spd: 5, sz: 0.95, body: [0.22, 0.2, 0.24], human: 1,
+    pick: { lv: 32, xp: 35.5, loot: [['coins', 8, 25, 40], ['air_rune', 1, 8], ['sapphire', 1], ['flax', 1, 3]] }, build: H(0.68, 1.6, { skin: [0.74, 0.56, 0.42], belt: [0.12, 0.1, 0.12] }) },
+  { k: 'watchman', n: 'Watchman', lv: 21, town: 1, hp: 32, atk: 15, str: 14, def: 16, db: 12, abon: 7, spd: 5, sz: 0.95, body: [0.24, 0.3, 0.46], human: 1,
+    pick: { lv: 65, xp: 137.5, loot: [['coins', 9, 60], ['bread', 1]] }, build: H(0.76, 1.7, { skin: [0.78, 0.6, 0.45], belt: [0.5, 0.42, 0.2] }) },
   // the robed
   { k: 'monk', n: 'Monk', lv: 5, hp: 10, atk: 4, str: 4, def: 3, db: 2, abon: 2, spd: 5, sz: 0.95, body: [0.48, 0.36, 0.24], build: GH(0.7, 1.65, [0.8, 0.62, 0.46]) },
   { k: 'wizard', n: 'Wizard', lv: 9, agg: 1, at: 'mg', rng: 5, bolt: 0x6a5ad0, hp: 18, atk: 6, str: 7, def: 6, db: 4, abon: 3, spd: 5, sz: 0.95, body: [0.24, 0.28, 0.56], build: GH(0.7, 1.7, [0.8, 0.62, 0.46], 1) },
   { k: 'darkwizard', n: 'Dark wizard', lv: 20, agg: 1, at: 'mg', rng: 5, bolt: 0x6a5ad0, hp: 40, atk: 14, str: 15, def: 13, db: 9, abon: 7, spd: 5, sz: 0.95, body: [0.14, 0.12, 0.2], build: GH(0.7, 1.7, [0.72, 0.56, 0.42], 1) },
   { k: 'banshee', n: 'Banshee', lv: 23, agg: 1, hp: 46, atk: 17, str: 17, def: 15, db: 10, abon: 8, spd: 5, mspd: 0.9, sz: 0.95, body: [0.72, 0.74, 0.66], build: GH(0.68, 1.72, [0.84, 0.86, 0.78]) },
   { k: 'druid', n: 'Druid', lv: 30, agg: 1, at: 'mg', rng: 5, bolt: 0x5ad06a, hp: 60, atk: 22, str: 22, def: 20, db: 14, abon: 10, spd: 5, sz: 0.95, body: [0.24, 0.4, 0.24], build: GH(0.72, 1.7, [0.78, 0.6, 0.44]) },
-  { k: 'shade', n: 'Shade', lv: 40, agg: 1, hp: 80, atk: 29, str: 30, def: 26, db: 18, abon: 14, spd: 5, mspd: 0.9, sz: 0.95, body: [0.16, 0.16, 0.18], build: GH(0.7, 1.7, [0.26, 0.26, 0.28]) },
-  { k: 'zamorakmonk', n: 'Monk of Zamorak', lv: 45, agg: 1, at: 'mg', rng: 5, bolt: 0xd05a5a, hp: 90, atk: 32, str: 34, def: 30, db: 20, abon: 16, spd: 5, sz: 0.95, body: [0.36, 0.1, 0.12], build: GH(0.72, 1.7, [0.74, 0.56, 0.42]) },
+  { k: 'shade', n: 'Shade', lv: 40, agg: 1, hp: 80, atk: 29, str: 30, def: 26, db: 18, abon: 14, spd: 5, mspd: 0.9, sz: 0.95, body: [0.16, 0.16, 0.18], drops: [['mort_myre_fungus', 450]], build: GH(0.7, 1.7, [0.26, 0.26, 0.28]) },
+  { k: 'zamorakmonk', n: 'Monk of Zamorak', lv: 45, agg: 1, at: 'mg', rng: 5, bolt: 0xd05a5a, hp: 90, atk: 32, str: 34, def: 30, db: 20, abon: 16, spd: 5, sz: 0.95, body: [0.36, 0.1, 0.12], drops: [['wine_of_zamorak', 500]], build: GH(0.72, 1.7, [0.74, 0.56, 0.42]) },
   { k: 'spectre', n: 'Spectre', lv: 75, agg: 1, hp: 150, atk: 54, str: 56, def: 50, db: 34, abon: 26, spd: 5, mspd: 0.9, sz: 1.0, body: [0.4, 0.48, 0.52], build: GH(0.74, 1.8, [0.56, 0.64, 0.68]) },
   { k: 'revenant', n: 'Revenant', lv: 90, agg: 1, at: 'mg', rng: 6, bolt: 0x8ad05a, hp: 180, atk: 65, str: 68, def: 59, db: 40, abon: 31, spd: 4, mspd: 1.1, sz: 1.05, body: [0.28, 0.42, 0.3], build: GH(0.78, 1.9, [0.42, 0.58, 0.42]) },
   { k: 'skelwarrior', n: 'Skeleton warrior', lv: 45, agg: 1, hp: 90, atk: 32, str: 34, def: 30, db: 31, abon: 16, spd: 5, sz: 1.0, body: [0.82, 0.8, 0.72], build: SKEL(0.9, 2.1) },
   { k: 'giantskeleton', n: 'Giant skeleton', lv: 84, agg: 1, hp: 202, atk: 60, str: 63, def: 55, db: 59, abon: 29, max: 18, spd: 6, mspd: 0.7, sz: 1.7, big: 1, body: [0.7, 0.68, 0.58], build: SKEL(1.4, 3.2) },
   // beasts of field and fell
   { k: 'duck', n: 'Duck', lv: 1, hp: 2, atk: 1, str: 1, def: 1, db: 0, abon: 0, spd: 7, sz: 0.5, flee: 1, body: [0.92, 0.9, 0.86], build: Q(0.28, 0.4, 0.4, { head: [0.28, 0.42, 0.26], leg: [0.86, 0.62, 0.18], tail: [0.95, 0.93, 0.9] }) },
-  { k: 'sheep', n: 'Sheep', lv: 1, hp: 2, atk: 1, str: 1, def: 1, db: 0, abon: 0, spd: 7, sz: 1.0, flee: 1, body: [0.9, 0.89, 0.85], build: Q(0.8, 1.0, 1.4, { head: [0.26, 0.24, 0.22], leg: [0.26, 0.24, 0.22] }) },
+  { k: 'sheep', n: 'Sheep', lv: 1, hp: 2, atk: 1, str: 1, def: 1, db: 0, abon: 0, spd: 7, sz: 1.0, flee: 1, body: [0.9, 0.89, 0.85], drops: [['wool', 990]], build: Q(0.8, 1.0, 1.4, { head: [0.26, 0.24, 0.22], leg: [0.26, 0.24, 0.22] }) },
   { k: 'camel', n: 'Camel', lv: 1, hp: 2, atk: 1, str: 1, def: 1, db: 0, abon: 0, spd: 7, sz: 1.3, flee: 1, body: [0.78, 0.64, 0.4], build: Q(1.0, 1.7, 1.7, { head: [0.72, 0.58, 0.36], leg: [0.66, 0.54, 0.34], tail: [0.7, 0.56, 0.34], snout: 1 }) },
   { k: 'ram', n: 'Ram', lv: 2, hp: 4, atk: 1, str: 2, def: 1, db: 1, abon: 1, spd: 7, sz: 1.05, body: [0.86, 0.84, 0.78], build: Q(0.85, 1.05, 1.45, { head: [0.32, 0.3, 0.26], leg: [0.32, 0.3, 0.26], horns: 1 }) },
   { k: 'goat', n: 'Goat', lv: 6, hp: 12, atk: 4, str: 4, def: 4, db: 3, abon: 2, spd: 6, mspd: 1.1, sz: 0.95, body: [0.62, 0.58, 0.5], build: Q(0.7, 0.95, 1.2, { head: [0.5, 0.46, 0.4], leg: [0.44, 0.4, 0.34], horns: 1, snout: 1 }) },
   { k: 'pig', n: 'Pig', lv: 8, hp: 16, atk: 6, str: 6, def: 5, db: 4, abon: 3, spd: 6, sz: 1.0, flee: 1, body: [0.86, 0.66, 0.64], build: Q(0.9, 1.0, 1.4, { head: [0.88, 0.7, 0.68], leg: [0.7, 0.52, 0.5], tail: [0.88, 0.7, 0.68], snout: 1 }) },
   { k: 'jackal', n: 'Jackal', lv: 13, agg: 1, hp: 26, atk: 9, str: 10, def: 9, db: 6, abon: 5, spd: 5, mspd: 1.5, sz: 0.85, body: [0.62, 0.5, 0.32], build: Q(0.6, 0.85, 1.3, { head: [0.54, 0.43, 0.27], leg: [0.48, 0.38, 0.24], tail: [0.58, 0.46, 0.3], snout: 1 }) },
-  { k: 'unicorn', n: 'Unicorn', lv: 15, hp: 30, atk: 11, str: 11, def: 10, db: 7, abon: 5, spd: 5, mspd: 1.2, sz: 1.2, body: [0.94, 0.93, 0.92], build: Q(0.8, 1.5, 1.6, { head: [0.96, 0.95, 0.94], leg: [0.9, 0.89, 0.88], tail: [0.86, 0.84, 0.9], horns: 1 }) },
+  { k: 'unicorn', n: 'Unicorn', lv: 15, hp: 30, atk: 11, str: 11, def: 10, db: 7, abon: 5, spd: 5, mspd: 1.2, sz: 1.2, body: [0.94, 0.93, 0.92], drops: [['unicorn_horn', 990]], build: Q(0.8, 1.5, 1.6, { head: [0.96, 0.95, 0.94], leg: [0.9, 0.89, 0.88], tail: [0.86, 0.84, 0.9], horns: 1 }) },
   { k: 'wilddog', n: 'Wild dog', lv: 18, agg: 1, hp: 36, atk: 13, str: 14, def: 12, db: 8, abon: 6, spd: 5, mspd: 1.5, sz: 0.85, body: [0.44, 0.36, 0.28], build: Q(0.6, 0.9, 1.3, { head: [0.38, 0.31, 0.24], leg: [0.34, 0.28, 0.22], tail: [0.4, 0.33, 0.26], snout: 1 }) },
   { k: 'boar', n: 'Boar', lv: 22, agg: 1, hp: 44, atk: 16, str: 16, def: 15, db: 10, abon: 8, spd: 5, mspd: 1.2, sz: 1.1, body: [0.32, 0.26, 0.22], build: Q(1.0, 1.15, 1.5, { head: [0.28, 0.23, 0.19], leg: [0.24, 0.2, 0.16], snout: 1, horns: 1 }) },
   { k: 'whitewolf', n: 'White wolf', lv: 25, agg: 1, hp: 50, atk: 18, str: 19, def: 16, db: 11, abon: 9, spd: 4, mspd: 1.5, sz: 1.0, body: [0.84, 0.86, 0.88], build: Q(0.72, 1.05, 1.55, { head: [0.76, 0.78, 0.82], leg: [0.7, 0.72, 0.76], tail: [0.88, 0.9, 0.92], snout: 1 }) },
@@ -1971,17 +2079,17 @@ const NPC_TYPES = [
   // the many-legged
   { k: 'smallspider', n: 'Spider', lv: 1, hp: 2, atk: 1, str: 1, def: 1, db: 0, abon: 0, spd: 6, sz: 0.55, body: [0.2, 0.16, 0.18], build: SP(0.5, 0.5, [0.3, 0.12, 0.12], [0.14, 0.11, 0.12]) },
   { k: 'smallscorpion', n: 'Scorpion', lv: 14, agg: 1, hp: 28, atk: 10, str: 10, def: 9, db: 6, abon: 5, spd: 5, sz: 0.75, body: [0.46, 0.32, 0.16], build: SP(0.7, 0.6, [0.56, 0.4, 0.2], [0.38, 0.26, 0.13]) },
-  { k: 'kalphiteworker', n: 'Kalphite worker', lv: 28, agg: 1, hp: 56, atk: 20, str: 21, def: 18, db: 20, abon: 10, spd: 5, mspd: 1.1, sz: 1.0, body: [0.72, 0.62, 0.3], build: SP(1.0, 0.9, [0.8, 0.7, 0.36], [0.6, 0.5, 0.24]) },
-  { k: 'redspider', n: 'Deadly red spider', lv: 34, agg: 1, hp: 68, atk: 24, str: 26, def: 22, db: 15, abon: 12, spd: 4, mspd: 1.2, sz: 0.9, body: [0.52, 0.1, 0.1], build: SP(0.85, 0.75, [0.66, 0.14, 0.12], [0.34, 0.08, 0.08]) },
+  { k: 'kalphiteworker', n: 'Kalphite worker', lv: 28, agg: 1, hp: 56, atk: 20, str: 21, def: 18, db: 20, abon: 10, spd: 5, mspd: 1.1, sz: 1.0, body: [0.72, 0.62, 0.3], drops: [['potato_cactus', 450]], build: SP(1.0, 0.9, [0.8, 0.7, 0.36], [0.6, 0.5, 0.24]) },
+  { k: 'redspider', n: 'Deadly red spider', lv: 34, agg: 1, hp: 68, atk: 24, str: 26, def: 22, db: 15, abon: 12, spd: 4, mspd: 1.2, sz: 0.9, body: [0.52, 0.1, 0.1], drops: [['red_spiders_eggs', 600]], build: SP(0.85, 0.75, [0.66, 0.14, 0.12], [0.34, 0.08, 0.08]) },
   { k: 'shadowspider', n: 'Shadow spider', lv: 52, agg: 1, hp: 104, atk: 37, str: 39, def: 34, db: 23, abon: 18, spd: 4, mspd: 1.2, sz: 1.05, body: [0.12, 0.11, 0.16], build: SP(1.0, 0.85, [0.18, 0.16, 0.24], [0.09, 0.08, 0.12]) },
   { k: 'poisonspider', n: 'Poison spider', lv: 64, agg: 1, hp: 128, atk: 46, str: 48, def: 42, db: 29, abon: 22, spd: 4, mspd: 1.1, sz: 0.95, body: [0.22, 0.42, 0.18], build: SP(0.9, 0.8, [0.3, 0.54, 0.22], [0.16, 0.3, 0.13]) },
   { k: 'kalphitesoldier', n: 'Kalphite soldier', lv: 85, agg: 1, hp: 204, atk: 61, str: 64, def: 56, db: 59, abon: 30, max: 14, spd: 5, sz: 1.7, big: 1, body: [0.62, 0.5, 0.22], build: SP(1.6, 1.5, [0.7, 0.58, 0.26], [0.5, 0.4, 0.18]) },
   // dragonkind
   { k: 'babygreendragon', n: 'Baby green dragon', lv: 48, agg: 1, hp: 96, atk: 35, str: 36, def: 32, db: 34, abon: 17, max: 10, spd: 5, mspd: 0.9, sz: 1.3, body: [0.24, 0.4, 0.22], build: DR(0.9, 1.5, [0.3, 0.48, 0.26], [0.18, 0.32, 0.17]) },
   { k: 'babybluedragon', n: 'Baby blue dragon', lv: 48, agg: 1, hp: 96, atk: 35, str: 36, def: 32, db: 34, abon: 17, max: 10, spd: 5, mspd: 0.9, sz: 1.3, body: [0.2, 0.32, 0.52], build: DR(0.9, 1.5, [0.26, 0.4, 0.6], [0.15, 0.24, 0.4]) },
-  { k: 'bluedragon', n: 'Blue dragon', lv: 111, agg: 1, at: 'mg', rng: 6, bolt: 0x4a7fd0, hp: 203, atk: 74, str: 77, def: 68, db: 78, abon: 39, max: 21, spd: 5, mspd: 0.7, sz: 2.6, big: 1, body: [0.18, 0.3, 0.54], build: DR(1.6, 2.6, [0.24, 0.38, 0.62], [0.13, 0.22, 0.42]) },
+  { k: 'bluedragon', n: 'Blue dragon', lv: 111, agg: 1, at: 'mg', rng: 6, bolt: 0x4a7fd0, hp: 203, atk: 74, str: 77, def: 68, db: 78, abon: 39, max: 21, spd: 5, mspd: 0.7, sz: 2.6, big: 1, body: [0.18, 0.3, 0.54], drops: [['blue_dragonhide', 990]], build: DR(1.6, 2.6, [0.24, 0.38, 0.62], [0.13, 0.22, 0.42]) },
   { k: 'bronzedragon', n: 'Bronze dragon', lv: 131, agg: 1, at: 'mg', rng: 6, bolt: 0xd0904a, hp: 210, atk: 76, str: 80, def: 71, db: 92, abon: 46, max: 22, spd: 5, mspd: 0.7, sz: 2.7, big: 1, body: [0.52, 0.36, 0.18], build: DR(1.8, 2.9, [0.6, 0.43, 0.22], [0.38, 0.26, 0.13]) },
-  { k: 'reddragon', n: 'Red dragon', lv: 152, agg: 1, at: 'mg', rng: 6, bolt: 0xd04a2a, hp: 216, atk: 79, str: 84, def: 75, db: 106, abon: 53, max: 23, spd: 5, mspd: 0.7, sz: 2.7, big: 1, body: [0.52, 0.14, 0.12], build: DR(1.7, 2.8, [0.62, 0.19, 0.15], [0.38, 0.1, 0.09]) },
+  { k: 'reddragon', n: 'Red dragon', lv: 152, agg: 1, at: 'mg', rng: 6, bolt: 0xd04a2a, hp: 216, atk: 79, str: 84, def: 75, db: 106, abon: 53, max: 23, spd: 5, mspd: 0.7, sz: 2.7, big: 1, body: [0.52, 0.14, 0.12], drops: [['red_dragonhide', 990]], build: DR(1.7, 2.8, [0.62, 0.19, 0.15], [0.38, 0.1, 0.09]) },
   { k: 'irondragon', n: 'Iron dragon', lv: 189, agg: 1, at: 'mg', rng: 7, bolt: 0x9aa4b0, hp: 228, atk: 84, str: 90, def: 81, db: 132, abon: 66, max: 24, spd: 6, mspd: 0.6, sz: 2.9, big: 1, body: [0.34, 0.35, 0.38],
     drops: [['dragon_scimitar', 2], ['dragon_sq_shield', 2], ['dragon_hatchet', 1], ['dragon_pickaxe', 1]], build: DR(1.9, 3.0, [0.42, 0.43, 0.46], [0.26, 0.27, 0.29]) },
   { k: 'steeldragon', n: 'Steel dragon', lv: 246, agg: 1, at: 'mg', rng: 7, bolt: 0xd8e0ea, hp: 245, atk: 92, str: 99, def: 91, db: 172, abon: 86, max: 25, spd: 6, mspd: 0.6, sz: 3.1, big: 1, body: [0.66, 0.69, 0.74],
@@ -2059,7 +2167,7 @@ function variantOf(t, L) {
 }
 const SPAWNABLE = [];
 for (const t of NPC_TYPES) {
-  if (t.boss) continue;
+  if (t.boss || t.town) continue;
   (LADDERS[t.k] || [t.lv, Math.round(t.lv * 1.6) + 1, Math.round(t.lv * 2.4) + 2]).forEach((L, i) => { const v = variantOf(t, L); v.vw = 1 / Math.pow(1 + i, 0.9); SPAWNABLE.push(v); });
 }
 function npcByName(s) {                                  // "goblin@25"
@@ -2164,6 +2272,9 @@ function emitForge(B, f) {
     b(0, 1.35, 0, 3.0, 2.7, 3.0, C_STONE); b(0, 2.78, 0, 3.3, 0.3, 3.3, C_STONE2); b(0.7, 3.5, -0.6, 1.0, 1.6, 1.0, C_STONE2, CYL8);
     b(0, 0.95, 1.5, 1.3, 1.3, 0.3, C_DARK); b(0, 0.8, 1.62, 1.0, 0.8, 0.16, [0.98, 0.55, 0.10]);
     if (!f.in) B.add(BOX, x - 1.9, y + 0.35, z + 0.4, 0.9, 0.7, 0.9, 0, C_BEAM);
+  } else if (f.t === 13) {                                // the saw bench: a blade standing in a log, sawdust and a plank stack beside
+    b(0, 0.45, 0, 2.4, 0.9, 1.0, C_BEAM); b(0, 1.1, 0, 1.8, 0.4, 0.4, BARK); b(0.35, 1.25, 0, 0.08, 1.2, 1.2, [0.62, 0.64, 0.68]);
+    b(-0.5, 0.12, 0.95, 1.2, 0.3, 0.7, [0.80, 0.68, 0.44], BLOB); b(1.9, 0.25, 0.2, 0.5, 0.5, 1.6, [0.72, 0.58, 0.36]);
   } else {
     b(0, 0.30, 0, 1.5, 0.6, 1.5, C_BEAM); b(0, 0.78, 0, 0.6, 0.4, 0.6, [0.30, 0.29, 0.31]); b(0, 1.16, 0, 2.0, 0.42, 0.9, [0.34, 0.33, 0.35]);
     b(1.25, 1.16, 0, 0.9, 1.0, 0.8, [0.34, 0.33, 0.35], CONE8, PI / 2);
@@ -2335,8 +2446,8 @@ function emitCityTree(B, t) {                              // decoration only; t
 }
 
 /* ---- 14. LAYING OUT A TOWN ---- */
-const SHOP_FOR_RANK = [['general'], ['general', 'weapon'], ['general', 'weapon', 'smith', 'archery'], ['general', 'weapon', 'armour', 'smith', 'magic', 'archery'],
-  ['general', 'weapon', 'armour', 'smith', 'magic', 'archery', 'food']];
+const SHOP_FOR_RANK = [['general'], ['general', 'weapon', 'craft'], ['general', 'weapon', 'smith', 'archery', 'craft'], ['general', 'weapon', 'armour', 'smith', 'magic', 'archery', 'craft'],
+  ['general', 'weapon', 'armour', 'smith', 'magic', 'archery', 'food', 'craft']];
 /* min/max heights over a sampled footprint; returns null when any sample fails `ok` */
 function spanHeights(cx, cz, R, step, ok, circle) {
   let lo = 1e9, hi = -1e9;
@@ -2579,6 +2690,7 @@ function layoutCity(v) {
     if (hash2(v.x, v.z, S + 43) % 100 < [25, 45][v.rank]) outdoorFix(3, 0);
     if (hash2(v.x, v.z, S + 48) % 100 < [25, 50][v.rank]) outdoorFix(4, 977);
   }
+  if (v.rank >= 2) outdoorFix(13, 1234);                  // the sawmill, out in a yard
   if (v.rank >= 1 || (hash2(v.x, v.z, S + 46) & 7) < 5) {
     const hb = host(2);
     if (hb) { hb.range = 1; const c = corners(hb); FIX.push({ t: 6, x: c.ax, z: c.az, y: hb.y + FLOOR_TOP, in: hb }); }
@@ -2741,6 +2853,8 @@ function oreKind(y, h, p) {
   if (y > 28 && r < 60 && p >= 0.6) return 4;
   if (r < 230) return 3;
   if (r < 500) return 2;
+  if (r >= 985) return 7;
+  if (r >= 975 && y > 24 && p >= 0.5) return 8;
   return (r & 1) ? 0 : 1;
 }
 const lvlOk = (k, y) => ORES[k].lv <= 30 || y > 20;
@@ -2850,19 +2964,19 @@ function scatterDecor(rec, cx, cz, ring) {
     }
   });
 }
-const FIX_NAME = { 3: 'Furnace', 4: 'Anvil', 6: 'Cooking range' };
+const FIX_NAME = { 3: 'Furnace', 4: 'Anvil', 6: 'Cooking range', 13: 'Sawmill' };
 const keeperObj = (t, k, x, z, y, n, b) => ({ t, k, x, z, y, key: tk(x, z), n, b });
 /* cottages, shops, fixtures and the castle, filed into whichever chunk holds them */
 function buildStructures(rec, cx, cz) {
   const gx = Math.floor(cx * CHUNK * INV_CELL), gz = Math.floor(cz * CHUNK * INV_CELL);
   const x0 = cx * CHUNK, x1 = x0 + CHUNK, z0 = cz * CHUNK, z1 = z0 + CHUNK;
   const inChunk = (x, z) => x >= x0 && x < x1 && z >= z0 && z < z1;
-  const mine = [], forges = [], walls = [], citytrees = [], lms = [], furn = [], ges = [];
+  const mine = [], forges = [], walls = [], citytrees = [], lms = [], furn = [], ges = [], vs = [];
   let castle = null;
   for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
     const v = villageAt(gx + a, gz + b);
     if (!v) continue;
-    villageBuildings(v);
+    villageBuildings(v); vs.push(v);
     if (v.ge && inChunk(v.ge.x, v.ge.z)) {
       const g = v.ge;
       ges.push(g); rec.blk.push(...g.blk);
@@ -2886,6 +3000,7 @@ function buildStructures(rec, cx, cz) {
     for (const w of v.wall) if (inChunk(w.x, w.z)) { walls.push(w); rec.blk.push(w.key); }
     for (const t of v.trees) if (inChunk(t.x, t.z)) { citytrees.push(t); rec.blk.push(tk(t.x, t.z)); }
   }
+  for (const f of structHooks) f(rec, vs, inChunk);
   if (castle) { batchInto(rec, B => emitCastle(B, castle)); rec.blk.push(...castle.blk); }
   if (walls.length || citytrees.length || lms.length || furn.length || ges.length) batchInto(rec, W => {
     for (const w of walls) emitWallCell(W, w);
@@ -3057,7 +3172,8 @@ function rayGround(ray) {
   return null;
 }
 /* picking: a sphere test per nearby thing; index by object type t */
-const PICK_R = [1.7, 1.15, 1.5, 2.4, 1.5, 1.1, 1.6, 1.1, 1.5, 1.1, 1.2], PICK_Y = [2.4, 0.55, 0.05, 1.6, 0.9, 0.9, 1.0, 0.9, 0.8, 0.9, 0.9];
+const PICK_R = [1.7, 1.15, 1.5, 2.4, 1.5, 1.1, 1.6, 1.1, 1.5, 1.1, 1.2, 1.8, 1.1, 1.5, 1.6, 1.3, 1.4], PICK_Y = [2.4, 0.55, 0.05, 1.6, 0.9, 0.9, 1.0, 0.9, 0.8, 0.9, 0.9, 1.0, 0.9, 0.8, 1.0, 0.3, 0.6];
+const pickLists = [];                                     // fires, traps, campsite furniture: anything a player leaves on the ground besides drops
 function pickObject(ray) {
   const o = ray.origin, d = ray.direction;
   let bestT = 1e9, best = null;
@@ -3071,7 +3187,7 @@ function pickObject(ray) {
   for (const n of npcs) if (!n.dead) test(n.rx, n.ry + (n.t.sz || 1) * 0.8, n.rz, (n.t.sz || 1) * 1.15, n);
   for (const R of remotes.values()) test(R.rx, R.ry + 0.9, R.rz, 1.1, R);
   for (const dr of drops) test(dr.x, dr.y + 0.35, dr.z, 0.75, dr);
-  for (const f of fires) test(f.x, f.y + 0.6, f.z, 1.1, f);
+  for (const L of pickLists) for (const f of L) test(f.x, f.y + 0.6, f.z, 1.1, f);
   return best;
 }
 
@@ -3197,7 +3313,7 @@ const P = {
   tx: 0, tz: 0, px: 0, pz: 0, rx: 0, ry: 0, rz: 0, face: 0, faceT: 0, span: 1,
   path: [], goal: null, task: null, actT: 0, acting: 0, actSpan: 2, walkPhase: 0, bobPhase: 0, swingPhase: 0,
   run: 1, energy: 100, hp: 10, maxhp: 10, style: 0, rstyle: 1, ammoN: 0, pose: 0, spell: null, prayers: 0, pray: 10, maxpray: 10,
-  afloat: 0, moved: 0, dead: 0, stuckT: 0, look: { skin: 0, shirt: 0, legs: 0, face: 0 }, home: { x: 0, z: 0 }, regionK: '', regionT: 0,
+  afloat: 0, moved: 0, dead: 0, stuckT: 0, stun: 0, slay: null, farm: Object.create(null), look: { skin: 0, shirt: 0, legs: 0, face: 0 }, home: { x: 0, z: 0 }, regionK: '', regionT: 0,
   turn: player, rig: avatar, boat, oarL, oarR
 };
 let tickN = 0;
@@ -3260,7 +3376,7 @@ function bowRange() {                                     // a bow draws arrows 
 }
 /* the 2007 max-hit shape: floor(0.5 + (effective + 8) * (bonus + 64) / 640) */
 const maxFrom = (eff, b) => Math.max(1, Math.floor(0.5 + (eff + 8) * (b + 64) / 640));
-const rangedMax = () => maxFrom(lvl[SK.ranged] * RSTYLES[P.rstyle].str, bonus('rst'));
+const rangedMax = () => maxFrom(eff('ranged') * RSTYLES[P.rstyle].str, bonus('rst'));
 function spendArrow() {
   const cp = eq.cape && ITEMS[eq.cape];
   if (cp && cp.save && Math.random() < cp.save) return;  // Ava's devices snatch it back
@@ -3269,8 +3385,8 @@ function spendArrow() {
   say('You have run out of ammunition!', 'bad');
   dirty.eq = 1; dressAvatar(); markDirty(1);
 }
-const maxHit = () => bowRange() ? rangedMax() : maxFrom(lvl[SK.strength] * STYLES[P.style].str * prayerMul('str'), bonus('str'));
-const defLevel = () => lvl[SK.defence] * (STYLES[P.style].def || 1) * prayerMul('def');
+const maxHit = () => bowRange() ? rangedMax() : maxFrom(eff('strength') * STYLES[P.style].str * prayerMul('str'), bonus('str'));
+const defLevel = () => eff('defence') * (STYLES[P.style].def || 1) * prayerMul('def');
 function hitChance(atk, atkB, def, defB) {
   const a = (atk + 9) * (atkB + 64), d = (def + 9) * (defB + 64);
   return a > d ? 1 - (d + 2) / (2 * (a + 1)) : a / (2 * (d + 1));
@@ -3301,6 +3417,7 @@ function walkTick() {
   // a stuck step is one tile over five ticks: the anchor stays on the departed tile while stuckT counts up
   if (P.span > 1 && (P.px !== P.tx || P.pz !== P.tz) && P.stuckT < P.span - 1) { P.stuckT++; P.moved = 0; return; }
   P.px = P.tx; P.pz = P.tz; P.span = 1;
+  if (P.stun > 0) { P.stun--; P.moved = 0; return; }      // a failed pickpocket leaves you reeling
   if (!P.path.length) { P.moved = 0; chainGoal(); return; }
   const crawl = OPT.stuck && !P.afloat, want = crawl ? 1 : stepsThisTick();
   let took = 0;
@@ -3319,7 +3436,8 @@ function walkTick() {
     if (wet && !P.afloat) { say('You climb into your rowboat.'); P.afloat = 1; }
     else if (!wet && P.afloat) { say('You step ashore.'); P.afloat = 0; }
     if (P.afloat) gainXp('sailing', 1.1 * took);
-    else if (P.run && P.energy > 0 && took > 1) { P.energy = Math.max(0, P.energy - 0.7); dirty.orb = 1; }
+    else if ((P.agx = (P.agx || 0) + took * (P.run && P.energy > 0 ? 0.1 : 0.05)) >= 2) { gainXp('agility', P.agx); P.agx = 0; }   // (dev) the road trains agility, paid in lumps
+    if (!P.afloat && P.run && P.energy > 0 && took > 1) { P.energy = Math.max(0, P.energy - 0.7 * (1 - lvl[SK.agility] * 0.004)); dirty.orb = 1; }
     if (crawl && !P.afloat) { P.span = 5; P.stuckT = 0; }
   }
   if (!P.path.length) chainGoal();
@@ -3363,7 +3481,7 @@ function takeDrop(d) {
   markDirty();
   say('You pick up ' + (d.n > 1 ? d.n + ' x ' : '') + ITEMS[d.id].name.toLowerCase() + '.');
 }
-const fires = [];
+const fires = []; pickLists.push(fires);
 function lightFire(x, z) {
   fires.push({ fire: 1, x, z, y: walkY(x, z), life: 180 + (hash2(x, z, S) & 127), name: 'Fire' });
   if (fires.length > 20) fires.shift();
@@ -3402,8 +3520,8 @@ function pickMonster(x, z, h, p) {
   while (lo < hi) { const m = (lo + hi) >> 1; if (c[m] < u) lo = m + 1; else hi = m; }
   return t.types[lo];
 }
-const TOWNFOLK = [['man', 'woman', 'farmer', 'goblin'], ['man', 'woman', 'farmer', 'monk', 'dwarf', 'barbarian'], ['man', 'woman', 'farmer', 'monk', 'dwarf', 'guard'],
-  ['man', 'woman', 'monk', 'wizard', 'thug', 'guard'], ['man', 'woman', 'wizard', 'pirate', 'thug', 'guard']];
+const TOWNFOLK = [['man', 'woman', 'farmer', 'goblin', 'masterfarmer'], ['man', 'woman', 'farmer', 'monk', 'dwarf', 'barbarian', 'masterfarmer'], ['man', 'woman', 'farmer', 'monk', 'dwarf', 'guard', 'masterfarmer', 'watchman'],
+  ['man', 'woman', 'monk', 'wizard', 'thug', 'guard', 'watchman', 'rogue'], ['man', 'woman', 'wizard', 'pirate', 'thug', 'guard', 'watchman', 'rogue']];
 const hasNpc = key => npcDead.has(key) || npcs.some(q => q.key === key);
 const WILD_CELL = 64;                                     // one roaming pack per cell, one species to a cell
 function spawnWild() {
@@ -3565,7 +3683,7 @@ function npcTick(n) {
       n.mv = Math.min(n.mv, 1);
     } else if (--n.cd <= 0) {
       n.cd = n.t.spd; n.mv = 0;
-      const c = hitChance(n.t.atk, n.t.abon, defLevel(), bonus('def')), mx = n.t.max !== null ? n.t.max : Math.max(1, Math.round(1 + n.t.str * 0.16));
+      const c = hitChance(n.t.atk * (n.atkDr ? 0.95 : 1), n.t.abon, defLevel(), bonus('def')), mx = n.t.max !== null ? n.t.max : Math.max(1, Math.round(1 + n.t.str * (n.strDr ? 0.95 : 1) * 0.16));
       let st;
       if (phase) {
         st = phase;
@@ -3640,7 +3758,10 @@ function killNpc(n) {
     else if (r < 0.32) drop(tk2 + '_platebody', 1);
     else if (r < 0.40) drop(['iron_ore', 'coal', 'mithril_ore', 'adamantite_ore'][Math.min(3, tier >> 1)], Math.round((2 + (Math.random() * 4 | 0)) * (1 + p)));
     else if (r < 0.46 && lv > 20) drop(['air_rune', 'fire_rune', 'chaos_rune'][Math.random() * 3 | 0], Math.round((8 + (Math.random() * 20 | 0)) * (1 + p)));
+    else if (r < 0.52 && lv > 6) drop(HERBS[Math.min(13, (Math.random() * (4 + tier * 2)) | 0)].grimy, 1);
+    else if (r < 0.56 && lv > 3) drop(CROPS[Math.min(21, (Math.random() * (4 + tier * 3)) | 0)].seed, 1);
   }
+  for (const f of onKill) f(n, drop);
   say(n.t.boss ? 'You have slain ' + n.name + '!' : 'You defeat the ' + n.name + '.', n.t.boss ? 'lv' : 'good');
   if (P.task && P.task.o === n) P.task = null;
 }
@@ -3749,11 +3870,11 @@ function swing(o) {
   P.pose = sp ? 2 : rng ? 1 : stabbing() ? 4 : 0;
   if (--P.actT > 0) return -1;
   P.actT = P.actSpan;
-  const [dl, db] = o.npc ? [o.t.def, o.t.db] : remoteDef(o);
+  const [dl, db] = o.npc ? [o.t.def * (o.defDr ? 0.95 : 1), o.t.db] : remoteDef(o);
   let dmg, xps = null;
   if (rng) {
     const st = RSTYLES[P.rstyle];
-    dmg = roll(hitChance(lvl[SK.ranged] * st.acc, bonus('rat'), dl, db), rangedMax());
+    dmg = roll(hitChance(eff('ranged') * st.acc, bonus('rat'), dl, db), rangedMax());
     shootArrow(P, o, dmg, ammoTint());
     wsSend([19, o.tx, o.tz, ammoTint()]);
     spendArrow();
@@ -3761,14 +3882,13 @@ function swing(o) {
   } else if (sp) {
     if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return -1; }
     spendRunes(sp);
-    dmg = roll(hitChance(lvl[SK.magic], bonus('mag'), dl, db), sp.max + Math.floor(bonus('mag') / 8));
-    castFx(o, sp, dmg);
+    if (sp.drain) { dmg = 0; o[sp.drain + 'Dr'] = 1; castFx(o, sp, null); say('Your spell weakens the ' + o.name + '.'); gainXp('magic', sp.xp); P.spell = null; }   // a curse lands once, then the staff comes down
+    else { dmg = roll(hitChance(eff('magic'), bonus('mag'), dl, db), sp.max + Math.floor(bonus('mag') / 8)); castFx(o, sp, dmg); gainXp('magic', sp.xp + dmg * 2); }
     wsSend([18, sp.i, o.tx, o.tz]);                       // observers cannot see a bolt they were never told about
-    gainXp('magic', sp.xp + dmg * 2);
     drawSpells();
   } else {
     const st = STYLES[P.style];
-    dmg = roll(hitChance(lvl[SK.attack] * st.acc * prayerMul('atk'), bonus('atk'), dl, db), maxHit());
+    dmg = roll(hitChance(eff('attack') * st.acc * prayerMul('atk'), bonus('atk'), dl, db), maxHit());
     hitsplat(o.rx, o.ry + 1.5, o.rz, dmg);
     xps = st.xp;
   }
@@ -3782,22 +3902,31 @@ const GATHER = {
 };
 function taskTick() {
   P.acting = 0;                                             // latches for the whole tick
-  const t = P.task; if (!t) return;
+  const t = P.task; if (!t || P.stun > 0) return;
   const o = t.o;
-  if (o.dead || (o.key !== undefined && depleted.has(o.key) && t.k !== 'cook') || (o.npc && !o.mesh.parent) || (o.remote && !remotes.has(o.pid))) { P.task = null; return; }
-  const ox = (o.npc || o.remote) ? o.tx : o.x, oz = (o.npc || o.remote) ? o.tz : o.z;
-  // reach: a spell ten tiles, a bow its range, melee one tile — or the bulk of the thing for the big ones, or a halberd's two
-  const reach = t.k !== 'attack' ? 1 : P.spell !== null ? MAGIC_RANGE : bowRange() || Math.max((eq.weapon && ITEMS[eq.weapon].reach) || 1, o.npc && o.t.big ? Math.max(1, Math.round(o.t.sz)) : 1);
-  if (chebDist(P.tx, P.tz, ox, oz) > reach) {
-    if (!P.path.length) {                                   // chase, or give up if it walked off a cliff
-      const p = findPath(P.tx, P.tz, ox, oz, reach);
-      if (!p || !p.length) { if (p) P.task = null; return; }
-      P.path = p;
+  if (o) {
+    if (o.dead || (o.key !== undefined && depleted.has(o.key) && t.k !== 'cook' && t.k !== 'make') || (o.npc && !o.mesh.parent) || (o.remote && !remotes.has(o.pid))) { P.task = null; return; }
+    const ox = (o.npc || o.remote) ? o.tx : o.x, oz = (o.npc || o.remote) ? o.tz : o.z;
+    // reach: a spell ten tiles, a bow its range, melee one tile — or the bulk of the thing for the big ones, or a halberd's two
+    const reach = t.k !== 'attack' ? (t.reach || 1) : P.spell !== null ? MAGIC_RANGE : bowRange() || Math.max((eq.weapon && ITEMS[eq.weapon].reach) || 1, o.npc && o.t.big ? Math.max(1, Math.round(o.t.sz)) : 1);
+    if (chebDist(P.tx, P.tz, ox, oz) > reach) {
+      if (!P.path.length) {                                 // chase, or give up if it walked off a cliff
+        const p = findPath(P.tx, P.tz, ox, oz, reach);
+        if (!p || !p.length) { if (p) P.task = null; return; }
+        P.path = p;
+      }
+      return;
     }
+    P.path.length = 0;
+    P.faceT = Math.atan2(ox - P.tx, oz - P.tz);
+  }
+  if (t.k === 'make') {                                     // one go every few ticks until the pack runs out
+    P.acting = 1; P.actSpan = 2; P.pose = 0;
+    if (--P.actT > 0) return;
+    P.actT = t.r.tk || 3;
+    if (!craft(t.r) || !mkOk(t.r)) P.task = null;
     return;
   }
-  P.path.length = 0;
-  P.faceT = Math.atan2(ox - P.tx, oz - P.tz);
   if (t.k === 'take') {
     if (t.all) for (const d of drops.filter(d => Math.abs(d.x - o.x) <= 1 && Math.abs(d.z - o.z) <= 1)) takeDrop(d); else takeDrop(o);
     P.task = null; return;
@@ -3841,12 +3970,12 @@ function taskTick() {
     if (!tool) return fail(G.need);
     if (needLv(G.sk, R.lv)) return;
     if (Math.random() < gatherChance(lvl[SK[G.sk]], R.lv, tool.tier)) {
-      const id = R[G.yield];
+      const id = R.k === 'essence' && lvl[SK.mining] >= 30 ? 'pure_essence' : R[G.yield];
       if (!invAdd(id, 1)) return fail(FULL);
       say(G.got + ITEMS[id].name.toLowerCase() + '.');
       gainXp(G.sk, R.xp);
-      deplete(o, R.rs);
-      P.task = null;
+      if (t.k === 'mine' && R.rs && Math.random() < 1 / 256 && invFree()) { const g = rollTable(GEM_T)[0]; invAdd(g, 1); say('You find an ' + ITEMS[g].name.toLowerCase() + '!', 'lv'); }
+      if (R.rs) { deplete(o, R.rs); P.task = null; }
     }
   } else if (t.k === 'fish') {
     const pool = FISH.filter(f => f.deep === o.k && lvl[SK.fishing] >= f.lv);
@@ -3860,7 +3989,8 @@ function taskTick() {
       gainXp('fishing', f.xp);
       if ((hash2(P.tx, tickN, S) & 7) === 0) deplete(o, 14);   // spots move on
     }
-  } else if (t.k === 'cook') {
+  } else if (TASKS[t.k]) TASKS[t.k](t, o);
+  else if (t.k === 'cook') {
     const raw = (t.raw && FISH.find(f => f.raw === t.raw && invCount(f.raw) > 0)) || FISH.find(f => invCount(f.raw) > 0);
     if (!raw) { say('You have nothing left to cook.'); P.task = null; return; }
     if (lvl[SK.cooking] < raw.cookLv) return fail('You need Cooking level ' + raw.cookLv + ' to cook that.');
@@ -3882,36 +4012,23 @@ function lightLogs(id) {
   say('The fire catches and the logs begin to burn.');
   P.task = null;
 }
-function openSmelt() {
-  showMake('Smelt a bar', BARS.map(b => ({ id: b.id, name: b.n, lv: b.lv, xp: b.xp, need: b.need, ok: lvl[SK.smithing] >= b.lv && hasAll(b.need),
-    why: lvl[SK.smithing] < b.lv ? 'Smithing ' + b.lv : b.need.map(n => n[1] + ' ' + ITEMS[n[0]].name.toLowerCase()).join(', ') })), r => {
-    if (!hasAll(r.need)) return say('You do not have the ore for that.', 'bad');
-    for (const [id, n] of r.need) invRemove(id, n);
-    invAdd(r.id, 1);
-    gainXp('smithing', r.xp);
-    say('You smelt a ' + r.name.toLowerCase() + '.');
-  });
+/* the recipe rows at a fixture (an object type, or 'tan'), optionally only those using one item; long lists keep to the inputs you carry */
+function openMake(at, o, only) {
+  let rows = RECIPES.filter(r => r.at === at && (!only || usesItem(r, only)));
+  if (rows.length > 20) rows = rows.filter(r => r.need.every(([id]) => invCount(id)));
+  if (rows.length) showMake(o.n, rows, o); else say('You have nothing to make here.');
 }
-function openSmith() {
-  if (!invCount('hammer')) return say('You need a hammer to work the anvil.', 'bad');
-  const rows = [];
-  for (const b of BARS) {
-    const nbars = invCount(b.id); if (!nbars) continue;
-    for (const s of SMITH) {
-      const item = ITEMS[b.t + '_' + s.p]; if (!item) continue;
-      const need = b.lv + s.off;
-      rows.push({ id: item.id, name: item.name, lv: need, xp: b.xp * s.bars * 2, bar: b.id, bars: s.bars, ok: lvl[SK.smithing] >= need && nbars >= s.bars,
-        why: lvl[SK.smithing] < need ? 'Smithing ' + need : s.bars + ' ' + b.n.toLowerCase() });
-    }
-  }
-  if (!rows.length) return say('You have no bars to work with.', 'bad');
-  showMake('Smith an item', rows, r => {
-    if (invCount(r.bar) < r.bars) return say('You need ' + r.bars + ' bars for that.', 'bad');
-    invRemove(r.bar, r.bars);
-    if (!invAdd(r.id, 1)) { say(FULL, 'bad'); invAdd(r.bar, r.bars); return; }
-    gainXp('smithing', r.xp);
-    say('You hammer out a ' + r.name.toLowerCase() + '.');
-  });
+function startMake(r, o) {
+  if (!mkOk(r)) return say('You need ' + mkWhy(r) + ' for that.', 'bad');
+  P.goal = null; P.task = { k: 'make', r, o: o || null }; P.actT = 0;
+}
+/* one go at a recipe: inputs out, outputs in (refunded if the pack is full), xp unless the go was ruined */
+function craft(r) {
+  for (const [id, n] of r.need) invRemove(id, n);
+  const out = r.fn ? r.fn(r) : [[r.id, r.n]];
+  if (out) for (const [id, n] of out) if (!invAdd(id, n)) { for (const [id2, n2] of r.need) invAdd(id2, n2); fail(FULL); return 0; }
+  if (out) { if (r.xp) gainXp(r.sk, r.xp); say(r.msg || 'You make ' + (out[0][1] > 1 ? out[0][1] + ' ' : 'a ') + ITEMS[out[0][0]].name.toLowerCase() + '.'); }
+  return 1;
 }
 function bury(id) {
   invRemove(id, 1);
@@ -4239,8 +4356,8 @@ on(eqWrap, 'contextmenu', e => {
 });
 const skGrid = el('skGrid'), skEls = [];
 SKILLS.forEach((s, i) => {
-  const d = div(skGrid, 'sk' + (s.locked ? ' locked' : s.live ? ' live' : ''), '<img src="' + skIcon(i) + '" alt=""><b>1</b><s style="width:0"></s>');
-  d.title = s.locked ? 'Reserved slot' : skName(i) + (s.live ? '' : ' — reserved for later content');
+  const d = div(skGrid, 'sk' + (s.locked ? ' locked' : ' live'), '<img src="' + skIcon(i) + '" alt=""><b>1</b><s style="width:0"></s>');
+  d.title = s.locked ? 'Reserved slot' : skName(i);
   skEls.push(d);
 });
 function drawSk() {
@@ -4248,7 +4365,7 @@ function drawSk() {
   for (let i = 0; i < NSK; i++) {
     const e = skEls[i], L = lvl[i];
     if (SKILLS[i].locked) { e.querySelector('b').textContent = '–'; continue; }
-    e.querySelector('b').textContent = L;
+    e.querySelector('b').textContent = L + bst[i]; e.classList.toggle('up', bst[i] > 0); e.classList.toggle('dn', bst[i] < 0);
     const a = XP_TABLE[L], b = XP_TABLE[Math.min(MAXL + 1, L + 1)];
     e.querySelector('s').style.width = (L >= MAXL ? 100 : clamp((xp[i] - a) / (b - a), 0, 1) * 100) + '%';
     e.title = skName(i) + ' ' + L + '  ·  ' + Math.floor(xp[i]).toLocaleString() + ' xp' + (L < MAXL ? '  ·  ' + Math.ceil(b - xp[i]).toLocaleString() + ' to ' + (L + 1) : '');
@@ -4296,10 +4413,11 @@ function closeOverlays() {
   if (pvpHold) { pvpHold = 0; stopWalk(); }               // dismissing the border warning cancels the walk
 }
 el('modalX').onclick = closeOverlays;
-let makeRows = null, makeFn = null;
-function showMake(title, rows, fn) {
-  makeRows = rows; makeFn = fn;
-  showModal(title, gridOf(rows.map((r, i) => mkRow('data-mk="' + i + '"', r.id, r.name, r.ok ? 'level ' + r.lv : 'needs ' + r.why, '', r.ok ? '' : ' no'))), 'Click an item to make one.');
+let makeRows = null, makeAt = null;
+function showMake(title, rows, o) {
+  makeRows = rows; makeAt = o || null;
+  showModal(title, gridOf(rows.map((r, i) => mkRow('data-mk="' + i + '"', r.id, mkName(r), mkOk(r) ? 'level ' + r.lv : 'needs ' + mkWhy(r), '', mkOk(r) ? '' : ' no'))),
+    'Click an item to make it; you keep going until you run out or walk off.');
 }
 function startShop(o) {
   clearUse();
@@ -4346,7 +4464,7 @@ on(modalBody, 'click', e => {
   if (!row) return;
   if (row.dataset.buy) shopBuy(row.dataset.buy);
   else if (row.dataset.wd !== undefined) bankWithdraw(+row.dataset.wd, 1);
-  else { const r = makeRows && makeRows[+row.dataset.mk]; if (r && r.ok) { makeFn(r); closeOverlays(); } }
+  else { const r = makeRows && makeRows[+row.dataset.mk]; if (r && mkOk(r)) { startMake(r, makeAt); closeOverlays(); } }
 });
 const PANES = ['inv', 'eq', 'sk', 'wd', 'cb', 'mg', 'pr', 'op'], PANE_DRAW = { cb: () => drawStyles(), mg: () => drawSpells(), pr: () => drawPrayers(), op: () => drawOpts() };
 function showTab(k) {
@@ -4378,6 +4496,7 @@ function drawSpells() {
       drawIcon('rune', '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (ok ? (spellReady(s) ? 'ready' : 'no runes') : 'level ' + s.lv) + '</u>');
   }).join('');
   el('mgHint').textContent = P.spell === null ? 'Select a spell, then click a target.' : 'Casting ' + SPELLS[P.spell].n + '. Click a target, or pick it again to stop.';
+  spellGrid.innerHTML += USPELLS.map(usRow).join(''); if (P.uspell) el('mgHint').textContent = 'Casting ' + P.uspell.n + '. Choose an item in your pack, or pick it again to stop.';
 }
 on(spellGrid, 'click', e => {
   const d = e.target.closest('[data-sp]'); if (!d) return;
@@ -4482,7 +4601,7 @@ function timerFrame() {
   let n = 0;
   for (let i = 0; i < nearObjs.length && n < TIMER_CAP; i++) {
     const o = nearObjs[i];
-    if (o.t > 2) continue;
+    if (o.t > 2 && o.t !== 14) continue;
     const due = depleted.get(o.key);
     if (due === undefined || Math.abs(o.x - P.rx) > 44 || Math.abs(o.z - P.rz) > 44) continue;
     const pt = project(o.x, o.y + 1.1, o.z);
@@ -4606,15 +4725,17 @@ const hoverEl = el('hover'), ctxEl = el('ctx');
 /* an option that flashes the target then starts a task (string kind) or walks up to run fn */
 const act = (o, k, hostile) => () => { flashTarget(o, hostile || 0); if (typeof k === 'string') startTask(o, k); else P.task = { k: 'ui', o, fn: k }; };
 /* object type -> [verb, noun (null = its own name), task kind or ui fn] */
-const OBJ_OPTS = { 0: ['Chop down', null, 'chop'], 1: ['Mine', null, 'mine'], 3: ['Smelt at', 'Furnace', () => openSmelt()], 4: ['Smith at', 'Anvil', () => openSmith()],
+const OBJ_OPTS = { 0: ['Chop down', null, 'chop'], 1: ['Mine', null, 'mine'], 3: ['Smelt at', 'Furnace', o => openMake(3, o)], 4: ['Smith at', 'Anvil', o => openMake(4, o)],
   5: ['Trade with', null, startShop], 6: ['Cook at', 'Range', 'cook'], 7: ['Bank at', null, () => openBank()], 8: ['Pray at', 'Altar', 'pray'],
-  9: ['Groom at', null, () => openBarber()], 10: ['Exchange at', null, () => openGE()] };
-/* what an armed item does to o: [noun, kind or fn] */
+  9: ['Groom at', null, () => openBarber()], 10: ['Exchange at', null, () => openGE()], 11: ['Craft at', 'Altar', o => rcAltar(o)], 12: ['Talk to', null, o => slayerTalk(o)],
+  13: ['Saw at', 'Sawmill', o => openMake(13, o)], 14: ['Steal from', null, 'steal'], 15: o => farmOpts(o), 16: o => agilOpts(o) };
+/* what an armed item does to o: [noun, kind or fn]; the skills register USE_ON[type], and any fixture recipe using the item opens the make list */
 function useTarget(o, uit) {
   if ((o.fire || o.t === 6) && uit.raw) return [o.fire ? 'Fire' : 'Range', 'cook'];
   if (o.t === 8 && uit.bury) return ['Altar', 'pray'];
-  if (o.t === 3 && uit.g === 'ore') return ['Furnace', () => openSmelt()];
-  if (o.t === 4 && uit.g === 'bar') return ['Anvil', () => openSmith()];
+  const u = USE_ON[o.t], r = u && u(o, uit);
+  if (r) return r;
+  if (o.t !== undefined && RECIPES.some(q => q.at === o.t && usesItem(q, uit.id))) return [o.n, o2 => openMake(o.t, o2, uit.id)];
   return null;
 }
 function optionsFor(o) {
@@ -4634,7 +4755,7 @@ function optionsFor(o) {
     opts.push({ t: 'Trade with', o: o.name, f: act(o, tradeRequest) });
     if (!inSafe(P.tx, P.tz) && !inSafe(o.tx, o.tz)) opts.push({ t: 'Attack', o: o.name, f: act(o, 'attack', 1) });
   }
-  else if (o.npc) opts.push({ t: 'Attack', o: o.name + ' <span class="lvl">(level ' + o.t.lv + ')</span>', f: act(o, 'attack', 1) });
+  else if (o.npc) { opts.push({ t: 'Attack', o: o.name + ' <span class="lvl">(level ' + o.t.lv + ')</span>', f: act(o, 'attack', 1) }); if (o.t.pick) opts.push({ t: 'Pickpocket', o: o.name, f: act(o, 'pick') }); }
   else if (o.drop) {                                        // a death spills a whole pack onto one tile: list the heap, this one first
     const heap = drops.filter(d => Math.abs(d.x - o.x) <= 1 && Math.abs(d.z - o.z) <= 1).sort((a, b) => (a === o ? -1 : b === o ? 1 : 0));
     for (const d of heap.slice(0, 10)) opts.push({ t: 'Take', o: (d.n > 1 ? d.n + ' x ' : '') + d.name, cls: 'itm', f: () => { flashTarget(d, 0); P.task = { k: 'take', o: d }; } });
@@ -4642,7 +4763,8 @@ function optionsFor(o) {
   }
   else if (o.fire) opts.push({ t: 'Cook at', o: 'Fire', f: act(o, 'cook') });
   else if (o.t === 2) opts.push({ t: o.k ? 'Harpoon' : 'Net', o: 'Fishing spot', f: act(o, 'fish') });
-  else if (OBJ_OPTS[o.t]) { const [t, n, k] = OBJ_OPTS[o.t]; opts.push({ t, o: n || o.n, f: act(o, k) }); }
+  else if (OBJ_OPTS[o.t]) { const e = OBJ_OPTS[o.t]; if (typeof e === 'function') opts.push(...e(o)); else opts.push({ t: e[0], o: e[1] || o.n, f: act(o, e[2]) }); }
+  if (o.t === 5 && SHOP_KINDS[o.k].k === 'craft') opts.push({ t: 'Tan hides at', o: o.n, f: act(o, o2 => openMake('tan', o2)) });
   if (o.t !== undefined && o.t <= 2 && depleted.has(o.key)) return [];
   return opts;
 }
@@ -4650,6 +4772,7 @@ const itm = (t, o, f) => ({ t, o, cls: 'itm', f });
 function itemOptions(i) {
   const s = inv[i]; if (!s) return [];
   const it = ITEMS[s.id], opts = [], nm = it.name;
+  if (P.uspell) return [itm(P.uspell.n, nm, () => castItem(i))];   // an armed utility spell takes the next pack click
   if (trade && trade.open) {                                // mid-trade the pack is an offer sheet
     for (const k of [1, 5, 10]) if (s.n >= k) opts.push(itm('Offer ' + k, nm, () => tradeAdd(i, k)));
     if (s.n > 1) opts.push(itm('Offer all', nm, () => tradeAdd(i, s.n)));
@@ -4668,6 +4791,7 @@ function itemOptions(i) {
   if (openShop && s.id !== 'coins') opts.push(itm('Sell', nm, () => shopSell(i)));
   if (it.equip) opts.push(itm('Wield', nm, () => equip(i)));
   if (it.heal) opts.push(itm('Eat', nm, () => eat(i)));
+  if (it.opt) opts.push(itm(it.opt[0], nm, () => it.opt[1](i)));
   opts.push(itm(useSel && useSel.i === i ? 'Cancel use' : 'Use', nm, () => { if (useSel && useSel.i === i) clearUse(); else { useSel = { i, id: s.id, name: nm }; dirty.inv = 1; hoverObj = undefined; } }));
   if (it.bury) opts.push(itm('Bury', nm, () => bury(s.id)));
   if (it.fire) opts.push(itm('Light', nm, () => lightLogs(s.id)));
@@ -4841,7 +4965,11 @@ function combineItems(ai, bi) {
   const A = inv[ai], B = inv[bi]; if (!A || !B) return 0;
   const logs = ITEMS[A.id].fire ? A : ITEMS[B.id].fire ? B : null, tin = A.id === 'tinderbox' ? A : B.id === 'tinderbox' ? B : null;
   if (logs && tin && logs !== tin) { lightLogs(logs.id); return 1; }
-  return 0;
+  if (A.id === B.id) return 0;
+  const rows = RECIPES.filter(r => !r.at && usesItem(r, A.id) && usesItem(r, B.id));
+  if (!rows.length) return 0;
+  if (rows.length === 1) startMake(rows[0]); else showMake(ITEMS[A.id].name + ' + ' + ITEMS[B.id].name, rows);
+  return 1;
 }
 /* carrying an item to another slot: pointer events, so one path covers mouse and touch; a short press is still a click */
 const dgEl = el('dghost');
@@ -4975,8 +5103,10 @@ function discIcon(g, glyph, c, d, x, y, R, tx, ty, sc) {
 const wmIcon = (g, c, d, x, y, r) => discIcon(wmCtx, g, c, d, x, y, r || 8);
 /* icon art per place kind: [glyph, colour, shade, label] */
 const MK_ART = { bank: ['coins', '#ffd94a', '#9a7414', 'Bank'], ge: ['coins', '#ffb02a', '#b05a10', 'Grand Exchange'], barber: ['hat', '#e87ac8', '#8a3a72', 'Barber'],
-  3: ['flame', '#ff8c2a', '#ffd9a0', 'Furnace'], 4: ['hammer', '#d8dbe2', '#8a8f98', 'Anvil'], 6: ['cfish', '#ffb04a', '#7a4a20', 'Cooking range'], altar: ['star', '#fff2b0', '#c9a24a', 'Altar'] };
-const WM_KEY = [MK_ART.bank, MK_ART.ge, MK_ART.barber, MK_ART[3], MK_ART[4], MK_ART[6], MK_ART.altar].concat(SHOP_KINDS.map(s => [s.g, s.c, '#f0e6c8', s.n]));
+  3: ['flame', '#ff8c2a', '#ffd9a0', 'Furnace'], 4: ['hammer', '#d8dbe2', '#8a8f98', 'Anvil'], 6: ['cfish', '#ffb04a', '#7a4a20', 'Cooking range'], altar: ['star', '#fff2b0', '#c9a24a', 'Altar'],
+  11: ['rune', '#e8e8ff', '#6a6a9a', 'Rune altar'], 12: ['skull', '#e8e0c8', '#5a5348', 'Slayer master'], 13: ['log', '#d8b070', '#6a4a26', 'Sawmill'], 14: ['coins', '#d8b04a', '#7a5a1a', 'Market stall'],
+  15: ['leaf', '#7ad04a', '#2f6a28', 'Farming patch'], 16: ['boot', '#9ad0e8', '#3a6a8a', 'Agility obstacle'] };
+const WM_KEY = [MK_ART.bank, MK_ART.ge, MK_ART.barber, MK_ART[3], MK_ART[4], MK_ART[6], MK_ART.altar, MK_ART[11], MK_ART[12], MK_ART[13], MK_ART[15]].concat(SHOP_KINDS.map(s => [s.g, s.c, '#f0e6c8', s.n]));
 (function buildKey() {
   const key = el('wmKey');
   const row = (cv, label) => { const d = document.createElement('div'); d.appendChild(cv); d.appendChild(document.createTextNode(label)); key.appendChild(d); };
@@ -5176,7 +5306,9 @@ function gameTick() {
   walkTick(); taskTick(); updateHeldTool();
   for (let i = npcs.length - 1; i >= 0; i--) npcTick(npcs[i]);
   respawnTick();
-  if ((!P.moved || !P.run) && P.energy < 100) { P.energy = Math.min(100, P.energy + 0.9); dirty.orb = 1; }
+  for (const f of tickHooks) f();
+  if (tickN % 100 === 0) for (let i = 0; i < NSK; i++) if (bst[i]) { bst[i] -= Math.sign(bst[i]); dirty.sk = 1; }
+  if ((!P.moved || !P.run) && P.energy < 100) { P.energy = Math.min(100, P.energy + 0.9 * (1 + lvl[SK.agility] / 60)); dirty.orb = 1; }
   if ((tickN & 15) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }
   if (P.prayers) {
     let drain = 0;
@@ -5264,7 +5396,7 @@ function animateNpc(n, dt) {
 }
 /* repopulate the instance pools from whatever is near: five draw calls for every stump, fire, drop, ripple and keeper */
 const POOL_KEEP = Pool(KEEP_GEO, 24, 1), POOLS = [POOL_STUMP, POOL_FIRE, POOL_DROP, POOL_SPOT, POOL_KEEP];
-const KEEP_TINT = { 7: 0x9fb4e8, 9: 0xf2b8d8, 10: 0xf2cf6a, 5: 0xffffff };
+const KEEP_TINT = { 7: 0x9fb4e8, 9: 0xf2b8d8, 10: 0xf2cf6a, 5: 0xffffff, 12: 0xd8c8a0 };
 function updatePools(t) {
   POOLS.forEach(poolReset);
   for (const o of nearObjs) {
@@ -5274,6 +5406,7 @@ function updatePools(t) {
   }
   for (const f of fires) poolPut(POOL_FIRE, f.x, f.y, f.z, t * 1.7, 1, 0.86 + Math.sin(t * 9 + f.x) * 0.14, 1);
   for (const d of drops) poolPut(POOL_DROP, d.x, d.y + 0.3 + Math.sin(t * 2 + d.x) * 0.06, d.z, t * 0.9, 1, 1, 1, hexInt(ITEMS[d.id].c));
+  for (const f of poolHooks) f(t);
   POOLS.forEach(poolFlush);
 }
 
@@ -5479,7 +5612,8 @@ function packSave() {
   for (let i = 0; i < INV_N; i++) if (inv[i]) invp.push([i, inv[i].id, inv[i].n]);
   return { v: 1, tx: P.tx, tz: P.tz, hp: P.hp, maxhp: P.maxhp, pray: Math.round(P.pray), maxpray: P.maxpray, energy: Math.round(P.energy), run: P.run, style: P.style,
     prayers: P.prayers, rstyle: P.rstyle, ammoN: P.ammoN, eq: EQ_SLOTS.map(s => eq[s] || null), inv: invp, bank: bank.map(s => [s.id, s.n]),
-    look: [P.look.skin, P.look.shirt, P.look.legs, P.look.face], xp: Array.from(xp, v => Math.round(v)), home: [P.home.x, P.home.z] };
+    look: [P.look.skin, P.look.shirt, P.look.legs, P.look.face], xp: Array.from(xp, v => Math.round(v)), home: [P.home.x, P.home.z],
+    sl: P.slay ? [P.slay.k, P.slay.n, P.slay.m] : 0, farm: Object.keys(P.farm).map(k => [+k, P.farm[k][0], P.farm[k][1]]) };
 }
 function applySave(b) {
   if (!b || b.v !== 1) return 0;
@@ -5498,6 +5632,10 @@ function applySave(b) {
   P.energy = b.energy ?? 100; P.run = b.run ?? 1; P.style = b.style | 0; P.prayers = b.prayers | 0; P.rstyle = Math.min(2, Math.max(0, b.rstyle | 0));
   P.ammoN = eq.ammo ? Math.max(1, b.ammoN | 0) : 0;          // an empty quiver with arrows still in the slot would fire forever
   if (b.home) { P.home.x = b.home[0] | 0; P.home.z = b.home[1] | 0; }
+  P.slay = b.sl && NPC_BY[b.sl[0]] && (b.sl[1] | 0) > 0 ? { k: b.sl[0], n: b.sl[1] | 0, m: b.sl[2] | 0 } : null;
+  P.farm = Object.create(null);
+  for (const [k, c, t] of (b.farm || [])) if (CROPS[c] && t > 0) P.farm[k] = [c | 0, t | 0];
+  bst.fill(0);
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
   return b;
 }
@@ -5507,7 +5645,7 @@ function freshCharacter() {
   P.look.skin = P.look.shirt = P.look.legs = P.look.face = 0;
   for (const s of EQ_SLOTS) eq[s] = null;
   P.maxhp = P.hp = lvl[SK.hitpoints]; P.maxpray = P.pray = lvl[SK.prayer];
-  P.energy = 100; P.run = 1; P.style = 0; P.prayers = 0; P.spell = null;
+  P.energy = 100; P.run = 1; P.style = 0; P.prayers = 0; P.spell = null; P.slay = null; P.farm = Object.create(null); bst.fill(0);
   for (const [id, n] of [['bronze_hatchet', 1], ['bronze_pickaxe', 1], ['tinderbox', 1], ['hammer', 1], ['small_net', 1], ['coins', 120]]) invAdd(id, n);
   eq.weapon = 'bronze_sword';
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
@@ -5846,7 +5984,7 @@ function labelAt(owner, key, x, y, z, text, cls) {         // one projected labe
   q.el.style.transform = 'translate(' + ((_pv.x * 0.5 + 0.5) * innerWidth) + 'px,' + ((-_pv.y * 0.5 + 0.5) * innerHeight) + 'px) translate(-50%,0)';
   return true;
 }
-const MARK_H = [0, 0, 0, 4.6, 2.9, 3.4, 3.1, 3.4, 3.0, 3.4, 3.6];   // float height by object type
+const MARK_H = [0, 0, 0, 4.6, 2.9, 3.4, 3.1, 3.4, 3.0, 3.4, 3.6, 3.2, 3.4, 3.0, 3.4, 1.5, 2.0];   // float height by object type
 const _markCache = new Map();
 function markHtml(o) {
   const key = o.t === 5 ? 't5.' + o.k : 't' + o.t;
@@ -6276,6 +6414,636 @@ async function pollPopulation() {                           // only while the se
   welSeedEl.value = 'lumbridge';
   previewSeed('lumbridge');
 })();
+
+/* ---- 43. SKILLS: one block a skill, in dependency order. A block defines its own items, recipes, objects and verbs, and registers what the world
+   must know in TASKS, USE_ON, onKill, tickHooks, poolHooks, structHooks and pickLists. Everything above is shared; nothing above calls down here at load. ---- */
+
+/* ---- ICONS for the skill items, in the 6c voice: 32x32, 1px K outlines, c primary, d shade ---- */
+const hoop = (g, x, y, rx, ry, rot, w, c) => { for (const [lw, s] of [[w + 2, K], [w, c]]) { g.lineWidth = lw; ell(g, x, y, rx, ry, rot, null, s); } g.lineWidth = 1; };   // outlined ring
+Object.assign(GLYPH, {
+  tiara(g, c, d) {
+    hoop(g, 16, 20, 12, 6.5, 0, 3, '#d8d8e0'); poly(g, [16, 5, 23, 23, 16, 27, 9, 23], '#d8d8e0', K); poly(g, [16, 5, 16, 27, 9, 23], '#a4a4b2');
+    poly(g, [16, 9, 20.8, 14.5, 16, 20, 11.2, 14.5], c, K); poly(g, [11.2, 14.5, 20.8, 14.5, 16, 20], d);
+  },
+  talisman(g, c, d) { hoop(g, 16, 6.5, 3.2, 3.2, 0, 1.6, '#8a6a4a'); circ(g, 16, 18.5, 10.5, c, K); ln(g, d, 2, [16, 12.5, 16, 24.5], [16, 14, 21, 17.5], [16, 18, 21, 21.5]); },
+  gem(g, c, d) {
+    poly(g, [10, 6, 22, 6, 28, 13, 16, 28, 4, 13], c, K); ln(g, d, 1, [4, 13, 28, 13], [10, 6, 11, 13, 16, 28], [22, 6, 21, 13, 16, 28], [16, 6, 16, 13]);
+    poly(g, [10, 6, 16, 6, 11, 13, 6, 13], 'rgba(255,255,255,.3)');
+  },
+  herb(g, c, d) {
+    g.strokeStyle = d; g.lineWidth = 1.8; g.beginPath(); g.moveTo(15, 30); g.quadraticCurveTo(13, 18, 19, 5); g.stroke(); g.lineWidth = 1;
+    for (const [x, y, rx, a] of [[9.5, 23, 5.6, -0.55], [20.5, 18.5, 5.6, 0.45], [12, 13, 5, -0.6], [20, 9, 4.2, -0.5]]) ell(g, x, y, rx, 2.6, a, c, K);
+  },
+  seed(g, c, d) { rrect(g, 8, 5, 16, 22, 2, d, K); ln(g, K, 1, [8, 10, 24, 10]); for (const [x, y, a] of [[12.5, 17, 0.5], [19.5, 17, -0.5], [16, 22.5, 0]]) ell(g, x, y, 2.4, 3.2, a, c, K); },
+  crop(g, c, d) {
+    for (const [x, y, a] of [[11.5, 8, -0.9], [20.5, 8, 0.9], [16, 6.5, 1.57]]) ell(g, x, y, 4.4, 2, a, d, K);
+    circ(g, 16, 19, 10, c, K); circ(g, 12, 15, 2.4, 'rgba(255,255,255,.3)');
+  },
+  feather(g, c, d) {
+    qcurve(g, [7, 26, 8, 6, 27, 4, 26, 20, 7, 26], c, K); ln(g, 'rgba(0,0,0,.25)', 1, [13, 10, 16, 16], [18, 8, 21, 13]);
+    g.strokeStyle = d; g.lineWidth = 1.4; g.beginPath(); g.moveTo(5, 29); g.quadraticCurveTo(14, 18, 27, 4); g.stroke(); g.lineWidth = 1;
+  },
+  string(g, c, d) { for (const y of [11, 15.5, 20]) hoop(g, 16, y, 10, 4.6, 0, 2.2, c); rrect(g, 3.5, 12.5, 4, 11, 1, d, K); },   // a coiled hank, tied
+  wool(g, c, d) {                                           // K strokes under c fills: one outline round the union
+    const B = [[11, 13, 6], [21, 13, 6], [9, 21, 5.4], [23, 21, 5.4], [16, 22, 6.6], [16, 11, 5]];
+    g.lineWidth = 2; for (const [x, y, r] of B) circ(g, x, y, r, null, K); g.lineWidth = 1; for (const [x, y, r] of B) circ(g, x, y, r, c);
+    g.lineWidth = 1.4; circ(g, 16, 22, 4.6, null, d, 0.4, 2.4); circ(g, 21, 13, 4.2, null, d, -0.3, 1.2); g.lineWidth = 1;
+  },
+  hide(g, c, d) {
+    const p = [8, 4, 12, 9, 20, 9, 24, 4, 28, 7, 25, 14, 26, 22, 29, 27, 25, 29, 20, 24, 12, 24, 7, 29, 3, 27, 6, 22, 7, 14, 4, 7];
+    poly(g, p, d, K); g.save(); g.translate(16, 16.5); g.scale(0.72, 0.72); g.translate(-16, -16.5); poly(g, p, c); g.restore();
+  },
+  needle(g, c, d) {
+    g.strokeStyle = d; g.lineWidth = 1.4; g.beginPath(); g.moveTo(24, 9); g.quadraticCurveTo(32, 13, 27, 21); g.quadraticCurveTo(22, 29, 11, 28); g.stroke(); g.lineWidth = 1;
+    poly(g, [4, 28, 7.5, 26.5, 27, 7, 25, 5, 5.5, 24.5], c, K); ell(g, 23.5, 8.5, 2.4, 0.9, -0.785, d);
+  },
+  chisel(g, c, d) {
+    rrect(g, 12, 3, 8, 13, 3, WOODC, K); fr(g, d, 11.5, 15, 9, 3); g.strokeStyle = K; g.strokeRect(11.5, 15, 9, 3);
+    poly(g, [13.5, 18, 18.5, 18, 18.5, 26, 16, 30, 13.5, 26], c, K); poly(g, [16, 26, 18.5, 26, 16, 30], d);
+  },
+  knife(g, c, d) {
+    poly(g, [2, 17, 8, 10, 19, 10, 19, 18], c, K); ln(g, d, 1, [4, 16, 18, 16]);
+    fr(g, d, 18.5, 8.5, 2, 10.5); g.strokeStyle = K; g.strokeRect(18.5, 8.5, 2, 10.5); rrect(g, 20.5, 9.5, 9.5, 8, 2, WOODC, K); circ(g, 25.5, 13.5, 1, d);
+  },
+  mould(g, c, d) { rrect(g, 4, 7, 24, 18, 2, d, K); hoop(g, 16, 16.5, 5.5, 5.5, 0, 3, c); fr(g, c, 15, 7.5, 2, 4); },
+  vial(g, c, d) {
+    circ(g, 16, 21, 8.5, c, null, 0, PI);
+    g.beginPath(); g.moveTo(13, 5); g.lineTo(13, 12.5); g.arc(16, 21, 9, 4.3726, -1.231, true); g.lineTo(19, 5); g.closePath(); paint(g, 'rgba(255,255,255,.2)', K);
+    rrect(g, 12, 2, 8, 5, 1, d, K); ln(g, 'rgba(255,255,255,.5)', 1.2, [10.5, 18, 10.5, 24]);
+  },
+  plank(g, c, d) {
+    g.save(); g.translate(16, 16); g.rotate(-0.35);
+    fr(g, c, -14, -5, 28, 10); fr(g, d, 10.5, -5, 3.5, 10); ln(g, d, 1, [-12, -2, 9, -1.2], [-12, 2.2, 5, 1.6]); g.strokeStyle = K; g.strokeRect(-14, -5, 28, 10);
+    g.restore();
+  },
+  trap(g, c, d) {
+    ln(g, d, 1.4, [10.5, 10, 10.5, 25], [16, 10, 16, 25], [21.5, 10, 21.5, 25]);
+    for (const [w, s] of [[3.6, K], [1.6, d]]) { g.lineWidth = w; g.strokeStyle = s; g.strokeRect(5, 8, 22, 18); } g.lineWidth = 1;
+    g.save(); g.translate(16, 17); g.rotate(-0.6); fr(g, c, -9, -1.3, 18, 2.6); g.strokeStyle = K; g.strokeRect(-9, -1.3, 18, 2.6); g.restore();
+  },
+  fur(g, c, d) {
+    const pt = (a, r) => [16 + Math.cos(a) * r, 17 + Math.sin(a) * r * 0.75], p = [30, 17];   // ten uneven tufts round an ellipse
+    for (let i = 1; i <= 10; i++) p.push(...pt(i * 0.6283 - 0.3142, i & 1 ? 17 : 20), ...pt(i * 0.6283, 14));
+    qcurve(g, p, c, K); for (const [x, y, a] of [[10, 13, 0.6], [21, 11, -0.5], [17, 19, 0.2], [9, 21, -0.9], [24, 21, 0.9]]) ell(g, x, y, 2.8, 1.6, a, d);
+  }
+});
+
+/* RUNECRAFT: a ruin per 192-tile lattice cell (half of them; deeper runes on dangerous ground) holds one rune altar; wizard's towers keep three
+   essence rocks; the matching talisman or tiara opens the stones and every essence carried is bound at once */
+const RUIN_CELL = 192, ruinCache = new Map();
+function ruinAt(gx, gz) {                                   // pure in (cell, S): every client raises the same ruin; the memo follows the seed
+  if (ruinCache.S !== S) { ruinCache.clear(); ruinCache.S = S; }
+  const key = gx * 8191 + gz;
+  let R = ruinCache.get(key);
+  if (R !== undefined) return R;
+  R = null;
+  const h = hash2(gx * 9 + 1, gz * 7 + 3, S + 300);
+  if (h % 100 < 50) for (let i = 0; i < 10 && !R; i++) {
+    const hh = hash2(gx * 31 + i, gz * 17, S + 301 + i);
+    const x = gx * RUIN_CELL + 20 + hh % (RUIN_CELL - 40), z = gz * RUIN_CELL + 20 + (hh >>> 9) % (RUIN_CELL - 40), y = heightAt(x, z);
+    if (y < 2.2 || y > 58 || nearTown(x, z)) continue;
+    const sp = spanHeights(x, z, 4, 2, (px, pz, py) => py >= 1.9);
+    if (!sp || sp.hi - sp.lo > 2.5) continue;
+    const p = powerAt(x, z), top = p < 0.3 ? 3 : p < 0.7 ? 5 : p < 1.2 ? 7 : p < 1.8 ? 9 : 11;
+    R = { r: RC[(h >>> 8) % (top + 1)], x, z, y };
+  }
+  ruinCache.set(key, R);
+  return R;
+}
+structHooks.push((rec, vs, inChunk) => {
+  const R = ruinAt(Math.floor(rec.cx * CHUNK / RUIN_CELL), Math.floor(rec.cz * CHUNK / RUIN_CELL));   // a cell is six chunks: one per chunk
+  batchInto(rec, B => {
+    if (R && inChunk(R.x, R.z)) {                           // sunken foundation, the altar with a slab in the rune's colour, a ring of six stones
+      const { x, z, y, r } = R, h = hash2(x, z, S + 302), f1 = h % 6, f2 = (h >>> 3) % 6;
+      rec.objs.push({ t: 11, k: r.i, x, z, y, key: tk(x, z), n: cap(r.k) + ' altar' }); rec.blk.push(tk(x, z));
+      B.add(BOX, x, y - 1.9, z, 8.6, 4.4, 8.6, 0, C_FOUND);
+      B.add(BOX, x, y + 0.5, z, 1.6, 1.0, 1.2, 0, C_STONE); B.add(BOX, x, y + 1.05, z, 1.8, 0.12, 1.4, 0, hexRgb(r.c));
+      for (let i = 0; i < 6; i++) {
+        const a = i * PI / 3, sx = Math.round(x + Math.sin(a) * 3.2), sz = Math.round(z + Math.cos(a) * 3.2), ht = 2.6 + ((h >>> (8 + i * 3)) & 7) / 7 * 0.8;
+        rec.blk.push(tk(sx, sz));
+        if (i === f1 || (i === f2 && h & 64)) B.add(BOX, sx, y + 0.3, sz, ht, 0.7, 0.8, -a, C_STONE2);   // toppled along the ring
+        else B.add(BOX, sx, y + ht / 2 - 0.2, sz, 0.8, ht, 0.8, -a, C_STONE2);
+      }
+    }
+    for (const v of vs) if (v.lm && v.lm.t === 2 && inChunk(v.lm.x, v.lm.z)) for (const [dx, dz] of [[5, 2], [-5, 2], [2, -5]]) {   // essence at the tower's foot
+      const p = openNear(v.lm.x + dx, v.lm.z + dz, 2); if (!p) continue;
+      const y = heightAt(p.x, p.z), key = tk(p.x, p.z);
+      rec.objs.push({ t: 1, k: 9, x: p.x, z: p.z, y, key, n: 'Rune essence' }); rec.blk.push(key);
+      B.add(ROCK_GEO, p.x, y - 0.15, p.z, 1.1, 0.94, 1.1, dx, hexRgb('#d8d8e8'));
+    }
+  });
+});
+/* the altar: the matching talisman (carried) or tiara (worn) lets you bind every essence in the pack; pure always, rune essence up to body */
+function rcAltar(o) {
+  const r = RC[o.k], k = r.k;
+  if (!invCount(k + '_talisman') && !(eq.head && ITEMS[eq.head].tiara === k)) return say('The stones are silent to you. You need the ' + k + ' talisman or tiara.', 'bad');
+  if (needLv('runecraft', r.lv)) return;
+  const ess = invCount('pure_essence') + (r.i <= 5 ? invCount('rune_essence') : 0);
+  if (!ess) return say('You have no essence to bind.');
+  invRemove('pure_essence', ess); if (r.i <= 5) invRemove('rune_essence', ess);
+  const runes = ess * runesPer(r);
+  invAdd(r.id, runes); gainXp('runecraft', ess * r.xp);
+  say("You bind the temple's power into " + runes + ' ' + ITEMS[r.id].name.toLowerCase() + (runes > 1 ? 's.' : '.'));
+  P.pose = 2; P.acting = 1; P.actSpan = 3;
+  spellBurst(o.x, o.y + 1.2, o.z, hexInt(r.c));
+}
+function makeTiara(o) {                                     // a plain tiara and the talisman become the altar's tiara
+  const r = RC[o.k], need = [['tiara', 1], [r.k + '_talisman', 1]];
+  if (!hasAll(need)) return say('You need a tiara and the ' + r.k + ' talisman.', 'bad');
+  for (const [id] of need) invRemove(id, 1);
+  invAdd(r.k + '_tiara', 1); gainXp('runecraft', r.xp * 5);
+  say('You bind the talisman into the tiara.');
+}
+USE_ON[11] = (o, uit) => uit.id === 'tiara' && invCount(RC[o.k].k + '_talisman') ? ['Altar', o2 => makeTiara(o2)] : null;
+/* talismans fall from 1.5% of kills, weighted toward the monster's level; nature, law, death and blood need a monster of 40, 50, 65, 77 */
+onKill.push((n, drop) => {
+  if (Math.random() >= 0.015) return;
+  const lv = n.t.lv, pool = RC.filter(r => r.i < 8 || lv >= [40, 50, 65, 77][r.i - 8]);
+  drop(rollTable(pool.map(r => [r.k + '_talisman', 1 / (4 + Math.abs(r.lv - lv))]))[0], 1);
+});
+
+/* ---- AGILITY: log balances over narrow water and climbing rocks up short cliffs, pure functions of the tile; a crossing lands you on the far end ---- */
+const AGIL_N = ['Log balance', 'Climbing rocks'];
+structHooks.push((rec, vs, inChunk) => {
+  const ox = rec.cx * CHUNK, oz = rec.cz * CHUNK, bk = new Set(rec.blk), objs = [];
+  const hAt = (x, z) => inChunk(x, z) ? recH(rec, x, z) : heightAt(x, z);
+  const open = (x, z) => !bk.has(tk(x, z)) && dryOpen(x, z);           // this chunk's own claims are not in blocked yet
+  for (let j = 1; j < CHUNK && objs.length < 3; j += 2) for (let i = 1; i < CHUNK && objs.length < 3; i += 2) {   // odd tiles never share a fishing spot's key
+    const x = ox + i, z = oz + j, y = recH(rec, x, z), h = hash2(x, z, S + 320);
+    if (y < SEA) {                                          // a log: open banks 3-4 tiles out on both sides, water between; such narrows are rare, so only space them
+      if (objs.some(q => !q.k && chebDist(q.x, q.z, x, z) < 10)) continue;
+      const bank = (dx, dz) => {                            // first dry tile out; it must be 3-4 away, open, and walkable from the tile behind it
+        for (let d = 1; d <= 4; d++) {
+          const bx = x + dx * d, bz = z + dz * d, yb = hAt(bx, bz); if (yb < SEA) continue;
+          const yn = hAt(bx + dx, bz + dz); return d >= 3 && yn >= SEA && Math.abs(yn - yb) <= CLIMB && open(bx, bz) ? d : 0;
+        }
+        return 0;
+      };
+      for (const [dx, dz] of [[1, 0], [0, 1]]) {
+        const a = bank(-dx, -dz), b = a && bank(dx, dz);
+        if (b) { objs.push({ t: 16, k: 0, x, z, y: 0, key: tk(x, z), n: AGIL_N[0], lv: 1, xp: 7.5, ax: x - dx * a, az: z - dz * a, bx: x + dx * b, bz: z + dz * b, noMark: 1 }); break; }
+      }
+    } else if (!(h & 31) && open(x, z)) {                   // rocks: a ledge 2.5-6 units up, two tiles over; the object sits on the step between
+      for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
+        const mx = x + dx / 2, mz = z + dz / 2, rise = hAt(x + dx, z + dz) - y;
+        if (rise < 2.5 || rise > 6 || !open(x + dx, z + dz) || !open(mx, mz)) continue;
+        const lv = clamp(5 + Math.round(rise * 6), 5, 70);
+        objs.push({ t: 16, k: 1, x: mx, z: mz, y: y + rise / 2, key: tk(mx, mz), n: AGIL_N[1], lv, xp: lv * 1.4 + 6, ax: x, az: z, bx: x + dx, bz: z + dz, noMark: 1 });
+        break;
+      }
+    }
+  }
+  if (!objs.length) return;
+  rec.objs.push(...objs);
+  batchInto(rec, B => { for (const o of objs) {
+    if (!o.k) { const L = chebDist(o.ax, o.az, o.bx, o.bz) + 0.8, ax = o.ax !== o.bx; B.add(BOX, (o.ax + o.bx) / 2, 0.18, (o.az + o.bz) / 2, ax ? L : 0.55, 0.45, ax ? 0.55 : L, 0, BARK); }
+    else for (let q = 1; q <= 3; q++) { const f = q / 4, px = o.ax + (o.bx - o.ax) * f, pz = o.az + (o.bz - o.az) * f; B.add(BLOB, px, groundY(px, pz) + 0.3, pz, 1.25, 0.9, 1.25, q * 0.7, STONE); }
+  } });
+});
+/* the task walks to the nearer end (a stand-in target carrying the far end), so the path never ends in the water beside a log */
+function agilOpts(o) {
+  return [{ t: o.k ? 'Climb' : 'Cross', o: o.n, f: () => {
+    flashTarget(o, 0);
+    const up = chebDist(P.tx, P.tz, o.ax, o.az) <= chebDist(P.tx, P.tz, o.bx, o.bz);   // b is the top of the rocks
+    startTask({ x: up ? o.ax : o.bx, z: up ? o.az : o.bz, fx: up ? o.bx : o.ax, fz: up ? o.bz : o.az, up, key: o.key, ob: o }, 'agil');
+  } }];
+}
+TASKS.agil = (t, o) => {                                   // first call starts the attempt, the next (ACT_TICKS later) resolves it
+  const ob = o.ob;
+  if (needLv('agility', ob.lv)) return;
+  if (P.afloat) return fail("You can't do that from a boat.");
+  if (!t.on) { t.on = 1; return; }
+  if (!ob.k || Math.random() < rollChance(lvl[SK.agility], ob.lv, 3)) {
+    teleport(o.fx, o.fz, 60);
+    gainXp('agility', ob.xp);
+    say(ob.k ? 'You scramble ' + (o.up ? 'up' : 'down') + ' the rocks.' : 'You walk carefully across the log.');
+  } else { hurtPlayer(randInt(1, 3)); say('You slip and scrape yourself.', 'bad'); }
+  P.task = null;
+};
+tickHooks.push(() => { const t = P.task; if (P.acting && t && t.k === 'agil') { P.pose = 4; P.faceT = Math.atan2(t.o.fx - P.tx, t.o.fz - P.tz); } });   // vault pose, facing the far end
+
+/* ---- THIEVING: pockets and market stalls. A pick is one roll every two ticks until a stun, a full pack or a target that walks off;
+   a stall is one grab, then a shared respawn clock. (dev) coins land straight in the pack, no pouches. ---- */
+defStack('bread', 'Bread', 'crop', '#c8a060', '#7a5a2a', 12, { heal: 5 });
+defStack('silk', 'Silk', 'wool', '#e8d8f0', '#8a6aa0', 24); defStack('fur', 'Fur', 'fur', '#8a6a48', '#4a3622', 12); defStack('spice', 'Spice', 'seed', '#d8702a', '#7a3a10', 90);
+const STALLS = [['baker', "Baker's stall", 5, 16, 'bread', 4], ['silk', 'Silk stall', 20, 24, 'silk', 13], ['fur', 'Fur stall', 35, 36, 'fur', 25], ['silver', 'Silver stall', 50, 54, 'silver_ore', 50],
+  ['spice', 'Spice stall', 65, 81, 'spice', 133], ['gem', 'Gem stall', 75, 160, null, 300]].map(([k, n, lv, xp, loot, rs]) => ({ k, n, lv, xp, loot, rs }));
+const lootOf = T => { const d = rollTable(T); return [d[0], randInt(d[2] || 1, d[3] || d[2] || 1)]; };   // a weighted [id, w, min, max] row → [id, n]
+const pickChance = (L, req) => clamp(0.55 + 0.39 * (L - req) / (99 - req), 0.55, 0.95);   // 55% at the requirement, 94% at 99, whoever the mark
+TASKS.pick = (t, o) => {
+  const p = o.t.pick;
+  if (needLv('thieving', p.lv)) return;
+  P.actT = 2;
+  if (Math.random() < pickChance(eff('thieving'), p.lv)) {
+    const [id, n] = lootOf(p.loot);
+    if (!invAdd(id, n)) return fail(FULL);
+    gainXp('thieving', p.xp);
+    say('You pick the ' + o.name.toLowerCase() + "'s pocket.");
+  } else {
+    P.task = null; P.stun = 8;
+    hurtPlayer(1 + Math.floor(p.lv / 25));
+    say(o.name + ": What do you think you're doing?"); say("You've been stunned!", 'bad');
+  }
+};
+TASKS.steal = (t, o) => {
+  const s = STALLS[o.k];
+  if (needLv('thieving', s.lv)) return;
+  if (!invAdd(s.loot || rollTable(GEM_T)[0], 1)) return fail(FULL);
+  gainXp('thieving', s.xp); deplete(o, s.rs); P.task = null;
+  say('You steal from the ' + o.n.toLowerCase() + '.');
+  let heard = 0;                                            // the watch within six tiles takes it personally
+  for (const q of npcs) if ((q.t.k === 'guard' || q.t.k === 'watchman') && !q.target && chebDist(q.tx, q.tz, P.tx, P.tz) <= 6) {
+    q.target = P; claimMon(q);
+    if (!heard++) say(q.name + ': Hey! Get your hands off there!');
+  }
+};
+/* the square's stalls sell by rank: towns bake and weave, cities deal in gems; the furniture pass already blocks the tile */
+structHooks.push((rec, vs, inChunk) => {
+  for (const v of vs) for (const fu of v.fur) if (fu.t === 0 && inChunk(fu.x, fu.z)) {
+    const k = fu.k % Math.min(STALLS.length, 2 + v.rank);
+    rec.objs.push({ t: 14, k, x: fu.x, z: fu.z, y: fu.y, key: tk(fu.x, fu.z), n: STALLS[k].n, noMark: 1 });
+  }
+});
+
+/* ---- SLAYER: one master a settlement hands out a family to hunt; every kill of it pays its hitpoints in xp ---- */
+const MASTERS = [['Turael', 0, 15, 30, 0, 25], ['Mazchna', 20, 30, 50, 10, 45], ['Vannaka', 40, 40, 80, 20, 80], ['Chaeldar', 70, 60, 120, 40, 130], ['Duradel', 100, 80, 160, 60, 1e9]]
+  .map(([n, cb, lo, hi, a, b]) => ({ n, cb, lo, hi, a, b }));   // one a settlement rank: combat needed, task size, the band of base levels it assigns
+const slayPool = m => NPC_TYPES.filter(t => !t.boss && !t.town && !t.flee && t.lv >= m.a && t.lv <= m.b);
+const plural = (s, n) => n === 1 ? s : s.replace(/^(.*?)( of .*)?$/, (_, w, of) => (/[mM]an$/.test(w) ? w.slice(0, -2) + 'en' : /f$/.test(w) ? w.slice(0, -1) + 'ves' : w + (/s$/.test(w) ? 'es' : 's')) + (of || ''));
+let slayO = null;                                          // the master whose window is open
+function slayerTalk(o) {
+  const m = MASTERS[o.k], s = P.slay, ico = drawIcon(...MK_ART[12]);
+  const why = s ? 'Finish or give up the task you have before asking for another.' : combatLevel() < m.cb ? m.n + ' only assigns fighters of combat level ' + m.cb + ' or more.' : '';
+  slayO = o;
+  showModal(m.n + ', Slayer Master', stRow('Task', s ? 'Kill ' + s.n + ' more ' + plural(NPC_BY[s.k].n, s.n) + '.' : 'No task assigned.') +
+    liRow('data-sl="new"', 0, why, ico, 'New assignment', '', '<u>' + m.lo + '–' + m.hi + ' of a kind' + (m.cb ? ', combat ' + m.cb + '+' : '') + '</u>') +
+    (s ? liRow('data-sl="drop"', 0, 0, ico, 'Give up task', '', '<u>the kills so far keep their xp</u>') : ''),
+    why || 'Every kill of the assigned family pays its hitpoints in Slayer xp.');
+}
+on(modalBody, 'click', e => {
+  const b = e.target.closest('[data-sl]'); if (!b || !slayO) return;
+  const m = MASTERS[slayO.k], drop = b.dataset.sl === 'drop';
+  if (drop ? !P.slay : P.slay || combatLevel() < m.cb) return;
+  if (drop) { P.slay = null; say('You give up your Slayer task.'); }
+  else { const pool = slayPool(m), t = pool[Math.random() * pool.length | 0], n = randInt(m.lo, m.hi); P.slay = { k: t.k, n, m: slayO.k }; say('Your new task is to kill ' + n + ' ' + plural(t.n, n) + '.'); }
+  markDirty(1); slayerTalk(slayO);
+});
+onKill.push(n => {
+  const s = P.slay;
+  if (!s || (n.t.base || n.t).k !== s.k) return;
+  gainXp('slayer', n.t.hp);                                // any rung of the family's ladder counts, at its own hitpoints
+  if (--s.n > 0) return markDirty();
+  say("You've completed your Slayer task. Return to a Slayer Master for another.", 'lv');
+  P.slay = null; markDirty(1);
+});
+structHooks.push((rec, vs, inChunk) => {                   // one master a settlement, on a street tile, facing the square
+  for (const v of vs) {
+    if (!v.spots.length) continue;
+    const s = v.spots[(hash2(v.x, v.z, S + 310) >>> 4) % v.spots.length], y = heightAt(s.x, s.z);
+    if (inChunk(s.x, s.z) && !isWater(y)) rec.objs.push({ t: 12, k: v.rank, x: s.x, z: s.z, y, key: tk(s.x, s.z), n: MASTERS[v.rank].n, dir: Math.atan2(v.x - s.x, v.z - s.z) });
+  }
+});
+
+/* crafting: gems to the chisel, hides to the needle, gold to the mould; the tanner and the spindle are verbs, not fixtures */
+defWear({ id: 'hardleather_body', name: 'Hardleather body', g: 'robe', c: '#6f4a28', c2: '#452c16', slot: 'body', def: 8, req: { defence: 10 }, val: 35 });
+for (const g of GEMS) recipe(g.k, 'crafting', g.lv, g.xp, [['uncut_' + g.k, 1]], { tool: 'chisel', tk: 2, msg: 'You cut the ' + g.k + '.' });
+/* needlework: a thread a piece; pieces that come in pairs say so */
+const sew = (id, lv, xp, hide, n) => recipe(id, 'crafting', lv, xp, [[hide, n || 1], ['thread', 1]],
+  { tool: 'needle', msg: id.endsWith('s') ? 'You make a pair of ' + ITEMS[id].name.toLowerCase() + '.' : undefined });
+for (const [p, lv, xp] of [['gloves', 1, 13.8], ['boots', 7, 16.25], ['vambraces', 11, 22], ['body', 14, 25], ['chaps', 18, 27], ['coif', 38, 37]]) sew('leather_' + p, lv, xp, 'leather');
+sew('hardleather_body', 28, 35, 'hard_leather');
+const DPIECE = ['vambraces', 'chaps', 'body'];           // one, two, three dragon leathers
+for (const [c, lvs, xp] of [['green', [57, 60, 63], 62], ['blue', [66, 68, 71], 70], ['red', [73, 75, 77], 78], ['black', [79, 82, 84], 86]])
+  DPIECE.forEach((p, i) => sew(c + '_dhide_' + p, lvs[i], xp * (i + 1), c + '_dragon_leather', i + 1));
+/* the tanner: a hide and a fee, no xp, one a tick; a hide used on the crafting shopkeeper opens the list */
+const tan = (id, hide, gp) => recipe(id, 'crafting', 1, 0, [[hide, 1], ['coins', gp]],
+  { at: 'tan', tk: 1, name: ITEMS[id].name + ' (' + gp + ' gp)', msg: 'The tanner hands you some ' + ITEMS[id].name.toLowerCase() + '.' });
+tan('leather', 'cowhide', 1); tan('hard_leather', 'cowhide', 3);
+for (const c of ['green', 'blue', 'red', 'black']) tan(c + '_dragon_leather', c + '_dragonhide', 20);
+USE_ON[5] = (o, uit) => SHOP_KINDS[o.k].k === 'craft' && RECIPES.some(r => r.at === 'tan' && usesItem(r, uit.id)) ? [o.n, o2 => openMake('tan', o2, uit.id)] : null;
+/* the furnace: a gold bar in a mould, a gem on top, amulets strung as they are cast; silver makes a tiara */
+for (const j of JEWEL) {
+  const wool = j.k === 'amulet' ? [['ball_of_wool', 1]] : [], x = { at: 3, tool: j.k + '_mould' };
+  recipe('gold_' + j.k, 'crafting', j.lv, j.xp, [['gold_bar', 1]].concat(wool), x);
+  for (const g of GEMS) recipe(g.k + '_' + j.k, 'crafting', j.lvs[g.i], j.xps[g.i], [['gold_bar', 1], [g.k, 1]].concat(wool), x);
+}
+recipe('tiara', 'crafting', 23, 52.5, [['silver_bar', 1]], { at: 3, tool: 'tiara_mould' });
+/* spinning needs no wheel: a one-input recipe has nothing to be used on, so flax and wool carry a Spin verb */
+for (const [id, src, lv, xp] of [['bow_string', 'flax', 10, 15], ['ball_of_wool', 'wool', 1, 2.5]]) { const r = recipe(id, 'crafting', lv, xp, [[src, 1]]); ITEMS[src].opt = ['Spin', () => startMake(r)]; }
+
+/* ---- FLETCHING: a knife on logs, a string on a bow, feathers and tips on shafts; every row is a hand recipe (use one item on the other) ---- */
+defStack('arrow_shaft', 'Arrow shaft', 'arrow', '#c4a06a', '#7a5a30', 1); defStack('headless_arrow', 'Headless arrow', 'arrow', '#c4a06a', '#e8e8e8', 1);
+for (const b of BOWS) for (const f of BOWFORM) { const s = ITEMS[b.k + f.k]; defItem({ id: s.id + '_u', name: s.name + ' (u)', g: 'bow', c: b.c, c2: b.c2, val: s.val >> 1 }); }
+/* a tree: [shortbow lv, xp, longbow lv, xp]; stringing repeats the cut's level and xp, any logs give 15 shafts */
+[[5, 5, 10, 10], [20, 16.5, 25, 25], [35, 33.3, 40, 41.5], [50, 50, 55, 58.3], [65, 67.5, 70, 75], [80, 83.3, 85, 91.5]].forEach((w, i) => {
+  const log = TREES[i].log;
+  recipe('arrow_shaft', 'fletching', 1, 5, [[log, 1]], { tool: 'knife', n: 15, msg: 'You carefully cut the wood into 15 arrow shafts.' });
+  BOWFORM.forEach((f, j) => {
+    const id = BOWS[i].k + f.k, lv = w[j * 2], xp = w[j * 2 + 1];
+    recipe(id + '_u', 'fletching', lv, xp, [[log, 1]], { tool: 'knife', msg: 'You carefully cut the wood into a ' + f.n + '.' });
+    recipe(id, 'fletching', lv, xp, [[id + '_u', 1], ['bow_string', 1]], { tk: 2, msg: 'You add a string to the bow.' });
+  });
+});
+recipe('headless_arrow', 'fletching', 1, 15, [['arrow_shaft', 15], ['feather', 15]], { n: 15, tk: 1, msg: 'You attach feathers to 15 arrow shafts.' });
+/* a metal: [arrow lv, xp, bolt lv, xp]; 15 arrows or 10 bolts a go */
+for (const [k, al, ax, bl, bx] of [['bronze', 1, 19.5, 9, 5], ['iron', 15, 37.5, 39, 15], ['steel', 30, 75, 46, 35], ['mithril', 45, 112.5, 54, 50], ['adamant', 60, 150, 61, 70],
+  ['rune', 75, 187.5, 69, 100], ['dragon', 90, 225, 84, 120]]) {
+  recipe(k + '_arrow', 'fletching', al, ax, [['headless_arrow', 15], [k + '_arrowtips', 15]], { n: 15, tk: 1, msg: 'You attach arrowtips to 15 headless arrows.' });
+  recipe(k + '_bolts', 'fletching', bl, bx, [[k + '_bolts_u', 10], ['feather', 10]], { n: 10, tk: 1 });
+}
+
+/* ---- HERBLORE: a vial of water takes a clean herb, the unfinished potion takes its secondary; a dose is one pack slot and a sip steps it down ---- */
+const CORK = '#6a4a2a';
+defStack('vial_of_water', 'Vial of water', 'vial', '#8ac8e8', CORK, 3);
+for (const [id, name, g, c, c2, val] of [['eye_of_newt', 'Eye of newt', 'crop', '#d8c85a', '#2a2a1a', 3], ['unicorn_horn', 'Unicorn horn', 'bones', '#f0ece0', '#9a9484', 20],
+  ['limpwurt_root', 'Limpwurt root', 'crop', '#c04a3a', '#6a2a1a', 15], ['red_spiders_eggs', "Red spiders' eggs", 'crop', '#d83a3a', '#7a1a1a', 8], ['white_berries', 'White berries', 'crop', '#f0f0f0', '#5a7a3a', 10],
+  ['snape_grass', 'Snape grass', 'herb', '#6ab08a', '#3a6a4a', 6], ['mort_myre_fungus', 'Mort myre fungus', 'crop', '#9a8a6a', '#5a4a3a', 12], ['wine_of_zamorak', 'Wine of zamorak', 'vial', '#8a1a3a', CORK, 60],
+  ['potato_cactus', 'Potato cactus', 'crop', '#6aa05a', '#3a6a2a', 25]]) defStack(id, name, g, c, c2, val);
+/* cleaning: a verb on each grimy herb starts its one-input recipe, one leaf a tick */
+for (const h of HERBS) { const r = recipe(h.k, 'herblore', h.lv, h.xp, [[h.grimy, 1]], { tk: 1, msg: 'You clean the dirt from the ' + h.n + ' leaf.' }); ITEMS[h.grimy].opt = ['Clean', () => startMake(r)]; }
+/* effects: a boost counts from the base level and never stacks (re-drinking resets it to the full amount); gameTick walks it back a point a minute */
+const potBoost = (k, b, f) => { const i = SK[k]; bst[i] = Math.max(bst[i], b + Math.floor(lvl[i] * f)); };
+const potRestore = () => { for (let i = 0; i < NSK; i++) if (bst[i] < 0) bst[i] = 0; };
+const potPray = b => { P.pray = Math.min(P.maxpray, P.pray + b + Math.floor(P.maxpray / 4)); };
+function drink(i) {
+  const it = ITEMS[inv[i].id], p = it.pot, d = it.dose;
+  p.fx();
+  inv[i] = d > 1 ? { id: p.k + '_' + (d - 1), n: 1 } : null;           // the vial keeps its slot
+  say('You drink some of your ' + p.n.toLowerCase() + '.' + (d > 1 ? ' You have ' + (d - 1) + (d > 2 ? ' doses' : ' dose') + ' left.' : ' You have finished your potion.'));
+  dirty.inv = dirty.sk = dirty.orb = 1; markDirty();
+}
+/* [key, name, herb, secondary, level, xp, colour, effect]; ranarr shares one unfinished potion between defence and prayer */
+const POTS = [
+  ['attack', 'Attack potion', 'guam', 'eye_of_newt', 3, 25, '#4aa0d8', () => potBoost('attack', 3, .1)],
+  ['strength', 'Strength potion', 'tarromin', 'limpwurt_root', 12, 50, '#d03a6a', () => potBoost('strength', 3, .1)],
+  ['restore', 'Restore potion', 'harralander', 'red_spiders_eggs', 22, 62.5, '#d86a5a', potRestore],
+  ['defence', 'Defence potion', 'ranarr', 'white_berries', 30, 75, '#2a8a6a', () => potBoost('defence', 3, .1)],
+  ['prayer', 'Prayer potion', 'ranarr', 'snape_grass', 38, 87.5, '#3ad0d0', () => potPray(7)],
+  ['super_attack', 'Super attack', 'irit', 'eye_of_newt', 45, 100, '#2a5ad8', () => potBoost('attack', 5, .15)],
+  ['super_energy', 'Super energy', 'avantoe', 'mort_myre_fungus', 52, 117.5, '#c8d03a', () => { P.energy = Math.min(100, P.energy + 20); }],
+  ['super_strength', 'Super strength', 'kwuarm', 'limpwurt_root', 55, 125, '#e878a8', () => potBoost('strength', 5, .15)],
+  ['super_restore', 'Super restore', 'snapdragon', 'red_spiders_eggs', 63, 142.5, '#d83a3a', () => { potRestore(); potPray(8); }],
+  ['super_defence', 'Super defence', 'cadantine', 'white_berries', 66, 150, '#3ab04a', () => potBoost('defence', 5, .15)],
+  ['ranging', 'Ranging potion', 'dwarf_weed', 'wine_of_zamorak', 72, 162.5, '#6a8a5a', () => potBoost('ranged', 4, .1)],
+  ['magic', 'Magic potion', 'lantadyme', 'potato_cactus', 76, 172.5, '#6a3ad0', () => potBoost('magic', 4, 0)]
+].map(([k, n, herb, sec, lv, xp, c, fx]) => {
+  const p = { k, n, herb, sec, lv, xp, fx }, unf = herb + '_potion_u', hn = ITEMS[herb].name;
+  if (!ITEMS[unf]) {
+    defItem({ id: unf, name: hn + ' potion (unf)', g: 'vial', c: '#7aa86a', c2: CORK, val: ITEMS[herb].val + 3 });
+    recipe(unf, 'herblore', lv, 0, [[herb, 1], ['vial_of_water', 1]], { tk: 2, msg: 'You put the ' + hn.toLowerCase() + ' leaf into the vial of water.' });
+  }
+  for (let d = 4; d >= 1; d--) defItem({ id: k + '_' + d, name: n + '(' + d + ')', g: 'vial', c, c2: CORK, val: (20 + lv * 4) * d, dose: d, pot: p, opt: ['Drink', drink] });
+  recipe(k + '_4', 'herblore', lv, xp, [[unf, 1], [sec, 1]], { tk: 2, msg: 'You mix the ' + ITEMS[sec].name.toLowerCase() + ' into your potion.' });
+  return p;
+});
+
+/* ---- FARMING: four patches on every settlement's field ring; sow, let the shared clock run, harvest. No weeds, compost or disease. ---- */
+const PATCH_N = ['Allotment', 'Herb patch', 'Tree patch'];
+for (const c of CROPS) if (c.t === 2) c.tree = TREES.find(t => t.k === c.k);   // canopy tint and woodcutting xp
+const cropStage = o => { const s = P.farm[o.key]; return s ? clamp((tickN - s[1]) / CROPS[s[0]].grow, 0, 1) : 0; };
+function farmPatches(v) {                                 // two allotments, a herb and a tree patch, hashed onto the field strips (computed once)
+  if (v.patches) return v.patches;
+  const out = v.patches = [];
+  for (let i = 0; i < 24 && out.length < 4; i++) {
+    const h = hash2(v.x + i * 53, v.z - i * 29, S + 151), a = (h & 1023) / 1024 * TAU, d = v.r * (1.05 + (h >>> 10 & 255) / 255 * 0.45);
+    const rx = Math.sin(a) * d * v.ax, rz = Math.cos(a) * d * v.az, x = Math.round(v.x + rx * v.cs - rz * v.sn), z = Math.round(v.z + rx * v.sn + rz * v.cs), y = heightAt(x, z), g = hash2(x, z, S + 101);
+    if (y < 1.9 || (g & 1023) < 8 || (g >>> 3 & 4095) < 82 || !fieldAt(x, z, { v, d: villageDist(v, x, z) }) || highwayAt(x, z) || out.some(p => chebDist(p.x, p.z, x, z) < 3)) continue;   // g: the tile must not roll a tree or a vein
+    const k = [0, 0, 1, 2][out.length];
+    out.push({ t: 15, k, x, z, y, key: tk(x, z), n: PATCH_N[k], noMark: 1 });
+  }
+  return out;
+}
+structHooks.push((rec, vs, inChunk) => {
+  const mine = [];
+  for (const v of vs) for (const p of farmPatches(v)) if (inChunk(p.x, p.z)) { mine.push(p); rec.objs.push(p); rec.blk.push(p.key); }
+  if (mine.length) batchInto(rec, B => { for (const p of mine) {
+    if (p.k < 2) B.add(BOX, p.x, p.y + 0.17, p.z, 2.2, 0.35, 2.2, 0, [0.30, 0.20, 0.12]);
+    else for (let i = 0; i < 4; i++) B.add(BOX, p.x + (i & 1 ? 0.8 : -0.8), p.y + 0.15, p.z + (i & 2 ? 0.8 : -0.8), 0.5, 0.3, 0.5, 0, C_STONE);
+  } });
+});
+USE_ON[15] = (o, uit) => { const c = CROPS.find(c => c.seed === uit.id); return c ? [o.n, o2 => plantSeed(o2, c)] : null; };
+function plantSeed(o, c) {
+  const n = c.t ? 1 : 3;                                  // an allotment takes three seeds
+  if (c.t !== o.k) return say("That won't grow here.", 'bad');
+  if (P.farm[o.key]) return say('There is something growing there.', 'bad');
+  if (needLv('farming', c.lv)) return;
+  if (invCount(c.seed) < n) return say('You need ' + n + ' seeds to plant an allotment.', 'bad');
+  invRemove(c.seed, n);
+  P.farm[o.key] = [c.i, tickN];
+  gainXp('farming', c.plant); markDirty(1);
+  say('You plant the seeds.');
+}
+function farmOpts(o) {
+  const s = P.farm[o.key], c = s && CROPS[s[0]], g = cropStage(o);
+  const insp = { t: 'Inspect', o: o.n, f: () => say(!s ? 'An empty ' + o.n.toLowerCase() + '. Use seeds on it.'
+    : g < 1 ? c.n + ' is growing here; about ' + Math.ceil((c.grow - tickN + s[1]) * TICK / 60000) + ' minutes to go.' : 'The ' + c.n.toLowerCase() + ' is fully grown.') };
+  return g < 1 ? [insp] : [{ t: c.t === 2 ? 'Check health' : 'Harvest', o: o.n, f: act(o, c.t === 2 ? 'checktree' : 'harvest') }, insp];
+}
+/* one item a go; the lives ride along as a third, unsaved state element. A tree pays its farming xp on the check, then five logs with woodcutting xp */
+TASKS.harvest = TASKS.checktree = (t, o) => {
+  const s = P.farm[o.key], c = s && CROPS[s[0]];
+  if (!c || cropStage(o) < 1) { P.task = null; return; }
+  if (s.length < 3) {
+    s[2] = c.t === 2 ? 5 : 3 + Math.floor(lvl[SK.farming] / 20) + randInt(0, 2);
+    if (c.t === 2) { gainXp('farming', c.xp); return say('You check the tree: it has grown well.'); }
+  }
+  if (!invAdd(c.yield, 1)) return fail(FULL);
+  gainXp(c.t === 2 ? 'woodcutting' : 'farming', c.t === 2 ? c.tree.xp : c.xp);
+  say((c.t === 2 ? 'You get some ' : 'You harvest some ') + ITEMS[c.yield].name.toLowerCase() + '.');
+  if (--s[2] <= 0) { delete P.farm[o.key]; markDirty(1); say('The patch is cleared.'); P.task = null; }
+};
+/* what grows: a blob on the bed that swells and takes the produce's colour, or a sapling in the species' tint */
+const CROP_GEO = bakeW(shift(octa(0.5), 0.5)), SAPLING_GEO = merge([shade(shift(cyl(0.12, 0.16, 1, 5, 1), 0.5), BARK2), bakeW(shift(octa(0.55, 1), 1.3))]);
+const POOL_CROP = Pool(CROP_GEO, 16, 1), POOL_SAPLING = Pool(SAPLING_GEO, 8, 1);
+POOLS.push(POOL_CROP, POOL_SAPLING);
+poolHooks.push(() => {
+  for (const o of nearObjs) {
+    if (o.t !== 15 || !P.farm[o.key]) continue;
+    const c = CROPS[P.farm[o.key][0]], g = cropStage(o), s = 0.3 + g * 1.5;
+    if (c.t === 2) poolPut(POOL_SAPLING, o.x, o.y, o.z, o.x, s, s, s, c.tree.tint);
+    else poolPut(POOL_CROP, o.x, o.y + 0.35, o.z, o.x, 0.5 + g * 1.2, 0.3 + g * 0.6, 0.5 + g * 1.2, g < 1 ? 0x4a8a3a : hexInt(ITEMS[c.yield].c));
+  }
+});
+
+/* ---- HUNTER: traps laid on open ground beyond the town edge; a tick hook rolls each against the best catch your level allows ---- */
+defItem({ id: 'bird_snare', name: 'Bird snare', g: 'trap', c: '#c8b080', c2: '#6a5a3a', val: 6, opt: ['Lay', i => layTrap(0, i)] });
+defItem({ id: 'box_trap', name: 'Box trap', g: 'trap', c: '#8a6438', c2: '#5b4123', val: 38, opt: ['Lay', i => layTrap(1, i)] });
+defItem({ id: 'ferret', name: 'Ferret', g: 'fur', c: '#e8dcc8', c2: '#9a8a70', val: 50 });
+defStack('chinchompa', 'Chinchompa', 'fur', '#9a8a70', '#5a4a3a', 900); defStack('red_chinchompa', 'Red chinchompa', 'fur', '#c04a3a', '#7a2a1e', 1400);
+defStack('kebbit_fur', 'Kebbit fur', 'fur', '#a07848', '#5b4123', 40);
+ITEMS.knife.opt = ['Set deadfall', () => layTrap(2)];   // on the knife, so logs keep Use as their first option
+/* creatures: trap kind (0 snare, 1 box, 2 deadfall), level, xp; birds give feathers and bones, box traps the animal, kebbits their fur */
+const HUNT = [[0, 'Crimson swift', 1, 34], [0, 'Golden warbler', 5, 47], [0, 'Copper longtail', 9, 61], [0, 'Cerulean twitch', 11, 64.5], [0, 'Tropical wagtail', 19, 95],
+  [1, 'Ferret', 27, 115, 'ferret'], [1, 'Chinchompa', 53, 198.25, 'chinchompa'], [1, 'Carnivorous chinchompa', 63, 265, 'red_chinchompa'],
+  [2, 'Barb-tailed kebbit', 33, 168], [2, 'Prickly kebbit', 37, 204], [2, 'Sabre-toothed kebbit', 51, 200]].map(([k, n, lv, xp, loot], i) => ({ k, n, lv, xp, loot, i }));
+const huntLoot = c => c.k === 0 ? [['feather', randInt(5, 12)], ['bones', 1]] : c.k === 1 ? [[c.loot, 1]] : [['kebbit_fur', randInt(1, 2)]];
+const TRAP_N = ['Bird snare', 'Box trap', 'Deadfall'], TRAP_LV = [1, 27, 33];
+const traps = []; pickLists.push(traps);                   // { t: 17, k, n, x, z, y, t0, got: null set | -1 collapsed | HUNT index }
+const trapCap = () => 1 + Math.floor(lvl[SK.hunter] / 20);
+const invRoom = rows => invFree() >= rows.filter(([id]) => !(ITEMS[id].stack && invCount(id))).length;   // slots the rows would take
+const kneel = () => { P.acting = 1; P.actSpan = 2; P.pose = 3; };
+function layTrap(k, i) {
+  const n = trapCap();
+  if (lvl[SK.hunter] < TRAP_LV[k]) return say('You need Hunter level ' + TRAP_LV[k] + ' to set a ' + TRAP_N[k].toLowerCase() + '.', 'bad');
+  if (k === 2 && !invCount('logs')) return say('You need logs to set a deadfall.', 'bad');
+  if (inSafe(P.tx, P.tz)) return say("You can't lay traps in town.", 'bad');
+  if (!dryOpen(P.tx, P.tz) || traps.some(t => t.x === P.tx && t.z === P.tz)) return say("You can't lay a trap here.", 'bad');
+  if (traps.length >= n) return say("You can't set more than " + n + ' trap' + (n > 1 ? 's' : '') + ' at your level.', 'bad');
+  invRemove(k === 2 ? 'logs' : inv[i].id, 1);
+  traps.push({ t: 17, k, n: TRAP_N[k], x: P.tx, z: P.tz, y: walkY(P.tx, P.tz), t0: tickN, got: null });
+  stopWalk(); P.task = null; kneel();
+  say('You set up the ' + TRAP_N[k].toLowerCase() + '.');
+}
+/* the best creature the kind and your level allow, the second best on half the tiles */
+const huntBest = t => { const ok = HUNT.filter(c => c.k === t.k && lvl[SK.hunter] >= c.lv); return ok[Math.max(0, ok.length - 1 - (hash2(t.x, t.z, S) & 1))]; };
+tickHooks.push(() => {
+  for (let i = traps.length - 1; i >= 0; i--) {
+    const t = traps[i];
+    if (chebDist(P.tx, P.tz, t.x, t.z) > 64) { traps.splice(i, 1); continue; }   // out of sight, out of mind
+    if (t.got !== null || tickN - t.t0 < 8) continue;
+    const c = huntBest(t);
+    if (c && Math.random() < 0.015 + 0.003 * (lvl[SK.hunter] - c.lv)) t.got = c.i;
+    else if (tickN - t.t0 > 250 || Math.random() < 0.004) t.got = -1;
+  }
+});
+/* check or dismantle: the trap comes up either way, a snare or box back into the pack, a deadfall's logs spent */
+function trapPick(o) {
+  const i = traps.indexOf(o); if (i < 0) return;
+  const c = HUNT[o.got] || null, rows = c ? huntLoot(c) : [];
+  if (o.k < 2) rows.push([['bird_snare', 'box_trap'][o.k], 1]);
+  if (!invRoom(rows)) return say(FULL, 'bad');
+  for (const [id, n] of rows) invAdd(id, n);
+  traps.splice(i, 1); kneel();
+  if (c) { say("You've caught a " + c.n.toLowerCase() + '.'); gainXp('hunter', c.xp); } else say('You dismantle the ' + o.n.toLowerCase() + '.');
+}
+const trapReset = o => { if (traps.includes(o)) { o.got = null; o.t0 = tickN; kneel(); say('You reset the ' + o.n.toLowerCase() + '.'); } };
+OBJ_OPTS[17] = o => HUNT[o.got] ? [{ t: 'Check', o: o.n, f: act(o, trapPick) }]
+  : (o.got === null ? [] : [{ t: 'Reset', o: o.n, f: act(o, trapReset) }]).concat({ t: 'Dismantle', o: o.n, f: act(o, trapPick) });
+/* a cage: lid on four posts and a trip stick, white-baked so one pool tints by state; scaled by kind (snare tall, deadfall squat) */
+const TRAP_GEO = merge([bakeW(shift(box(0.9, 0.08, 0.9), 0.5)), bakeW(shift(box(0.06, 0.9, 0.06), 0.45).rotateZ(0.55).translate(0.6, 0, 0.1))]
+  .concat([[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, b]) => bakeW(shift(box(0.08, 0.5, 0.08), 0.25).translate(a * 0.41, 0, b * 0.41)))));
+const POOL_TRAP = Pool(TRAP_GEO, 6, 1); POOLS.push(POOL_TRAP);
+poolHooks.push(() => { for (const t of traps) { const s = [0.7, 1, 1.25][t.k]; poolPut(POOL_TRAP, t.x, t.y, t.z, hash2(t.x, t.z, S) & 3, s, [1.2, 1, 0.55][t.k], s, t.got === null ? 0xa07848 : HUNT[t.got] ? 0xffd66a : 0x6e6e6e); } });
+
+/* construction: the sawmill cuts planks for a fee; planks and a hammer raise a campsite (fire pit, workbench, altar) that stands a quarter hour; flatpacks come off the bench */
+const aOrAn = n => (/^[aeiou]/i.test(n) ? 'an ' : 'a ') + n.toLowerCase();
+for (const [id, name, log, gp, c, c2] of [['plank', 'Plank', 'logs', 100, '#d2b074', '#8a6a3a'], ['oak_plank', 'Oak plank', 'oak_logs', 250, '#a8813f', '#6b4e22']]) {
+  defStack(id, name, 'plank', c, c2, gp, { opt: ['Build', () => showMake('Build', BUILDS)] });
+  recipe(id, 'construction', 1, 0, [[log, 1], ['coins', gp]], { at: 13, tk: 1, name: name + ' (' + gp + ' gp)', msg: 'The sawmill cuts your logs into ' + aOrAn(name) + '.' });
+}
+/* campsite pieces go up where you stand: open ground outside town, one thing a tile; a bad site hands the materials back */
+const builds = []; pickLists.push(builds);
+function campBuild(r, e) {
+  const x = P.tx, z = P.tz;
+  P.task = null;
+  if (inSafe(x, z) || !dryOpen(x, z) || fires.concat(builds).some(b => b.x === x && b.z === z)) { for (const [id, n] of r.need) invAdd(id, n); say("You can't build here.", 'bad'); return null; }
+  (e.fire ? fires : builds).push(Object.assign(e, { x, z, y: walkY(x, z), life: 1500 }));
+  return [];
+}
+const BUILDS = [['firepit', 'Fire pit', 'flame', 1, 58, [['plank', 2], ['logs', 1]], { fire: 1, t: 6, pit: 1 }], ['workbench', 'Workbench', 'hammer', 17, 143, [['plank', 5]], { t: 18 }],
+  ['camp_altar', 'Altar', 'star', 45, 240, [['oak_plank', 4]], { t: 8 }]].map(([id, name, g, lv, xp, need, e]) => {
+  defItem({ id, name, g, c: '#d2b074', c2: '#8a6a3a', val: 0 });
+  return recipe(id, 'construction', lv, xp, need, { tool: 'hammer', fn: r => campBuild(r, Object.assign({ n: name }, e)), msg: 'You build ' + aOrAn(name) + '.' });
+});
+/* flatpacks: made at the bench, sold anywhere */
+for (const [pl, rows] of [['plank', [['crude_chair', 'Crude wooden chair', 1, 2, 58, 20], ['wooden_bookcase', 'Wooden bookcase', 4, 4, 115, 60], ['wooden_chair', 'Wooden chair', 8, 3, 87, 40]]],
+  ['oak_plank', [['oak_chair', 'Oak chair', 19, 2, 120, 120], ['oak_table', 'Oak table', 22, 4, 240, 260], ['oak_bookcase', 'Oak bookcase', 29, 3, 180, 220], ['oak_larder', 'Oak larder', 33, 8, 480, 600]]]])
+  for (const [id, name, lv, n, xp, val] of rows) { defItem({ id, name, g: 'plank', c: ITEMS[pl].c, c2: ITEMS[pl].c2, val }); recipe(id, 'construction', lv, xp, [[pl, n]], { at: 18, tool: 'hammer', msg: 'You make ' + aOrAn(name) + '.' }); }
+OBJ_OPTS[18] = ['Work at', null, o => openMake(18, o)];
+/* on screen: a stone ring round a pit, a candle on a slab, a bench on four legs; a piece that burns out ends any work at it */
+const POOL_RING = Pool(merge([...Array(8)].map((_, i) => shade(new THREE.DodecahedronGeometry(0.2, 0).translate(Math.cos(i * PI / 4) * 0.95, 0.1, Math.sin(i * PI / 4) * 0.95), STONE))), 16);
+const POOL_ALTAR = Pool(merge([shade(shift(box(1.6, 0.9, 0.9), 0.45), C_STONE), shade(shift(box(1.8, 0.12, 1.1), 0.96), C_STONE2),
+  shade(shift(cyl(0.06, 0.06, 0.5, 5), 1.27), [0.95, 0.9, 0.7]), shade(shift(cone(0.1, 0.22, 5), 1.62), [1, 0.8, 0.3])]), 8);
+const POOL_BENCH = Pool(merge([shade(shift(box(2.0, 0.14, 1.0), 0.9), C_FLOOR), shade(box(0.5, 0.2, 0.3).translate(0.6, 1.07, 0), C_STONE2)]
+  .concat([-1, 1].flatMap(a => [-1, 1].map(b => shade(box(0.18, 0.86, 0.18).translate(a * 0.85, 0.43, b * 0.38), C_BEAM))))), 8);
+POOLS.push(POOL_RING, POOL_ALTAR, POOL_BENCH);
+poolHooks.push(() => { for (const f of fires) if (f.pit) poolPut(POOL_RING, f.x, f.y, f.z, 0, 1); for (const b of builds) poolPut(b.t === 8 ? POOL_ALTAR : POOL_BENCH, b.x, b.y, b.z, 0, 1); });
+tickHooks.push(() => { for (let i = builds.length - 1; i >= 0; i--) if (--builds[i].life <= 0) builds.splice(i, 1)[0].dead = 1; });
+
+/* ---- MAGIC: blasts, waves and curses are SPELLS rows; the utility spells below are armed as P.uspell (item spells) or fire at once (teleports) ---- */
+P.uspell = null; P.homeT = -1e9;
+defWear({ id: 'ring_of_dueling', name: 'Ring of dueling', g: 'ring', c: '#3aa05a', c2: '#9a7414', slot: 'ring', val: 1800, opt: ['Rub', villageTp] });
+RING_NOTES.ring_of_dueling = ' Rub it to be carried to the nearest settlement.';
+/* teleports: every one ends what you were doing and lands you on a street tile */
+function tpTo(x, z, where) { closeOverlays(); teleport(x, z, 400); say('You teleport ' + where + '.'); return 1; }
+const tpV = (v, what) => { if (!v) return say('There is no ' + what + ' near enough to reach.', 'bad'); const s = safeSpotIn(v); return tpTo(s.x, s.z, 'to ' + villageName(v)); };
+function nearCity(x, z, R) {                                // nearest settlement of city rank, the DEV.city scan
+  const gx = Math.floor(x * INV_CELL), gz = Math.floor(z * INV_CELL);
+  let best = null, bd = 1e9;
+  for (let a = -R; a <= R; a++) for (let b = -R; b <= R; b++) {
+    const v = villageAt(gx + a, gz + b), d = v ? Math.hypot(v.x - x, v.z - z) : 1e9;
+    if (v && v.rank >= 3 && d < bd) { bd = d; best = v; }
+  }
+  return best;
+}
+function villageTp() { return tpV(nearestVillageTo(P.tx, P.tz, 12), 'settlement'); }
+function cityTp() { return tpV(nearCity(P.tx, P.tz, 6), 'city'); }
+function homeTp() {
+  const left = 3000 - (tickN - P.homeT);                    // half an hour between casts
+  if (left > 0) return say('You need to wait another ' + Math.ceil(left / 100) + ' minutes to cast this spell.', 'bad');
+  P.homeT = tickN;
+  return tpTo(P.home.x, P.home.z, 'home');
+}
+/* item spells take the pack slot and return 1 when the runes should burn; they say why when they do not */
+function alch(i, m) {
+  const s = inv[i], it = ITEMS[s.id];
+  if (s.id === 'coins') return say('Coins are already made of gold.', 'bad');
+  if (!it.val) return say('You cannot alchemise that.', 'bad');
+  if (s.n > 1 && !invCount('coins') && !invFree()) return say(FULL, 'bad');
+  invRemove(s.id, 1); invAdd('coins', Math.max(1, Math.round(it.val * m)));
+  return 1;
+}
+function superheat(i) {
+  const id = inv[i].id, rows = RECIPES.filter(r => r.at === 3 && r.sk === 'smithing' && r.need[0][0] === id);
+  if (!rows.length) return say('You need to cast superheat item on ore.', 'bad');
+  const r = rows.filter(mkOk).pop() || rows[0];             // the best bar the pack and the level allow: iron ore and coal make steel
+  return mkOk(r) ? craft(r) : say('You need ' + mkWhy(r) + ' to smelt that.', 'bad');
+}
+const ENCH = [['sapphire', 7, 17.5, [['cosmic_rune', 1], ['water_rune', 1]], 'ring_of_recoil', 'amulet_of_magic'],
+  ['emerald', 27, 37, [['cosmic_rune', 1], ['air_rune', 3]], 'ring_of_dueling', 'amulet_of_defence'],
+  ['ruby', 49, 59, [['cosmic_rune', 1], ['fire_rune', 5]], 0, 'amulet_of_strength'],
+  ['diamond', 57, 67, [['cosmic_rune', 1], ['earth_rune', 10]], 'ring_of_life', 'amulet_of_power'],
+  ['dragonstone', 68, 78, [['cosmic_rune', 1], ['water_rune', 15], ['earth_rune', 15]], 'ring_of_wealth', 'amulet_of_glory']]
+  .map(([g, lv, xp, need, ring, amu]) => ({ g, lv, xp, need, ring, amu }));
+function enchant(i, t) {
+  const id = inv[i].id, e = ENCH[t], out = id === e.g + '_ring' ? e.ring : id === e.g + '_amulet' ? e.amu : 0;
+  if (!out) return say(id.startsWith(e.g) ? 'That piece takes no enchantment.' : 'This spell can only enchant ' + e.g + ' jewellery.', 'bad');
+  inv[i] = { id: out, n: 1 }; dirty.inv = 1; markDirty();
+  say('You enchant the ' + ITEMS[id].name.toLowerCase() + '.');
+  return 1;
+}
+/* name, level, xp, runes, tint, glyph, what it does (the tooltip), cast(slot), item: wants a pack item */
+const USPELLS = [
+  ['Home Teleport', 1, 0, [], 0xd8e4ee, 'star', 'no runes, once every 30 minutes', homeTp],
+  ['Low Level Alchemy', 21, 31, [['nature_rune', 1], ['fire_rune', 3]], 0xe0b436, 'coins', 'an item → coins, 40% of its value', i => alch(i, 0.4), 1],
+  ['Village Teleport', 31, 41, [['law_rune', 1], ['earth_rune', 1], ['air_rune', 3]], 0x6a8ad8, 'star', 'the nearest settlement', villageTp],
+  ['Superheat Item', 43, 53, [['nature_rune', 1], ['fire_rune', 4]], 0xd05a2a, 'bar', 'an ore → its bar, coal and all', superheat, 1],
+  ['City Teleport', 45, 55.5, [['law_rune', 1], ['air_rune', 5]], 0x6a8ad8, 'star', 'the nearest city', cityTp],
+  ['High Level Alchemy', 55, 65, [['nature_rune', 1], ['fire_rune', 5]], 0xe0b436, 'coins', 'an item → coins, 60% of its value', i => alch(i, 0.6), 1],
+  ...ENCH.map((e, t) => ['Lvl-' + (t + 1) + ' Enchant', e.lv, e.xp, e.need, parseInt(GEMS[t].c.slice(1), 16), e.ring ? 'ring' : 'amulet', e.g + ' jewellery', i => enchant(i, t), 1])
+].map(([n, lv, xp, need, tint, g, d, f, item]) => ({ n, lv, xp, need, tint, g, d, f, item })).sort((a, b) => a.lv - b.lv);
+const usRow = s => liRow('data-us="' + USPELLS.indexOf(s) + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).concat(s.d).join(', ') + '"', P.uspell === s, lvl[SK.magic] < s.lv,
+  drawIcon(s.g, '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (lvl[SK.magic] < s.lv ? 'level ' + s.lv : spellReady(s) ? 'ready' : 'no runes') + '</u>');
+function cast(s, i) {                                       // runes first; the effect burns them only when it lands
+  if (P.dead || P.stun > 0) return;
+  if (!spellReady(s)) return say('You do not have the runes for that spell.', 'bad');
+  if (!s.f(i)) return;
+  spendRunes(s); if (s.xp) gainXp('magic', s.xp);
+  spellBurst(P.rx, P.ry + 1.1, P.rz, s.tint); P.acting = 1; P.pose = 2;
+}
+function castItem(i) { const s = P.uspell; P.uspell = null; cast(s, i); showTab('mg'); }
+on(spellGrid, 'click', e => {                               // runs after the combat handler: arming either kind of spell puts the other away
+  const d = e.target.closest('[data-us]');
+  if (!d) { if (P.uspell && P.spell !== null) { P.uspell = null; drawSpells(); } return; }
+  const s = USPELLS[+d.dataset.us];
+  if (lvl[SK.magic] < s.lv) return say('You need Magic level ' + s.lv + ' to cast that.', 'bad');
+  P.spell = null;
+  if (!s.item) { P.uspell = null; cast(s); }
+  else if (P.uspell === s) { P.uspell = null; say('You put your staff away.'); }
+  else { P.uspell = s; clearUse(); say('You ready ' + s.n + '. Choose an item in your pack.'); showTab('inv'); }
+  drawSpells();
+});
+
 requestAnimationFrame(frame);
 el('boot').classList.add('gone');
 </script>
