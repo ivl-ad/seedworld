@@ -1861,7 +1861,7 @@ function wepGeo(id) {
   if (g) return g;
   const it = ITEMS[id], b = WEAPON[it.g] || WEAPON.sword, a = WGRIP[it.g] || WGRIP.sword;
   g = merge(b(hexRgb(it.c), hexRgb(it.c2 || it.c), a[0], a[1]));
-  if (WHANG.has(it.g)) g.rotateY(WFLIP.has(it.g) ? -PI / 2 : PI / 2).scale(0.5, 0.5, 0.5);
+  if (WHANG.has(it.g)) { const k = it.g === 'sword2h' ? 1 : 0.5; g.rotateY(WFLIP.has(it.g) ? -PI / 2 : PI / 2).scale(k, k, k); }   // a two-hander at full size
   else if (WUP.has(it.g)) g.rotateX(PI);
   else if (it.g === 'bow') g.rotateX(PI / 2).rotateY(-PI / 2);
   else if (it.g === 'cbow') g.rotateX(-PI / 2);
@@ -3542,14 +3542,18 @@ function pickMonster(x, z, h, p) {
   while (lo < hi) { const m = (lo + hi) >> 1; if (c[m] < u) lo = m + 1; else hi = m; }
   return t.types[lo];
 }
-const TOWNFOLK = [['man', 'woman', 'farmer', 'goblin', 'masterfarmer'], ['man', 'woman', 'farmer', 'monk', 'dwarf', 'barbarian', 'masterfarmer'], ['man', 'woman', 'farmer', 'monk', 'dwarf', 'guard', 'masterfarmer', 'watchman'],
-  ['man', 'woman', 'monk', 'wizard', 'thug', 'guard', 'watchman', 'rogue'], ['man', 'woman', 'wizard', 'pirate', 'thug', 'guard', 'watchman', 'rogue']];
+/* a settlement's surroundings are farmland, not a lair: a pick above level 25 there (the townsfolk's own kind excepted) becomes one of the farmyard animals */
+const TAME = NPC_TYPES.filter(t => t.flee);
+const tame = (t, x, z, h) => t.lv > 25 && !t.human && nearTown(x, z) ? TAME[(h >>> 27) % TAME.length] : t;
+const TOWNFOLK = [['man', 'woman', 'farmer', 'goblin', 'masterfarmer', 'chicken', 'cow', 'sheep'], ['man', 'woman', 'farmer', 'monk', 'dwarf', 'barbarian', 'masterfarmer', 'chicken', 'cow', 'duck'],
+  ['man', 'woman', 'farmer', 'monk', 'dwarf', 'guard', 'masterfarmer', 'watchman', 'chicken', 'cow', 'duck'], ['man', 'woman', 'monk', 'wizard', 'thug', 'guard', 'watchman', 'rogue', 'chicken', 'duck'],
+  ['man', 'woman', 'wizard', 'pirate', 'thug', 'guard', 'watchman', 'rogue', 'chicken', 'duck']];
 const hasNpc = key => npcDead.has(key) || npcs.some(q => q.key === key);
 const WILD_CELL = 64;                                     // one roaming pack per cell, one species to a cell
 /* the cell's pack, or null: its hash, the ground's power at the centre (one powerAt a cell), how many, and the species the lottery picks */
 function wildPack(gx, gz) {
   const h = hash2(gx, gz, S + 112), x = gx * WILD_CELL + WILD_CELL / 2, z = gz * WILD_CELL + WILD_CELL / 2, pc = powerAt(x, z);
-  return (h % 100) > 58 + Math.min(30, Math.max(0, pc) * 8) ? null : { h, pc, n: 1 + (h >>> 7) % 4, t: pickMonster(x, z, h, pc) };
+  return (h % 100) > 58 + Math.min(30, Math.max(0, pc) * 8) ? null : { h, pc, n: 1 + (h >>> 7) % 4, t: tame(pickMonster(x, z, h, pc), x, z, h) };
 }
 const wildSpot = (gx, gz, i) => { const hh = hash2(gx * 31 + i, gz * 17 - i, S + 113); return { x: gx * WILD_CELL + (hh % WILD_CELL), z: gz * WILD_CELL + ((hh >>> 8) % WILD_CELL) }; };
 function spawnWild() {
@@ -3649,7 +3653,7 @@ function villageSpawn(v, i) {
     return Object.assign(r, { t: NPC_BY[folk[(h >>> 17) % folk.length]], x: sp.x, z: sp.z });
   }
   const ang = (h & 1023) / 1024 * TAU, rad = v.r * (0.9 + ((h >>> 10) & 63) / 64 * 0.6), x = Math.round(v.x + Math.cos(ang) * rad), z = Math.round(v.z + Math.sin(ang) * rad), pw = powerAt(x, z);
-  return Object.assign(r, { t: pickMonster(x, z, h, pw), x, z, pw });
+  return Object.assign(r, { t: tame(pickMonster(x, z, h, pw), x, z, h), x, z, pw });
 }
 /* the shared wander: destination is a pure function of (key hash, shared tick) */
 const wanderAt = (kh, tick, hx, hz) => { const r = hash2(kh ^ tick, tick, S + 777); return r % 6 === 0 ? { x: hx + ((r >>> 8) % 11) - 5, z: hz + ((r >>> 16) % 11) - 5 } : null; };
@@ -5714,7 +5718,7 @@ function freshCharacter() {
    Writing is disarmed until a read has succeeded: nothing may overwrite a character we could not load. Every send expects an ack. ---- */
 let saveDirty = 0, lastSave = 0, saveTimer = 0, saveArmed = 0, savedOnce = 0, ackPending = 0, ackWarned = 0;
 const NEED_BUILD = 3;                                       // the wire contract this client speaks
-const SPAWN_REV = 3;                                        // bumped with any change to powerAt / spawnTable / pickMonster
+const SPAWN_REV = 4;                                        // bumped with any change to powerAt / spawnTable / pickMonster / tame / TOWNFOLK
 let worldSync = 0;                                          // build >= 4: rooms relay 20/21/22
 const wsSend = m => { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(m)); } catch {} } };
 const netWorld = m => { if (worldSync) wsSend(m); };
