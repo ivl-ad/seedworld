@@ -1826,6 +1826,8 @@ const WGRIP = { sword: [16, 26], dagger: [16, 25], scim: [8, 28], axe: [11.5, 26
 /* hangs point-down at half scale, edge-on to the chest */
 const WHANG = new Set(['sword', 'dagger', 'scim', 'axe', 'pick', 'rod', 'lsword', 'sword2h', 'mace', 'baxe', 'wham', 'claws', 'wand']);
 const WUP = new Set(['staff', 'halberd', 'spear']);      // held tip-up: a thrust lowers them first
+const WFLIP = new Set(['scim', 'rod', 'wand']);           // tips that lean right in the icon are turned to lean forward in the hand
+const TWO_A = -1.0, TWO_Z = 0.9;                          // the two-hand hold: both arms swung forward and in, hands met at the waist
 const WFWD = { staff: 0.19, bow: 0.03, halberd: 0.19, spear: 0.19, cbow: 0.08 }, WOUT = { staff: -0.10, halberd: -0.10, spear: -0.10 };
 const WEAPON = {
   sword: (c, d, x, y) => [xtr([16, 2, 19.5, 9, 19.5, 20, 12.5, 20, 12.5, 9], c, x, y), xrect(9, 20, 14, 3, d, x, y), xrect(14.5, 23, 3, 6, WOOD, x, y), xrect(13, 28.5, 6, 2, d, x, y)],
@@ -1859,7 +1861,7 @@ function wepGeo(id) {
   if (g) return g;
   const it = ITEMS[id], b = WEAPON[it.g] || WEAPON.sword, a = WGRIP[it.g] || WGRIP.sword;
   g = merge(b(hexRgb(it.c), hexRgb(it.c2 || it.c), a[0], a[1]));
-  if (WHANG.has(it.g)) g.rotateY(PI / 2).scale(0.5, 0.5, 0.5);
+  if (WHANG.has(it.g)) g.rotateY(WFLIP.has(it.g) ? -PI / 2 : PI / 2).scale(0.5, 0.5, 0.5);
   else if (WUP.has(it.g)) g.rotateX(PI);
   else if (it.g === 'bow') g.rotateX(PI / 2).rotateY(-PI / 2);
   else if (it.g === 'cbow') g.rotateX(-PI / 2);
@@ -1872,9 +1874,10 @@ function holdWeapon(mesh, it) {
   if (!it) return;
   mesh.geometry = wepGeo(it.id);
   mesh.material.color.set('#ffffff');
-  mesh.rotation.set(0, 0, 0);
+  // a one-hander hangs leaning forward; a two-hander is carried in front, blade up and forward, rolled so its flat faces the way you look
+  const two = it.two && WHANG.has(it.g) ? 1 : 0, u = Object.assign(mesh.userData, { up: WUP.has(it.g) ? 1 : 0, two, tilt: two ? -PI / 2 : WHANG.has(it.g) ? -0.55 : 0, roll: two ? PI / 2 - TWO_Z : 0 });
+  mesh.rotation.set(u.tilt, 0, u.roll, two ? 'ZYX' : 'XYZ');
   mesh.position.set(WOUT[it.g] || 0, -0.60, 0.05 + (WFWD[it.g] || 0));
-  mesh.userData.up = WUP.has(it.g) ? 1 : 0;
 }
 function buildAvatar() {
   const g = new THREE.Group(), W = 0xffffff;
@@ -5398,7 +5401,8 @@ const POSES = {
     setRot(p, 0.15 - 0.35 * th, 0.35 - 1.55 * th, 0.06, -0.06 - 0.10 * th, -0.30 * th, -0.06 * th);
     if (p.wep && p.wep.userData.up) p.wep.rotation.x = (PI - 0.45) * th;
   },
-  0: (p, ph) => { const sw = ph < 0.6 ? ss(ph, 0.6) : 1 - ss(ph - 0.6, 0.4); setRot(p, 0.15 - 0.9 * sw, 0.25 - 2.6 * sw, 0.06, -0.06, sw * 0.3, sw * -0.12); }   // wind up, strike down
+  0: (p, ph) => { const sw = ph < 0.6 ? ss(ph, 0.6) : 1 - ss(ph - 0.6, 0.4), a = 0.25 - 2.6 * sw, two = p.wep && p.wep.userData.two;   // wind up, strike down; both arms on a two-hander
+    setRot(p, two ? a : 0.15 - 0.9 * sw, a, two ? -TWO_Z : 0.06, two ? TWO_Z : -0.06, sw * 0.3, sw * -0.12); }
 };
 function animate(E, p, dt) {
   const moving = (E.path && E.path.length > 0) || E.moved > 0 || (E.span > 1 && (E.px !== E.tx || E.pz !== E.tz));
@@ -5407,7 +5411,8 @@ function animate(E, p, dt) {
   E.face += wrapA(E.faceT - E.face) * Math.min(1, dt * 14);
   if (E.turn) E.turn.rotation.y = E.face;
   const rig = E.rig, bt = E.boat, oL = E.oarL, oR = E.oarR;
-  if (p.wep) p.wep.rotation.x = 0;
+  const u = p.wep && p.wep.userData;
+  if (u) p.wep.rotation.set(u.tilt || 0, 0, u.roll || 0);
   if (E.afloat) {
     if (bt) { bt.visible = true; bt.position.y = Math.sin(E.bobPhase * 1.9) * 0.055; bt.rotation.z = Math.sin(E.bobPhase * 1.3) * 0.045; bt.rotation.x = Math.sin(E.bobPhase * 2.3) * 0.02; }
     p.legL.visible = p.legR.visible = false;
@@ -5427,10 +5432,10 @@ function animate(E, p, dt) {
     E.swingPhase += dt * 1000 / (E.actSpan * TICK);
     if (E.swingPhase >= 1) E.swingPhase -= 1;
     (POSES[E.pose] || POSES[0])(p, E.swingPhase);
-    if (p.wep && E.pose === 2) p.wep.rotation.x = -p.armR.rotation.x;   // the staff points at the sky whatever the shoulder does
+    if (u && E.pose === 2) p.wep.rotation.x = (u.tilt || 0) - p.armR.rotation.x;   // the staff points at the sky whatever the shoulder does
   } else {
     E.swingPhase = 0;
-    setRot(p, s * 0.85, -s * 0.85, 0.06, -0.06, 0, 0);
+    if (u && u.two) setRot(p, TWO_A, TWO_A, -TWO_Z, TWO_Z, 0, 0); else setRot(p, s * 0.85, -s * 0.85, 0.06, -0.06, 0, 0);
   }
   if (rig) rig.position.y = moving ? Math.abs(Math.sin(E.walkPhase)) * 0.045 : 0;
 }
