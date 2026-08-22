@@ -1179,12 +1179,37 @@ function heightAt(x, z) { return finish(x, z, macroHeight(x, z)); }
 
 /* Place names, so the log can tell you where you are. Two syllables out of
    the seed — 4 bytes of world, and everywhere in it gets a name for free. */
+/* Two syllable tables made 256 names, and a map with a hundred towns on it
+   had three Barholds. A middle syllable on half of them and a form that
+   follows the settlement's rank — Little X, Port X, X Castle, Royal X — lift
+   that to the tens of thousands, so "meet me at Barhold" means one place.
+   Port only where there is water to be a port on. */
 const SYL_A = ['lum', 'var', 'fal', 'ard', 'cath', 'rel', 'dra', 'sea', 'bar', 'ed', 'yan', 'kel', 'mor', 'hem', 'gunn', 'tir'];
 const SYL_B = ['bridge', 'rock', 'ador', 'ougne', 'erby', 'wall', 'ynor', 'gate', 'ville', 'mouth', 'field', 'hold', 'stead', 'ford', 'crag', 'haven'];
+const SYL_C = ['a', 'en', 'ar', 'or', 'in', 'le', 'ver', 'bur', 'der', 'is', 'ol', 'un', 'ath', 'ey', 'am', 'el'];
+const NAME_FORMS = [
+  ['X', 'X', 'Little X', 'X End', 'X Green', 'Nether X', 'X Hollow', 'X Cot'],        // hamlet
+  ['X', 'X', 'X', 'Upper X', 'Lower X', 'X Cross', 'X Wick', 'Old X'],               // village
+  ['X', 'X', 'Port X', 'X Market', 'East X', 'West X', 'X Bridge', 'New X'],          // town
+  ['X', 'X', 'X Castle', 'Great X', 'North X', 'South X', 'X Keep', 'Port X'],        // city
+  ['X', 'Royal X', 'X City', 'Greater X', 'Imperial X', 'X Crown', 'High X', 'Port X'] // metropolis
+];
 function villageName(v) {
   if (v.name) return v.name;
   const h = hash2(v.x, v.z, S + 61);
-  v.name = SYL_A[h % 16].replace(/^./, c => c.toUpperCase()) + SYL_B[(h >>> 8) % 16];
+  let base = SYL_A[h % 16] + (((h >>> 16) & 3) ? SYL_C[(h >>> 18) % 16] : '') + SYL_B[(h >>> 8) % 16];
+  base = base.replace(/^./, c => c.toUpperCase());
+  let form = NAME_FORMS[v.rank][(h >>> 24) & 7];
+  // a port needs a shore within reach of the walls
+  if (form === 'Port X') {
+    let wet = 0;
+    for (let i = 0; i < 8 && !wet; i++) {
+      const a = i / 8 * TAU, rr = v.r * 1.3;
+      if (macroHeight(v.x + Math.cos(a) * rr, v.z + Math.sin(a) * rr) < SEA) wet = 1;
+    }
+    if (!wet) form = 'X';
+  }
+  v.name = form.replace('X', base);
   return v.name;
 }
 
@@ -5678,6 +5703,10 @@ function spawnWild() {
       // occupancy rises with the ground's power: the deep wilds are crowded
       if ((h % 100) > 58 + Math.min(30, Math.max(0, pc) * 8)) continue;
       const packed = 1 + (h >>> 7) % 4;
+      /* One species to a cell, rolled once from the cell's own hash: the
+         pack that lives here is a goblin field or a wolf ridge, a place with
+         a name, rather than a random assortment sharing a hillside. */
+      const species = pickMonster(gx * WILD_CELL + WILD_CELL / 2, gz * WILD_CELL + WILD_CELL / 2, h, pc);
       for (let i = 0; i < packed && npcs.length < CAP; i++) {
         const key = 'w' + gx + '_' + gz + '_' + i;
         if (npcDead.has(key) || npcs.some(q => q.key === key)) continue;
@@ -5689,7 +5718,7 @@ function spawnWild() {
         if (isWater(y) || y > 70 || blocked.has(tk(x, z)) || floorMap.has(tk(x, z))) continue;
         const nv = nearVillage(x, z);
         if (nv && nv.d < nv.v.r * 1.1) continue;        // towns keep their own guards
-        spawnNpc(pickMonster(x, z, hh, pc), x, z, key, pc);
+        spawnNpc(species, x, z, key, pc);
       }
     }
 }
@@ -8338,7 +8367,8 @@ function gameTick() {
   updateHeldTool();
   for (let i = npcs.length - 1; i >= 0; i--) npcTick(npcs[i]);
   respawnTick();
-  if (!P.moved && P.energy < 100) { P.energy = Math.min(100, P.energy + 0.9); dirty.orb = 1; }
+  // standing still recovers breath; so does walking, as long as run is off
+  if ((!P.moved || !P.run) && P.energy < 100) { P.energy = Math.min(100, P.energy + 0.9); dirty.orb = 1; }
   if ((tickN & 15) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }
   // prayers burn points while they are lit, and go out when the well runs dry
   if (P.prayers) {
