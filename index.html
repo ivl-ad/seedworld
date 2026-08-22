@@ -3092,7 +3092,7 @@ function groundY(x, z) {
 const isWater = h => h < SEA;
 const STUCK_CLIMB = 8.5;                                  // stuck mode clears the 6.5-unit ledges; masonry stays shut
 function canStep(fx, fz, tx, tz) {
-  if (blocked.has(tk(tx, tz))) return false;
+    if (blocked.has(tk(tx, tz)) && !blocked.has(tk(fx, fz))) return false;   // already inside something: walk out through it
   const a = walkY(fx, fz), b = walkY(tx, tz), aw = isWater(a), bw = isWater(b);
   if (aw !== bw) return Math.abs(a - b) < 8;
   if (bw) return true;
@@ -6558,9 +6558,10 @@ Object.assign(GLYPH, {
     fr(g, d, 18.5, 8.5, 2, 10.5); g.strokeStyle = K; g.strokeRect(18.5, 8.5, 2, 10.5); rrect(g, 20.5, 9.5, 9.5, 8, 2, WOODC, K); circ(g, 25.5, 13.5, 1, d);
   },
   mould(g, c, d) { rrect(g, 4, 7, 24, 18, 2, d, K); hoop(g, 16, 16.5, 5.5, 5.5, 0, 3, c); fr(g, c, 15, 7.5, 2, 4); },
-  vial(g, c, d) {
-    circ(g, 16, 21, 8.5, c, null, 0, PI);
-    g.beginPath(); g.moveTo(13, 5); g.lineTo(13, 12.5); g.arc(16, 21, 9, 4.3726, -1.231, true); g.lineTo(19, 5); g.closePath(); paint(g, 'rgba(255,255,255,.2)', K);
+  vial(g, c, d, f) {                                      // the glass clips the liquid, poured to a fraction f of its height (full unless told otherwise)
+    const glass = () => { g.beginPath(); g.moveTo(13, 5); g.lineTo(13, 12.5); g.arc(16, 21, 9, 4.3726, -1.231, true); g.lineTo(19, 5); g.closePath(); };
+    g.save(); glass(); g.clip(); fr(g, c, 4, 30 - (f || 1) * 24, 24, 30); g.restore();
+    glass(); paint(g, 'rgba(255,255,255,.2)', K);
     rrect(g, 12, 2, 8, 5, 1, d, K); ln(g, 'rgba(255,255,255,.5)', 1.2, [10.5, 18, 10.5, 24]);
   },
   plank(g, c, d) {
@@ -6579,6 +6580,7 @@ Object.assign(GLYPH, {
     qcurve(g, p, c, K); for (const [x, y, a] of [[10, 13, 0.6], [21, 11, -0.5], [17, 19, 0.2], [9, 21, -0.9], [24, 21, 0.9]]) ell(g, x, y, 2.8, 1.6, a, d);
   }
 });
+for (let q = 1; q <= 4; q++) GLYPH['vial' + q] = (g, c, d) => GLYPH.vial(g, c, d, q / 4);   // a dose a glyph, so the icon cache tells them apart
 
 /* RUNECRAFT: a ruin per 192-tile lattice cell (half of them; deeper runes on dangerous ground) holds one rune altar; wizard's towers keep three
    essence rocks; the matching talisman or tiara opens the stones and every essence carried is bound at once */
@@ -6886,7 +6888,7 @@ const POTS = [
     defItem({ id: unf, name: hn + ' potion (unf)', g: 'vial', c: '#7aa86a', c2: CORK, val: ITEMS[herb].val + 3 });
     recipe(unf, 'herblore', lv, 0, [[herb, 1], ['vial_of_water', 1]], { tk: 2, msg: 'You put the ' + hn.toLowerCase() + ' leaf into the vial of water.' });
   }
-  for (let d = 4; d >= 1; d--) defItem({ id: k + '_' + d, name: n + '(' + d + ')', g: 'vial', c, c2: CORK, val: (20 + lv * 4) * d, dose: d, pot: p, opt: ['Drink', drink] });
+  for (let d = 4; d >= 1; d--) defItem({ id: k + '_' + d, name: n + '(' + d + ')', g: 'vial' + d, c, c2: CORK, val: (20 + lv * 4) * d, dose: d, pot: p, opt: ['Drink', drink] });
   recipe(k + '_4', 'herblore', lv, xp, [[unf, 1], [sec, 1]], { tk: 2, msg: 'You mix the ' + ITEMS[sec].name.toLowerCase() + ' into your potion.' });
   return p;
 });
