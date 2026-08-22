@@ -62,7 +62,7 @@
   .ledger .in,.kv b.in{color:var(--amber)}
 
   #mm{position:fixed;top:10px;right:10px;z-index:5;width:168px}
-  #minimap{display:block;width:168px;height:168px;image-rendering:pixelated;border:2px solid var(--ink);border-radius:50%;cursor:crosshair;
+  #minimap{display:block;width:168px;height:168px;image-rendering:pixelated;border:2px solid var(--ink);border-radius:50%;cursor:crosshair;touch-action:none;
     box-shadow:0 0 0 1px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.45)}
   #compass,#wmBtn{position:absolute;right:-5px;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
     background:linear-gradient(180deg,#4b4133,#2c251c);border:2px solid var(--ink);box-shadow:inset 0 0 0 1px var(--bevel)}
@@ -148,6 +148,7 @@
   .stq{display:flex;gap:12px;align-items:flex-start}
   .stqCol{flex:1;min-width:0}
   .stRow{display:flex;justify-content:space-between;font-size:10px;padding:2px 0;border-bottom:1px solid rgba(107,83,52,.25)}
+  .stRow.no{opacity:.42}.stRow.g b{font-weight:400;text-align:right;margin-left:10px}
   .stRow i,.kv i{font-style:normal;color:var(--dim)}
   .stRow b{color:var(--amber)}
   .stWorn{display:flex;align-items:center;gap:6px;font-size:10px;padding:2px 0}
@@ -1008,8 +1009,10 @@ const BARS = [
   return { id, n: T.n + ' bar', lv, xp, need, t };
 });
 /* bars per piece, the level offset from the metal's smelting level, pieces per go */
-const SMITH = [['dagger', 1, 0], ['hatchet', 1, 1], ['med_helm', 1, 3], ['sword', 1, 4], ['scimitar', 2, 5], ['pickaxe', 2, 6],
-  ['kiteshield', 3, 12], ['platelegs', 3, 16], ['platebody', 5, 18], ['arrowtips', 1, 4, 15], ['bolts_u', 1, 2, 10]].map(([p, bars, off, n]) => ({ p, bars, off, n: n || 1 }));
+const SMITH = [['dagger', 1, 0], ['hatchet', 1, 1], ['mace', 1, 2], ['med_helm', 1, 3], ['sword', 1, 4], ['nails', 1, 4, 15], ['scimitar', 2, 5], ['spear', 1, 5], ['longsword', 2, 6],
+  ['pickaxe', 2, 6], ['full_helm', 2, 7], ['sq_shield', 2, 8], ['warhammer', 3, 9], ['battleaxe', 3, 10], ['chainbody', 3, 11], ['kiteshield', 3, 12], ['claws', 2, 13], ['2h_sword', 3, 14],
+  ['plateskirt', 3, 16], ['platelegs', 3, 16], ['platebody', 5, 18], ['arrowtips', 1, 4, 15], ['bolts_u', 1, 2, 10]].map(([p, bars, off, n]) => ({ p, bars, off, n: n || 1 }));
+for (const b of BARS) if (TIER[b.t]) defItem({ id: b.t + '_nails', name: TIER[b.t].n + ' nails', g: 'needle', c: TIER[b.t].c, c2: TIER[b.t].c2, stack: 1, val: 1 + TIER[b.t].i * 2 });
 /* fish: deep 0 = net/rod, 1 = harpoon */
 const FISH = [
   ['shrimps', 'Shrimps', 1, 10, 30, 1, 0, '#c98a6a'], ['trout', 'Trout', 20, 50, 70, 15, 0, '#9aa6b0'], ['salmon', 'Salmon', 30, 70, 90, 25, 0, '#d1795f'],
@@ -1020,12 +1023,20 @@ const FISH = [
   defItem({ id: 'burnt_' + k, name: 'Burnt ' + n.toLowerCase(), g: 'cfish', c: '#2a2320', c2: '#151210', stack: 1, val: 0 });
   return { k, n, lv, xp, cook, cookLv, deep, c, i, raw: 'raw_' + k, done: k };
 });
+/* meat: what cows and chickens leave behind; COOK is everything a fire or range takes */
+const COOK = FISH.concat([['meat', 'beef', '#b83a3a'], ['chicken', 'chicken', '#e8c8a8']].map(([k, src, c]) => {
+  defItem({ id: 'raw_' + src, name: 'Raw ' + src, g: 'meat', c, c2: '#6b2b2b', stack: 1, val: 3, raw: k });
+  defItem({ id: 'cooked_' + k, name: 'Cooked ' + k, g: 'meat', c: '#8a5a3a', c2: '#4a2a1a', stack: 1, val: 6, heal: 3 });
+  defItem({ id: 'burnt_' + k, name: 'Burnt ' + k, g: 'meat', c: '#2a2320', c2: '#151210', stack: 1, val: 0 });
+  return { k, n: cap(k), raw: 'raw_' + src, done: 'cooked_' + k, cookLv: 1, cook: 30 };
+}));
 
 /* odd pieces: gilded tools are rune under gold leaf */
 defWear({ id: 'gilded_hatchet', name: 'Gilded hatchet', g: 'axe', c: '#e8c34a', c2: '#9a7414', slot: 'weapon', tier: 6, tname: 'Gilded', spd: 5, atk: 28, str: 35, tool: 'woodcutting', req: { woodcutting: 41 }, val: 882 });
 defWear({ id: 'gilded_pickaxe', name: 'Gilded pickaxe', g: 'pick', c: '#e8c34a', c2: '#9a7414', slot: 'weapon', tier: 6, tname: 'Gilded', spd: 5, atk: 21, str: 28, tool: 'mining', req: { mining: 41 }, val: 764 });
 defWear({ id: 'leather_gloves', name: 'Leather gloves', g: 'glove', c: '#8a6438', c2: '#5b4123', slot: 'hands', def: 1, req: { defence: 1 }, val: 6 });
 defWear({ id: 'leather_boots', name: 'Leather boots', g: 'boot', c: '#8a6438', c2: '#5b4123', slot: 'feet', def: 2, req: { defence: 1 }, val: 9 });
+defWear({ id: 'anti_dragon_shield', name: 'Anti-dragon shield', g: 'shield', c: '#6b5334', c2: '#c04a2a', slot: 'shield', def: 12, val: 120 });
 defWear({ id: 'snakeskin_boots', name: 'Snakeskin boots', g: 'boot', c: '#7a8a4a', c2: '#4a5a2a', slot: 'feet', def: 3, rat: 2, req: { ranged: 30, defence: 30 }, val: 85 });
 /* Ava's devices: the arrow simply is not consumed, at the advertised rate */
 defWear({ id: 'avas_attractor', name: "Ava's attractor", g: 'cape', c: '#7a5a3a', c2: '#4a3826', slot: 'cape', rat: 2, save: 0.6, req: { ranged: 30 }, val: 780 });
@@ -1118,12 +1129,12 @@ const mkWhy = r => lvl[SK[r.sk]] < r.lv ? skName(SK[r.sk]) + ' ' + r.lv : r.tool
   : r.need.map(([id, n]) => n + ' ' + ITEMS[id].name.toLowerCase()).join(', ');
 const mkName = r => r.name || ITEMS[r.id].name + (r.n > 1 ? ' x' + r.n : '');
 for (const b of BARS) recipe(b.id, 'smithing', b.lv, b.xp, b.need, { at: 3 });
-for (const b of BARS) for (const s of SMITH) if (ITEMS[b.t + '_' + s.p]) recipe(b.t + '_' + s.p, 'smithing', b.lv + s.off, b.xp * s.bars * 2, [[b.id, s.bars]], { at: 4, tool: 'hammer', n: s.n });
+for (const b of BARS) for (const s of SMITH) if (ITEMS[b.t + '_' + s.p]) recipe(b.t + '_' + s.p, 'smithing', Math.min(MAXL, b.lv + s.off), b.xp * s.bars * 2, [[b.id, s.bars]], { at: 4, tool: 'hammer', n: s.n });
 
 /* ---- 6. SHOPS: stock is a function of (kind, settlement tier), derived every time the door opens ---- */
 const SHOP_KINDS = [
   { k: 'general', n: 'General Store', g: 'coins', c: '#c9a24a', base: ['tinderbox', 'hammer', 'small_net', 'fishing_rod', 'bronze_hatchet', 'bronze_pickaxe',
-    'logs', 'oak_logs', 'bronze_bar', 'copper_ore', 'tin_ore', 'shrimps', 'staff', 'wizard_hat', 'wizard_robe_top', 'wizard_robe_bottom', 'shortbow', 'leather_body'] },
+    'logs', 'oak_logs', 'bronze_bar', 'copper_ore', 'tin_ore', 'shrimps', 'spade', 'staff', 'wizard_hat', 'wizard_robe_top', 'wizard_robe_bottom', 'shortbow', 'leather_body'] },
   { k: 'smith', n: 'Smithing Supply', g: 'hammer', c: '#8a5a3a', tools: 1 },
   { k: 'weapon', n: 'Sword Shop', g: 'scim', c: '#9b2f24', weapons: 1 },
   { k: 'armour', n: 'Armour Shop', g: 'body', c: '#3b5ea8', armour: 1 },
@@ -1131,7 +1142,7 @@ const SHOP_KINDS = [
   { k: 'magic', n: 'Magic Guild', g: 'staff', c: '#6a5ab0', mage: 1 },
   { k: 'archery', n: 'Archery Shop', g: 'bow', c: '#5f7a3a', range: 1 },
   { k: 'craft', n: 'Crafting Shop', g: 'ring', c: '#b08a4a', base: ['needle', 'thread', 'chisel', 'knife', 'shears', 'ring_mould', 'necklace_mould', 'amulet_mould', 'tiara_mould',
-    'bow_string', 'ball_of_wool', 'flax', 'vial_of_water', 'eye_of_newt', 'snape_grass', 'white_berries', 'limpwurt_root', 'bird_snare', 'box_trap'] }
+    'bow_string', 'ball_of_wool', 'flax', 'vial_of_water', 'eye_of_newt', 'snape_grass', 'white_berries', 'limpwurt_root', 'dragon_scale_dust', 'bird_snare', 'box_trap'] }
 ];
 const SHOP = Object.create(null); SHOP_KINDS.forEach((s, i) => { s.i = i; SHOP[s.k] = s; });
 const TIER_STOCK = [2, 4, 6];                           // hamlet steel, town mithril, city rune
@@ -1150,7 +1161,7 @@ function shopStock(kind, tier) {
     const A = ['med_helm', 'full_helm', 'platebody', 'chainbody', 'platelegs', 'plateskirt', 'kiteshield', 'sq_shield'];
     metal(A.concat(['boots', 'gauntlets']), 4);
     if (tier === 2) for (const p of A) push('white_' + p, 3);
-    push('leather_gloves', 10); push('leather_boots', 10); push('amulet_of_magic', 3);
+    push('leather_gloves', 10); push('leather_boots', 10); push('amulet_of_magic', 3); push('anti_dragon_shield', 4);
     if (tier >= 1) { push('amulet_of_defence', 3); push('amulet_of_strength', 3); }
     if (tier === 2) push('amulet_of_power', 2);
   }
@@ -1270,9 +1281,13 @@ const PRAYERS = [
   ['thick_skin', 'Thick Skin', 1, 0.02, 'def', 1.05, 'shield'], ['burst_str', 'Burst of Str', 4, 0.02, 'str', 1.05, 'fist'],
   ['clarity', 'Clarity', 7, 0.02, 'atk', 1.05, 'sword'], ['rock_skin', 'Rock Skin', 10, 0.04, 'def', 1.10, 'shield'],
   ['superhuman', 'Superhuman', 13, 0.04, 'str', 1.10, 'fist'], ['improved_refl', 'Improved Refl.', 16, 0.04, 'atk', 1.10, 'sword'],
-  ['steel_skin', 'Steel Skin', 28, 0.08, 'def', 1.15, 'shield'], ['ultimate_str', 'Ultimate Str', 31, 0.08, 'str', 1.15, 'fist']
-].map(([k, n, lv, drain, f, m, g], i) => ({ k, n, lv, drain, g, [f]: m, bit: 1 << i }));
+  ['steel_skin', 'Steel Skin', 28, 0.08, 'def', 1.15, 'shield'], ['ultimate_str', 'Ultimate Str', 31, 0.08, 'str', 1.15, 'fist'],
+  // appended, never inserted: the bit is the row's index in the save. prot names the monster style it turns aside; heal doubles regeneration
+  ['rapid_heal', 'Rapid Heal', 22, 0.01, 'heal', 1, 'heart'], ['prot_magic', 'Protect Magic', 37, 0.08, 'prot', 'g', 'rune'], ['prot_missiles', 'Protect Missiles', 40, 0.08, 'prot', 'r', 'arrow'],
+  ['prot_melee', 'Protect Melee', 43, 0.08, 'prot', 'm', 'sword'], ['eagle_eye', 'Eagle Eye', 44, 0.08, 'rng', 1.15, 'bow'], ['mystic_might', 'Mystic Might', 45, 0.08, 'mag', 1.15, 'staff']
+].map(([k, n, lv, drain, f, m, g], i) => ({ k, n, lv, drain, g, f, [f]: m, bit: 1 << i }));
 const prayerMul = f => { let m = 1; for (const p of PRAYERS) if ((P.prayers & p.bit) && p[f]) m *= p[f]; return m; };
+const prayHas = (f, v) => PRAYERS.some(p => (P.prayers & p.bit) && (v === undefined ? p[f] : p[f] === v));
 
 /* registration points for the skill sections at the foot of the file: extra task kinds, kill/tick/pool/structure hooks, item-on-object handlers */
 const TASKS = Object.create(null), USE_ON = Object.create(null), onKill = [], tickHooks = [], poolHooks = [], structHooks = [];
@@ -1341,6 +1356,10 @@ const GLYPH = {
     ln(g, 'rgba(0,0,0,.35)', 1, [14, 11, 18, 16, 14, 21]);
   },
   cfish(g, c, d) { GLYPH.fish(g, c); ln(g, d, 1.6, [7, 13, 22, 19], [8, 20, 21, 12]); },
+  meat(g, c, d) { ell(g, 17, 17, 10.5, 7.5, -0.5, c, K); ell(g, 15, 15, 4.5, 3, -0.5, d); circ(g, 6.5, 25.5, 3, '#e8e0c8', K); },
+  scroll(g, c, d) { fr(g, c, 8, 4, 16, 24); g.strokeStyle = K; g.strokeRect(8, 4, 16, 24); for (const y of [10, 14, 18, 22]) ln(g, d, 1, [11, y, 21, y]); ell(g, 16, 4, 8, 2.4, 0, d, K); ell(g, 16, 28, 8, 2.4, 0, d, K); },
+  casket(g, c, d) { rrect(g, 4, 13, 24, 14, 2, c, K); rrect(g, 4, 6, 24, 9, 3, d, K); fr(g, '#e0b436', 14, 13, 4, 5); g.strokeStyle = K; g.strokeRect(14, 13, 4, 5); },
+  spade(g, c, d) { fr(g, WOODC, 14.6, 4, 2.8, 15); fr(g, WOODC, 12, 2, 8, 3); poly(g, [9, 18, 23, 18, 23, 25, 16, 30, 9, 25], c, K); ln(g, d, 1, [16, 19, 16, 27]); },
   bones(g, c, d) {
     for (const a of [-0.5, 0.5]) {
       g.save(); g.translate(16, 16); g.rotate(a);
@@ -1988,9 +2007,9 @@ const SKEL = (w, h) => b => skeletonGeo({ w, h, body: b });
 const GH = (w, h, head, hat) => b => ghostGeo({ w, h, body: b, head, hat });
 const NPC_TYPES = [
   // livestock and vermin
-  { k: 'chicken', n: 'Chicken', lv: 1, hp: 2, atk: 1, str: 1, def: 0, db: 0, abon: 0, spd: 7, sz: 0.7, flee: 1, body: [0.92, 0.9, 0.86], drops: [['feather', 990, 3, 12]], build: Q(0.34, 0.5, 0.5, { head: [0.9, 0.86, 0.8], leg: [0.85, 0.62, 0.2], tail: [0.95, 0.93, 0.9] }) },
+  { k: 'chicken', n: 'Chicken', lv: 1, hp: 2, atk: 1, str: 1, def: 0, db: 0, abon: 0, spd: 7, sz: 0.7, flee: 1, body: [0.92, 0.9, 0.86], meat: 'raw_chicken', drops: [['feather', 990, 3, 12]], build: Q(0.34, 0.5, 0.5, { head: [0.9, 0.86, 0.8], leg: [0.85, 0.62, 0.2], tail: [0.95, 0.93, 0.9] }) },
   { k: 'rat', n: 'Giant rat', lv: 3, hp: 3, atk: 1, str: 1, def: 1, db: 0, abon: 1, spd: 6, sz: 0.8, body: [0.42, 0.33, 0.25], build: Q(0.62, 0.5, 1.0, { legs: 0, head: [0.5, 0.4, 0.3], tail: [0.6, 0.45, 0.4] }) },
-  { k: 'cow', n: 'Cow', lv: 2, hp: 5, atk: 1, str: 1, def: 1, db: 0, abon: 1, spd: 7, sz: 1.1, flee: 1, body: [0.88, 0.86, 0.82], drops: [['cowhide', 990]], build: Q(0.9, 1.15, 1.6, { head: [0.3, 0.26, 0.24], leg: [0.3, 0.26, 0.24], tail: [0.3, 0.26, 0.24], horns: 1, snout: 1 }) },
+  { k: 'cow', n: 'Cow', lv: 2, hp: 5, atk: 1, str: 1, def: 1, db: 0, abon: 1, spd: 7, sz: 1.1, flee: 1, body: [0.88, 0.86, 0.82], meat: 'raw_beef', drops: [['cowhide', 990]], build: Q(0.9, 1.15, 1.6, { head: [0.3, 0.26, 0.24], leg: [0.3, 0.26, 0.24], tail: [0.3, 0.26, 0.24], horns: 1, snout: 1 }) },
   { k: 'spider', n: 'Giant spider', lv: 2, hp: 4, atk: 1, str: 1, def: 1, db: 0, abon: 1, spd: 6, sz: 0.9, body: [0.24, 0.18, 0.2], drops: [['red_spiders_eggs', 600]], build: SP(0.8, undefined, [0.36, 0.14, 0.14], [0.16, 0.12, 0.13]) },
   { k: 'goblin', n: 'Goblin', lv: 5, hp: 5, atk: 1, str: 1, def: 1, db: 6, abon: 2, max: 1, spd: 6, sz: 0.9, body: [0.36, 0.5, 0.26], build: H(0.6, 1.25, { skin: [0.45, 0.62, 0.3], ears: 1 }) },
   { k: 'imp', n: 'Imp', lv: 7, hp: 7, atk: 2, str: 2, def: 2, db: 10, abon: 2, spd: 4, mspd: 1.2, sz: 0.7, body: [0.62, 0.28, 0.2], build: H(0.44, 0.9, { skin: [0.72, 0.34, 0.24], horns: 1, ears: 1 }) },
@@ -2011,13 +2030,13 @@ const NPC_TYPES = [
   { k: 'ogre', n: 'Ogre', lv: 53, agg: 1, hp: 108, atk: 34, str: 40, def: 30, db: 58, abon: 19, max: 12, spd: 6, mspd: 0.6, sz: 2.0, big: 1, body: [0.55, 0.5, 0.3], build: H(2.0, 3.8, { skin: [0.66, 0.6, 0.36], belt: [0.3, 0.22, 0.14] }) },
   { k: 'icegiant', n: 'Ice giant', lv: 53, agg: 1, hp: 110, atk: 34, str: 38, def: 34, db: 66, abon: 19, max: 14, spd: 6, mspd: 0.6, sz: 2.2, big: 1, body: [0.62, 0.76, 0.86], build: H(2.2, 4.6, { skin: [0.72, 0.85, 0.92], belt: [0.4, 0.55, 0.68] }) },
   { k: 'troll', n: 'Mountain troll', lv: 69, agg: 1, at: 'mr', rng: 6, arrow: 0x8a8479, hp: 132, atk: 44, str: 50, def: 40, db: 72, abon: 24, spd: 6, mspd: 0.6, sz: 2.2, big: 1, body: [0.44, 0.42, 0.4], build: H(2.2, 4.2, { skin: [0.52, 0.5, 0.46], horns: 1, belt: [0.3, 0.28, 0.26] }) },
-  { k: 'greendragon', n: 'Green dragon', lv: 79, agg: 1, at: 'mg', rng: 6, bolt: 0x6fd04a, hp: 150, atk: 52, str: 56, def: 48, db: 90, abon: 28, max: 20, spd: 5, mspd: 0.7, sz: 2.6, big: 1, body: [0.22, 0.38, 0.2],
+  { k: 'greendragon', n: 'Green dragon', lv: 79, agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 0x6fd04a, hp: 150, atk: 52, str: 56, def: 48, db: 90, abon: 28, max: 20, spd: 5, mspd: 0.7, sz: 2.6, big: 1, body: [0.22, 0.38, 0.2],
     drops: [['dragon_dagger', 4], ['dragon_spear', 2], ['green_dragonhide', 990]], build: DR(1.6, 2.6, [0.28, 0.45, 0.24], [0.17, 0.3, 0.16]) },
   { k: 'lesserdemon', n: 'Lesser demon', lv: 82, agg: 1, hp: 158, atk: 56, str: 58, def: 50, db: 84, abon: 29, max: 8, spd: 5, mspd: 0.9, sz: 2.3, big: 1, body: [0.55, 0.16, 0.12], build: H(2.0, 4.4, { skin: [0.66, 0.2, 0.14], horns: 1, wings: 1, wing: [0.3, 0.1, 0.1], belt: [0.2, 0.08, 0.06] }) },
   { k: 'firegiant', n: 'Fire giant', lv: 86, agg: 1, hp: 170, atk: 60, str: 64, def: 54, db: 92, abon: 30, max: 16, spd: 6, mspd: 0.6, sz: 2.4, big: 1, body: [0.72, 0.34, 0.12], build: H(2.3, 4.8, { skin: [0.82, 0.46, 0.16], belt: [0.4, 0.16, 0.06] }) },
   { k: 'greaterdemon', n: 'Greater demon', lv: 92, agg: 1, hp: 190, atk: 66, str: 70, def: 60, db: 104, abon: 32, max: 12, spd: 5, mspd: 0.9, sz: 2.6, big: 1, body: [0.35, 0.1, 0.14],
     drops: [['rune_med_helm', 2]], build: H(2.4, 5.2, { skin: [0.5, 0.14, 0.16], horns: 1, wings: 1, wing: [0.2, 0.06, 0.08], belt: [0.16, 0.05, 0.06] }) },
-  { k: 'blackdragon', n: 'Black dragon', lv: 227, agg: 1, at: 'mg', rng: 7, bolt: 0xc04adc, hp: 240, atk: 90, str: 96, def: 88, db: 150, abon: 79, max: 25, spd: 5, mspd: 0.7, sz: 3.0, big: 1, body: [0.13, 0.12, 0.15],
+  { k: 'blackdragon', n: 'Black dragon', lv: 227, agg: 1, fire: 1, at: 'mg', rng: 7, bolt: 0xc04adc, hp: 240, atk: 90, str: 96, def: 88, db: 150, abon: 79, max: 25, spd: 5, mspd: 0.7, sz: 3.0, big: 1, body: [0.13, 0.12, 0.15],
     drops: [['rune_platebody', 3], ['dragon_longsword', 3], ['dragon_med_helm', 2], ['dragon_battleaxe', 2], ['black_dragonhide', 985]], build: DR(2.0, 3.2, [0.19, 0.18, 0.22], [0.09, 0.08, 0.11]) },
   // folk of the road
   { k: 'man', n: 'Man', lv: 2, hp: 4, atk: 1, str: 2, def: 1, db: 1, abon: 1, spd: 5, sz: 0.95, body: [0.5, 0.42, 0.3], human: 1, pick: { lv: 1, xp: 8, loot: [['coins', 1, 3]] }, build: H(0.72, 1.6, { skin: [0.8, 0.62, 0.46] }) },
@@ -2087,18 +2106,18 @@ const NPC_TYPES = [
   // dragonkind
   { k: 'babygreendragon', n: 'Baby green dragon', lv: 48, agg: 1, hp: 96, atk: 35, str: 36, def: 32, db: 34, abon: 17, max: 10, spd: 5, mspd: 0.9, sz: 1.3, body: [0.24, 0.4, 0.22], build: DR(0.9, 1.5, [0.3, 0.48, 0.26], [0.18, 0.32, 0.17]) },
   { k: 'babybluedragon', n: 'Baby blue dragon', lv: 48, agg: 1, hp: 96, atk: 35, str: 36, def: 32, db: 34, abon: 17, max: 10, spd: 5, mspd: 0.9, sz: 1.3, body: [0.2, 0.32, 0.52], build: DR(0.9, 1.5, [0.26, 0.4, 0.6], [0.15, 0.24, 0.4]) },
-  { k: 'bluedragon', n: 'Blue dragon', lv: 111, agg: 1, at: 'mg', rng: 6, bolt: 0x4a7fd0, hp: 203, atk: 74, str: 77, def: 68, db: 78, abon: 39, max: 21, spd: 5, mspd: 0.7, sz: 2.6, big: 1, body: [0.18, 0.3, 0.54], drops: [['blue_dragonhide', 990]], build: DR(1.6, 2.6, [0.24, 0.38, 0.62], [0.13, 0.22, 0.42]) },
-  { k: 'bronzedragon', n: 'Bronze dragon', lv: 131, agg: 1, at: 'mg', rng: 6, bolt: 0xd0904a, hp: 210, atk: 76, str: 80, def: 71, db: 92, abon: 46, max: 22, spd: 5, mspd: 0.7, sz: 2.7, big: 1, body: [0.52, 0.36, 0.18], build: DR(1.8, 2.9, [0.6, 0.43, 0.22], [0.38, 0.26, 0.13]) },
-  { k: 'reddragon', n: 'Red dragon', lv: 152, agg: 1, at: 'mg', rng: 6, bolt: 0xd04a2a, hp: 216, atk: 79, str: 84, def: 75, db: 106, abon: 53, max: 23, spd: 5, mspd: 0.7, sz: 2.7, big: 1, body: [0.52, 0.14, 0.12], drops: [['red_dragonhide', 990]], build: DR(1.7, 2.8, [0.62, 0.19, 0.15], [0.38, 0.1, 0.09]) },
-  { k: 'irondragon', n: 'Iron dragon', lv: 189, agg: 1, at: 'mg', rng: 7, bolt: 0x9aa4b0, hp: 228, atk: 84, str: 90, def: 81, db: 132, abon: 66, max: 24, spd: 6, mspd: 0.6, sz: 2.9, big: 1, body: [0.34, 0.35, 0.38],
+  { k: 'bluedragon', n: 'Blue dragon', lv: 111, agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 0x4a7fd0, hp: 203, atk: 74, str: 77, def: 68, db: 78, abon: 39, max: 21, spd: 5, mspd: 0.7, sz: 2.6, big: 1, body: [0.18, 0.3, 0.54], drops: [['blue_dragonhide', 990]], build: DR(1.6, 2.6, [0.24, 0.38, 0.62], [0.13, 0.22, 0.42]) },
+  { k: 'bronzedragon', n: 'Bronze dragon', lv: 131, agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 0xd0904a, hp: 210, atk: 76, str: 80, def: 71, db: 92, abon: 46, max: 22, spd: 5, mspd: 0.7, sz: 2.7, big: 1, body: [0.52, 0.36, 0.18], build: DR(1.8, 2.9, [0.6, 0.43, 0.22], [0.38, 0.26, 0.13]) },
+  { k: 'reddragon', n: 'Red dragon', lv: 152, agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 0xd04a2a, hp: 216, atk: 79, str: 84, def: 75, db: 106, abon: 53, max: 23, spd: 5, mspd: 0.7, sz: 2.7, big: 1, body: [0.52, 0.14, 0.12], drops: [['red_dragonhide', 990]], build: DR(1.7, 2.8, [0.62, 0.19, 0.15], [0.38, 0.1, 0.09]) },
+  { k: 'irondragon', n: 'Iron dragon', lv: 189, agg: 1, fire: 1, at: 'mg', rng: 7, bolt: 0x9aa4b0, hp: 228, atk: 84, str: 90, def: 81, db: 132, abon: 66, max: 24, spd: 6, mspd: 0.6, sz: 2.9, big: 1, body: [0.34, 0.35, 0.38],
     drops: [['dragon_scimitar', 2], ['dragon_sq_shield', 2], ['dragon_hatchet', 1], ['dragon_pickaxe', 1]], build: DR(1.9, 3.0, [0.42, 0.43, 0.46], [0.26, 0.27, 0.29]) },
-  { k: 'steeldragon', n: 'Steel dragon', lv: 246, agg: 1, at: 'mg', rng: 7, bolt: 0xd8e0ea, hp: 245, atk: 92, str: 99, def: 91, db: 172, abon: 86, max: 25, spd: 6, mspd: 0.6, sz: 3.1, big: 1, body: [0.66, 0.69, 0.74],
+  { k: 'steeldragon', n: 'Steel dragon', lv: 246, agg: 1, fire: 1, at: 'mg', rng: 7, bolt: 0xd8e0ea, hp: 245, atk: 92, str: 99, def: 91, db: 172, abon: 86, max: 25, spd: 6, mspd: 0.6, sz: 3.1, big: 1, body: [0.66, 0.69, 0.74],
     drops: [['rune_kiteshield', 4], ['dragon_platelegs', 2], ['dragon_platebody', 1], ['dragon_crossbow', 2]], build: DR(2.0, 3.2, [0.74, 0.77, 0.82], [0.5, 0.53, 0.58]) },
-  { k: 'mithrildragon', n: 'Mithril dragon', lv: 304, agg: 1, at: 'mrg', rng: 7, bolt: 0x8a92e8, arrow: 0x9aa0ff, hp: 254, atk: 100, str: 104, def: 96, db: 190, abon: 100, max: 26, spd: 5, mspd: 0.6, sz: 3.2, big: 1, body: [0.36, 0.39, 0.72],
+  { k: 'mithrildragon', n: 'Mithril dragon', lv: 304, agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 0x8a92e8, arrow: 0x9aa0ff, hp: 254, atk: 100, str: 104, def: 96, db: 190, abon: 100, max: 26, spd: 5, mspd: 0.6, sz: 3.2, big: 1, body: [0.36, 0.39, 0.72],
     drops: [['dragon_full_helm', 3], ['dragon_battleaxe', 3]], build: DR(2.1, 3.3, [0.44, 0.47, 0.8], [0.28, 0.3, 0.58]) },
-  { k: 'adamantdragon', n: 'Adamant dragon', lv: 338, agg: 1, at: 'mrg', rng: 7, bolt: 0x6fb070, arrow: 0x8ad08a, hp: 295, atk: 110, str: 116, def: 104, db: 210, abon: 112, max: 27, spd: 5, mspd: 0.6, sz: 3.3, big: 1, body: [0.31, 0.49, 0.32],
+  { k: 'adamantdragon', n: 'Adamant dragon', lv: 338, agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 0x6fb070, arrow: 0x8ad08a, hp: 295, atk: 110, str: 116, def: 104, db: 210, abon: 112, max: 27, spd: 5, mspd: 0.6, sz: 3.3, big: 1, body: [0.31, 0.49, 0.32],
     drops: [['dragon_chainbody', 2], ['dragon_gauntlets', 3]], build: DR(2.2, 3.4, [0.38, 0.58, 0.4], [0.22, 0.38, 0.24]) },
-  { k: 'runedragon', n: 'Rune dragon', lv: 380, agg: 1, at: 'mrg', rng: 7, bolt: 0x3ab6c4, arrow: 0x7ae0ea, hp: 330, atk: 120, str: 126, def: 112, db: 230, abon: 125, max: 28, spd: 5, mspd: 0.6, sz: 3.4, big: 1, body: [0.23, 0.71, 0.77],
+  { k: 'runedragon', n: 'Rune dragon', lv: 380, agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 0x3ab6c4, arrow: 0x7ae0ea, hp: 330, atk: 120, str: 126, def: 112, db: 230, abon: 125, max: 28, spd: 5, mspd: 0.6, sz: 3.4, big: 1, body: [0.23, 0.71, 0.77],
     drops: [['dragon_plateskirt', 2], ['dragon_boots', 3], ['dragon_mace', 2]], build: DR(2.3, 3.5, [0.3, 0.8, 0.86], [0.16, 0.55, 0.6]) }
 ];
 
@@ -2131,7 +2150,7 @@ const BOSSES = [
 ];
 for (const [k, n, bk, lv, hp, atk, str, def, db, abon, max, at, rng, spd, mspd, scale, tint, bolt, arrow, loot, gp] of BOSSES) {
   const base = NPC_TYPES.find(t => t.k === bk);
-  NPC_TYPES.push({ k, n, boss: 1, big: 1, agg: 1, flee: 0, lv, hp, atk, str, def, db, abon, max, at, rng, spd, mspd, sz: base.sz * scale, scale,
+  NPC_TYPES.push({ k, n, boss: 1, big: 1, agg: 1, flee: 0, fire: base.fire || 0, lv, hp, atk, str, def, db, abon, max, at, rng, spd, mspd, sz: base.sz * scale, scale,
     bolt: bolt || base.bolt, arrow: arrow || base.arrow, tint: tint || null, body: base.body, drops: bossLoot(loot, gp), build: base.build });
 }
 NPC_TYPES.forEach((t, i) => {
@@ -3199,7 +3218,7 @@ const dirty = { inv: 1, eq: 1, sk: 1, orb: 1 };
 const FULL = 'Your inventory is too full.';
 let useSel = null;                                        // { i, id, name } while an item is armed
 function clearUse() { if (useSel) { useSel = null; dirty.inv = 1; hoverObj = undefined; } }
-const BANK_N = 48;
+const BANK_N = 300;
 let bank = [];                                            // [{ id, n }], everything stacks
 function bankAdd(id, n) {
   const s = bank.find(b => b.id === id);
@@ -3313,7 +3332,7 @@ const P = {
   tx: 0, tz: 0, px: 0, pz: 0, rx: 0, ry: 0, rz: 0, face: 0, faceT: 0, span: 1,
   path: [], goal: null, task: null, actT: 0, acting: 0, actSpan: 2, walkPhase: 0, bobPhase: 0, swingPhase: 0,
   run: 1, energy: 100, hp: 10, maxhp: 10, style: 0, rstyle: 1, ammoN: 0, pose: 0, spell: null, prayers: 0, pray: 10, maxpray: 10,
-  afloat: 0, moved: 0, dead: 0, stuckT: 0, stun: 0, slay: null, farm: Object.create(null), look: { skin: 0, shirt: 0, legs: 0, face: 0 }, home: { x: 0, z: 0 }, regionK: '', regionT: 0,
+  afloat: 0, moved: 0, dead: 0, stuckT: 0, stun: 0, afire: 0, clue: null, slay: null, farm: Object.create(null), look: { skin: 0, shirt: 0, legs: 0, face: 0 }, home: { x: 0, z: 0 }, regionK: '', regionT: 0,
   turn: player, rig: avatar, boat, oarL, oarR
 };
 let tickN = 0;
@@ -3376,7 +3395,7 @@ function bowRange() {                                     // a bow draws arrows 
 }
 /* the 2007 max-hit shape: floor(0.5 + (effective + 8) * (bonus + 64) / 640) */
 const maxFrom = (eff, b) => Math.max(1, Math.floor(0.5 + (eff + 8) * (b + 64) / 640));
-const rangedMax = () => maxFrom(eff('ranged') * RSTYLES[P.rstyle].str, bonus('rst'));
+const rangedMax = () => maxFrom(eff('ranged') * RSTYLES[P.rstyle].str * prayerMul('rng'), bonus('rst'));
 function spendArrow() {
   const cp = eq.cape && ITEMS[eq.cape];
   if (cp && cp.save && Math.random() < cp.save) return;  // Ava's devices snatch it back
@@ -3470,9 +3489,9 @@ function walkTo(wx, wz) {
 
 /* ---- 22. GROUND ITEMS ---- */
 const drops = [];
-function dropItem(id, n, x, z) {
+function dropItem(id, n, x, z, life) {
   if (drops.length > 48) drops.shift();
-  drops.push({ drop: 1, id, n: n || 1, x, z, y: Math.max(walkY(x, z), 0), name: ITEMS[id].name, life: 600 });
+  drops.push({ drop: 1, id, n: n || 1, x, z, y: Math.max(walkY(x, z), 0), name: ITEMS[id].name, life: life || 600 });
 }
 function takeDrop(d) {
   const i = drops.indexOf(d); if (i < 0) return;
@@ -3690,12 +3709,15 @@ function npcTick(n) {
         if (++n.styleN >= 3) {
           n.styleN = 0; n.styleIx = (n.styleIx + 1) % n.t.at.length;
           const nx = n.t.at[n.styleIx];
-          say(n.t.n + (nx === 'm' ? ' charges in to maul you!' : nx === 'r' ? ' rears back to hurl!' : ' begins to cast!'), 'bad');
+          say(n.t.n + (nx === 'm' ? ' charges in to maul you!' : nx === 'r' ? ' rears back to hurl!' : n.t.fire ? ' draws a deep breath!' : ' begins to cast!'), 'bad');
         }
       } else st = npcStyle(n, near);
       n.atkT = 1; n.atkStyle = st; n.netAct = st === 'm' ? 1 : st === 'r' ? 2 : 3;
       if (st !== 'm') npcBolt(n, st);
-      const dealt = roll(c, mx);
+      // dragonfire ignores armour: a shield or an antifire draught each count one (prayer a half); two is immunity, one leaves a max of 10
+      const fire = st === 'g' && n.t.fire, pr = fire && (eq.shield === 'anti_dragon_shield') + (P.afire > tickN) + (prayHas('prot', 'g') ? 0.5 : 0);
+      const dealt = fire ? roll(1, pr >= 2 ? 0 : pr ? 10 : Math.round(mx * 2.2)) : prayHas('prot', st) ? 0 : roll(c, mx);
+      if (fire && pr < 2) say(pr ? 'Your protection absorbs most of the dragonfire.' : 'You are horribly burnt by the dragonfire!', 'bad');
       hurtPlayer(dealt);
       if (dealt > 0 && eq.ring === 'ring_of_recoil' && !n.dead && !P.dead) {   // a ring of recoil bites back a tenth
         const rec = Math.max(1, Math.ceil(dealt * 0.1));
@@ -3724,7 +3746,7 @@ function npcTick(n) {
 const RARE_DROPS = [['coins', 22, 900], ['mithril_ore', 14, 8], ['adamantite_ore', 10, 4], ['chaos_rune', 12, 40], ['runite_ore', 6, 2], ['adamant_scimitar', 8],
   ['adamant_platebody', 6], ['mystic_hat', 5], ['mystic_robe_bottom', 4], ['mystic_robe_top', 3], ['rune_med_helm', 4], ['rune_scimitar', 3], ['rune_kiteshield', 2],
   ['rune_platebody', 1], ['rune_defender', 3], ['dragon_arrow', 4, 40], ['amulet_of_glory', 2], ['ring_of_wealth', 1], ['ring_of_life', 2], ['master_wand', 1],
-  ['gilded_hatchet', 1], ['gilded_pickaxe', 1], ['dragon_dagger', 2], ['dragon_mace', 1], ['dragon_longsword', 1]];
+  ['gilded_hatchet', 1], ['gilded_pickaxe', 1], ['dragon_dagger', 2], ['dragon_mace', 1], ['dragon_longsword', 1], ['anti_dragon_shield', 3]];
 const RARE_W = RARE_DROPS.reduce((s, d) => s + d[1], 0);
 /* roll a weighted [id, w, ...] table against `budget` (null = the table's own total) */
 function rollTable(table, budget) {
@@ -3741,7 +3763,7 @@ function killNpc(n) {
   if (n.key) netWorld([22, n.key, due]);
   removeNpc(n);
   const lv = n.t.lv, p = Math.max(0, n.pw || 0), x = n.tx, z = n.tz, drop = (id, k) => dropItem(id, k, x, z);
-  drop(n.t.big ? 'big_bones' : 'bones', 1);
+  drop(n.t.big ? 'big_bones' : 'bones', 1); if (n.t.meat) drop(n.t.meat, 1);
   if (Math.random() < 0.75) drop('coins', Math.round((4 + (Math.random() * lv * 8 | 0)) * (1 + p)));   // stacks swell with the ground's power
   let unique = 0;
   if (n.t.drops) { const d = rollTable(n.t.drops, 1000); if (d) { drop(d[0], randInt(d[2] || 1, d[3] || d[2] || 1)); unique = 1; } }   // never guaranteed: budget 1000
@@ -3791,18 +3813,17 @@ function retaliate(attacker) {
 function die(byPlayer) {
   P.dead = 1; P.task = null; P.path.length = 0;
   say('Oh dear, you are dead!', 'bad');
-  if (byPlayer) {                                           // killed by a player: the lot spills where you fell, and goes out over the wire
-    const spill = [];
-    for (const sl of EQ_SLOTS) if (eq[sl]) { spill.push([eq[sl], sl === 'ammo' ? P.ammoN : 1]); eq[sl] = null; }
-    P.ammoN = 0;
-    for (let i = 0; i < INV_N; i++) if (inv[i]) { spill.push([inv[i].id, inv[i].n]); inv[i] = null; }
-    const dx = P.tx, dz = P.tz;
-    for (const it of spill) dropItem(it[0], it[1], dx, dz);
-    dirty.inv = dirty.eq = 1;
-    dressAvatar();
-    if (spill.length) wsSend([12, dx, dz, spill.slice(0, 40)]);
-    say('You lost everything you were carrying.', 'bad');
-  }
+  // everything carried or worn, dearest first: three items stay with you, the rest lies where you fell for a quarter hour (a player's kill goes out over the wire)
+  const all = [], spill = [], dx = P.tx, dz = P.tz;
+  for (const sl of EQ_SLOTS) if (eq[sl]) { all.push({ id: eq[sl], n: sl === 'ammo' ? P.ammoN : 1 }); eq[sl] = null; }
+  for (let i = 0; i < INV_N; i++) if (inv[i]) { all.push(inv[i]); inv[i] = null; }
+  P.ammoN = 0;
+  all.sort((a, b) => ITEMS[b.id].val - ITEMS[a.id].val);
+  let keep = 3;
+  for (const s of all) { const k = Math.min(keep, s.n); keep -= k; if (k) invAdd(s.id, k); if (s.n > k) { spill.push([s.id, s.n - k]); dropItem(s.id, s.n - k, dx, dz, 1500); } }
+  dirty.inv = dirty.eq = 1; dressAvatar();
+  if (byPlayer && spill.length) wsSend([12, dx, dz, spill.slice(0, 40)]);
+  if (spill.length) say('You keep your ' + (3 - keep) + ' most valuable items; the rest lies where you fell for 15 minutes.', 'bad');
   markDirty(1);
   setTimeout(() => {                                        // any death sends you to the nearest settlement
     const v = nearestVillageTo(P.tx, P.tz, 12);
@@ -3811,7 +3832,7 @@ function die(byPlayer) {
     teleport(sx, sz, 200);
     P.hp = P.maxhp = lvl[SK.hitpoints]; P.dead = 0; P.energy = 100; pvpOn = 0; dirty.orb = 1;
     const where = v ? villageName(v) : 'where you started';
-    say('You wake up in ' + where + (byPlayer ? ' with nothing.' : '.'));
+    say('You wake up in ' + where + '.');
     markDirty(1);
     refresh(); pump(80);
   }, 1500);
@@ -3874,7 +3895,7 @@ function swing(o) {
   let dmg, xps = null;
   if (rng) {
     const st = RSTYLES[P.rstyle];
-    dmg = roll(hitChance(eff('ranged') * st.acc, bonus('rat'), dl, db), rangedMax());
+    dmg = roll(hitChance(eff('ranged') * st.acc * prayerMul('rng'), bonus('rat'), dl, db), rangedMax());
     shootArrow(P, o, dmg, ammoTint());
     wsSend([19, o.tx, o.tz, ammoTint()]);
     spendArrow();
@@ -3883,7 +3904,7 @@ function swing(o) {
     if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return -1; }
     spendRunes(sp);
     if (sp.drain) { dmg = 0; o[sp.drain + 'Dr'] = 1; castFx(o, sp, null); say('Your spell weakens the ' + o.name + '.'); gainXp('magic', sp.xp); P.spell = null; }   // a curse lands once, then the staff comes down
-    else { dmg = roll(hitChance(eff('magic'), bonus('mag'), dl, db), sp.max + Math.floor(bonus('mag') / 8)); castFx(o, sp, dmg); gainXp('magic', sp.xp + dmg * 2); }
+    else { dmg = roll(hitChance(eff('magic') * prayerMul('mag'), bonus('mag'), dl, db), sp.max + Math.floor(bonus('mag') / 8)); castFx(o, sp, dmg); gainXp('magic', sp.xp + dmg * 2); }
     wsSend([18, sp.i, o.tx, o.tz]);                       // observers cannot see a bolt they were never told about
     drawSpells();
   } else {
@@ -3975,7 +3996,7 @@ function taskTick() {
       say(G.got + ITEMS[id].name.toLowerCase() + '.');
       gainXp(G.sk, R.xp);
       if (t.k === 'mine' && R.rs && Math.random() < 1 / 256 && invFree()) { const g = rollTable(GEM_T)[0]; invAdd(g, 1); say('You find an ' + ITEMS[g].name.toLowerCase() + '!', 'lv'); }
-      if (R.rs) { deplete(o, R.rs); P.task = null; }
+      if (R.rs && (t.k !== 'chop' || !R.i || Math.random() < 0.125)) { deplete(o, R.rs); P.task = null; }   // oaks and up fall one log in eight
     }
   } else if (t.k === 'fish') {
     const pool = FISH.filter(f => f.deep === o.k && lvl[SK.fishing] >= f.lv);
@@ -3991,7 +4012,7 @@ function taskTick() {
     }
   } else if (TASKS[t.k]) TASKS[t.k](t, o);
   else if (t.k === 'cook') {
-    const raw = (t.raw && FISH.find(f => f.raw === t.raw && invCount(f.raw) > 0)) || FISH.find(f => invCount(f.raw) > 0);
+    const raw = (t.raw && COOK.find(f => f.raw === t.raw && invCount(f.raw) > 0)) || COOK.find(f => invCount(f.raw) > 0);
     if (!raw) { say('You have nothing left to cook.'); P.task = null; return; }
     if (lvl[SK.cooking] < raw.cookLv) return fail('You need Cooking level ' + raw.cookLv + ' to cook that.');
     invRemove(raw.raw, 1);
@@ -4057,11 +4078,14 @@ function paintModal(title, html, foot) {
   showTab('inv');
 }
 function openBank() { clearUse(); bankOpen = 1; say('The banker pulls out your vault book.'); drawBank(); }
-function drawBank() {
+let bankQ = '';
+function drawBank() {                                      // the search box filters the grid in place, so typing never repaints the modal
   if (!bankOpen) return;
-  const rows = bank.map((s, i) => mkRow('data-wd="' + i + '"', s.id, ITEMS[s.id].name, fmt(s.n) + ' banked', '<b class="gp" data-wall="' + i + '">ALL</b>'));
-  paintModal('Bank of Seedworld — ' + bank.length + '/' + BANK_N + ' slots', bank.length ? gridOf(rows) : '<p style="opacity:.7">Your vault is empty.</p>',
+  paintModal('Bank of Seedworld — ' + bank.length + '/' + BANK_N + ' slots', '<input id="bankQ" placeholder="search your vault…" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:5px"><div class="grid" id="bankGrid"></div>',
     'Click to withdraw one, ALL for the stack. Click your pack to store things.');
+  const q = el('bankQ'), fill = () => { const f = bankQ.toLowerCase(); el('bankGrid').innerHTML = bank.map((s, i) => ITEMS[s.id].name.toLowerCase().includes(f)
+    ? mkRow('data-wd="' + i + '"', s.id, ITEMS[s.id].name, fmt(s.n) + ' banked', '<b class="gp" data-wall="' + i + '">ALL</b>') : '').join('') || '<p style="opacity:.7">' + (bank.length ? 'Nothing matches.' : 'Your vault is empty.') + '</p>'; };
+  q.value = bankQ; q.oninput = () => { bankQ = q.value; fill(); }; fill();
 }
 function bankDeposit(id, n) {
   n = Math.min(n, invCount(id)); if (n <= 0) return;
@@ -4508,7 +4532,7 @@ on(spellGrid, 'click', e => {
 });
 const prayList = el('prayList');
 function drawPrayers() {
-  prayList.innerHTML = PRAYERS.map(p => { const ok = lvl[SK.prayer] >= p.lv;
+  prayList.innerHTML = PRAYERS.slice().sort((a, b) => a.lv - b.lv).map(p => { const ok = lvl[SK.prayer] >= p.lv;
     return liRow('data-pr="' + p.k + '"', P.prayers & p.bit, !ok, drawIcon(p.g, '#c9b45a', '#efe4c4'), p.n, '', '<u>' + (ok ? 'level ' + p.lv : 'needs level ' + p.lv) + '</u>'); }).join('');
   el('prPts').textContent = Math.ceil(P.pray) + '/' + P.maxpray;
 }
@@ -4518,6 +4542,7 @@ on(prayList, 'click', e => {
   if (lvl[SK.prayer] < p.lv) return say('You need Prayer level ' + p.lv + ' for that.', 'bad');
   if (P.pray <= 0 && !(P.prayers & p.bit)) return say('You have run out of prayer points.', 'bad');
   P.prayers ^= p.bit;
+  if (P.prayers & p.bit) for (const q of PRAYERS) if (q !== p && q.f === p.f) P.prayers &= ~q.bit;   // one of a kind at a time
   markDirty(); drawPrayers();
 });
 const OPT_ROWS = [
@@ -4798,7 +4823,7 @@ function itemOptions(i) {
   opts.push(itm('Drop', nm, () => { dropItem(s.id, s.n, P.tx, P.tz); inv[i] = null; dirty.inv = 1; }), examineOpt(it));
   return opts;
 }
-const RING_NOTES = { ring_of_recoil: ' Bites back a tenth of every blow.', ring_of_life: ' Carries you to safety at a tenth of your health, once.', ring_of_wealth: ' Fortune favours the wearer.' };
+const RING_NOTES = { anti_dragon_shield: ' Turns dragonfire aside.', ring_of_recoil: ' Bites back a tenth of every blow.', ring_of_life: ' Carries you to safety at a tenth of your health, once.', ring_of_wealth: ' Fortune favours the wearer.' };
 function examine(it) {
   if (it.equip) {
     const mat = it.tname || (it.tier !== undefined && TIERS[it.tier] ? TIERS[it.tier].n : ''), kind = it.slot === 'weapon' ? 'weapon' : it.slot === 'ammo' ? 'ammunition' : 'piece of equipment';
@@ -4830,11 +4855,12 @@ on(window, 'pointerdown', e => {
 on(window, 'click', () => { ctxAte = 0; dragAte = 0; });
 
 /* ---- 29. MINIMAP: 120 px over 360 tiles, painted a few rows a frame and cached; only the markers repaint as you move ---- */
-const mini = el('minimap'), mctx = mini.getContext('2d'), MW = mini.width, MSPAN = 360, MSTEP = MSPAN / MW;
+const mini = el('minimap'), mctx = mini.getContext('2d'), MW = mini.width;
+let MSPAN = 360, MSTEP = MSPAN / MW;                       // tiles across, tiles per pixel: the wheel and a pinch change them
 const mimg = mctx.createImageData(MW, MW), MROW = new Float32Array(MW + 2);
 const mapCan = document.createElement('canvas'); mapCan.width = mapCan.height = MW;
 const mapCtx = mapCan.getContext('2d');
-let mapOX = 1e9, mapOZ = 0, mapRow = MW, mapImg = null;
+let mapOX = 1e9, mapOZ = 0, mapRow = MW, mapImg = null, imgX = 0, imgZ = 0, imgStep = MSTEP;   // img*: the centre and scale of the cached picture
 /* paint one map pixel: water by depth, land by the terrain palette shaded by the eastward gradient */
 function mapPixel(data, p, x, z, h, grad, tpp, k, lo) {
   let R, G, B;
@@ -4844,7 +4870,7 @@ function mapPixel(data, p, x, z, h, grad, tpp, k, lo) {
 }
 function mapTick() {
   if (mapRow >= MW) {
-    if (Math.abs(P.rx - mapOX) + Math.abs(P.rz - mapOZ) < 22) return;
+    if (Math.abs(P.rx - mapOX) + Math.abs(P.rz - mapOZ) < MSTEP * 7) return;
     mapOX = P.rx; mapOZ = P.rz; mapRow = 0;
   }
   const ox = mapOX - MSPAN / 2, oz = mapOZ - MSPAN / 2;
@@ -4853,7 +4879,7 @@ function mapTick() {
     for (let i = 0; i <= MW; i++) MROW[i] = macroHeight(ox + i * MSTEP, z);
     for (let i = 0; i < MW; i++) mapPixel(mimg.data, (j * MW + i) * 4, ox + i * MSTEP, z, MROW[i], MROW[i + 1] - MROW[i], MSTEP, 0.085, 0.4);
   }
-  if (mapRow >= MW) { mapCtx.putImageData(mimg, 0, 0); mapImg = 1; }
+  if (mapRow >= MW) { mapCtx.putImageData(mimg, 0, 0); mapImg = 1; imgX = mapOX; imgZ = mapOZ; imgStep = MSTEP; }
 }
 /* round, player-centred, turning with the camera: rotating by yaw + PI puts the view direction at the top */
 function mapMarks() {
@@ -4863,7 +4889,8 @@ function mapMarks() {
   mctx.save();
   mctx.beginPath(); mctx.arc(C, C, C - 1, 0, TAU); mctx.clip();
   mctx.translate(C, C); mctx.rotate(yaw + PI);
-  mctx.drawImage(mapCan, -C + (mapOX - P.rx) * k, -C + (mapOZ - P.rz) * k);
+  const sc = imgStep / MSTEP;                               // an older picture is shown rescaled until the repaint lands
+  mctx.drawImage(mapCan, -C * sc + (imgX - P.rx) * k, -C * sc + (imgZ - P.rz) * k, MW * sc, MW * sc);
   const dot = (x, z, col, s) => { const px = (x - P.rx) * k, pz = (z - P.rz) * k; if (px * px + pz * pz > C * C) return; mctx.fillStyle = col; mctx.fillRect(px - s / 2, pz - s / 2, s, s); };
   for (const o of nearObjs) {                               // things you walk to, not things you walk past
     if (depleted.has(o.key)) continue;
@@ -4871,7 +4898,7 @@ function mapMarks() {
     else if (o.t === 5) dot(o.x, o.z, '#ffd34a', 4);
     else if (o.t === 7) dot(o.x, o.z, '#ffffff', 4);
     else if (o.t === 10) dot(o.x, o.z, '#ffb02a', 4);
-    else if (o.t > 2) dot(o.x, o.z, '#ff7fd8', 3);
+    else if (o.t > 2) dot(o.x, o.z, MK_ART[o.t] ? MK_ART[o.t][1] : '#ff7fd8', 3);
     else if (Math.abs(o.x - P.rx) < 34 && Math.abs(o.z - P.rz) < 34) dot(o.x, o.z, o.t ? '#c9a24a' : '#2f6b2a', 2);
   }
   for (const d of drops) dot(d.x, d.z, '#e04a4a', 2);
@@ -5069,13 +5096,28 @@ on(chatIn, 'keydown', e => {                               // Enter focuses the 
   if (ws && ws.readyState === 1) wsSend([4, t]); else say('(offline — nobody heard that)', 'bad');
 });
 on(window, 'keydown', e => { if (e.key === 'Enter' && document.activeElement !== chatIn && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); chatIn.focus(); } }, true);
-on(mini, 'click', e => {                                   // a click on the minimap walks you there
+on(mini, 'click', e => {                                   // a click on the minimap walks you there; the tail of a pinch does not
   const r = mini.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * MW - MW / 2, pz = (e.clientY - r.top) / r.height * MW - MW / 2;
-  if (px * px + pz * pz > (MW / 2) * (MW / 2)) return;
+  if (mPinched || px * px + pz * pz > (MW / 2) * (MW / 2)) return;
   const a = -(yaw + PI), cs = Math.cos(a), sn = Math.sin(a);
   walkTo(P.rx + (px * cs - pz * sn) * MSTEP, P.rz + (px * sn + pz * cs) * MSTEP);
 });
 el('wmBtn').onclick = () => { if (wmOpen) closeWorldMap(); else openWorldMap(); };
+/* the wheel or two fingers zoom the minimap between 90 and 1440 tiles across; the picture repaints at the new scale */
+function miniZoom(f) { MSPAN = clamp(MSPAN * f, 90, 1440); MSTEP = MSPAN / MW; mapOX = 1e9; mapRow = MW; }
+on(mini, 'wheel', e => { e.preventDefault(); miniZoom(e.deltaY < 0 ? 0.8 : 1.25); }, { passive: false });
+const mPtr = new Map();
+let mPinch = 0, mPinched = 0;
+on(mini, 'pointerdown', e => { if (e.pointerType !== 'touch') return; mPtr.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (mPtr.size === 1) mPinched = 0; else if (mPtr.size === 2) mPinch = spanOf(mPtr); });
+on(mini, 'pointermove', e => {
+  if (!mPtr.has(e.pointerId)) return;
+  mPtr.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (mPtr.size !== 2) return;
+  const d = spanOf(mPtr);
+  if (mPinch > 0 && d > 0) { miniZoom(mPinch / d); mPinched = 1; }
+  mPinch = d;
+});
+on(mini, 'pointerup pointercancel', e => { mPtr.delete(e.pointerId); if (mPtr.size < 2) mPinch = 0; });
 
 /* ---- 31. WORLD MAP: 64-pixel tiles cached and filled in nearest first; names and door icons from the settlement plans ---- */
 const wmEl = el('wmap'), wmCv = el('wmCv'), wmCtx = wmCv.getContext('2d'), wmPos = el('wmPos');
@@ -5156,6 +5198,8 @@ function wmDraw() {
           else if (bd.bank) ico(MK_ART.bank, bd.x, bd.z); else if (bd.barber) ico(MK_ART.barber, bd.x, bd.z);
         }
         for (const f of v.f) ico(MK_ART[f.t], f.x, f.z);
+        for (const p of farmPatches(v)) ico(MK_ART[15], p.x, p.z);
+        const sm = slayerSpot(v); if (sm) ico(MK_ART[12], sm.x, sm.z);
         if (v.lm && v.lm.t === 0) ico(MK_ART.altar, v.lm.x, v.lm.z);
         if (v.ge) ico(MK_ART.ge, v.ge.x, v.ge.z, 10);
       }
@@ -5163,6 +5207,11 @@ function wmDraw() {
       wmCtx.lineWidth = 3; wmCtx.strokeStyle = 'rgba(0,0,0,.85)'; wmCtx.strokeText(nm, x, y - 4);
       wmCtx.fillStyle = v.rank >= 3 ? '#ffd34a' : '#f4ead0'; wmCtx.fillText(nm, x, y - 4);
     }
+    if (wmZoom >= 2.5) for (let a = Math.floor((wmCx - half) / RUIN_CELL), a1 = Math.floor((wmCx + half) / RUIN_CELL), bud = 40; a <= a1; a++)   // rune altars: an unseen cell costs a survey, forty a frame
+      for (let b = Math.floor((wmCz - halfZ) / RUIN_CELL), b1 = Math.floor((wmCz + halfZ) / RUIN_CELL); b <= b1; b++) {
+        if (!ruinCache.has(a * 8191 + b) && --bud < 0) continue;
+        const R = ruinAt(a, b); if (R) ico(MK_ART[11], R.x, R.z);
+      }
   }
   const sx = px(P.rx), sy = pz(P.rz);                         // you, and only you
   if (sx > -10 && sy > -10 && sx < W + 10 && sy < H + 10) {
@@ -5309,7 +5358,7 @@ function gameTick() {
   for (const f of tickHooks) f();
   if (tickN % 100 === 0) for (let i = 0; i < NSK; i++) if (bst[i]) { bst[i] -= Math.sign(bst[i]); dirty.sk = 1; }
   if ((!P.moved || !P.run) && P.energy < 100) { P.energy = Math.min(100, P.energy + 0.9 * (1 + lvl[SK.agility] / 60)); dirty.orb = 1; }
-  if ((tickN & 15) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }
+  if ((tickN & (prayHas('heal') ? 7 : 15)) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }
   if (P.prayers) {
     let drain = 0;
     for (const p of PRAYERS) if (P.prayers & p.bit) drain += p.drain;
@@ -5613,7 +5662,7 @@ function packSave() {
   return { v: 1, tx: P.tx, tz: P.tz, hp: P.hp, maxhp: P.maxhp, pray: Math.round(P.pray), maxpray: P.maxpray, energy: Math.round(P.energy), run: P.run, style: P.style,
     prayers: P.prayers, rstyle: P.rstyle, ammoN: P.ammoN, eq: EQ_SLOTS.map(s => eq[s] || null), inv: invp, bank: bank.map(s => [s.id, s.n]),
     look: [P.look.skin, P.look.shirt, P.look.legs, P.look.face], xp: Array.from(xp, v => Math.round(v)), home: [P.home.x, P.home.z],
-    sl: P.slay ? [P.slay.k, P.slay.n, P.slay.m] : 0, farm: Object.keys(P.farm).map(k => [+k, P.farm[k][0], P.farm[k][1]]) };
+    sl: P.slay ? [P.slay.k, P.slay.n, P.slay.m] : 0, farm: Object.keys(P.farm).map(k => [+k, P.farm[k][0], P.farm[k][1]]), clue: P.clue || 0 };
 }
 function applySave(b) {
   if (!b || b.v !== 1) return 0;
@@ -5635,6 +5684,7 @@ function applySave(b) {
   P.slay = b.sl && NPC_BY[b.sl[0]] && (b.sl[1] | 0) > 0 ? { k: b.sl[0], n: b.sl[1] | 0, m: b.sl[2] | 0 } : null;
   P.farm = Object.create(null);
   for (const [k, c, t] of (b.farm || [])) if (CROPS[c] && t > 0) P.farm[k] = [c | 0, t | 0];
+  P.clue = b.clue && b.clue.length === 3 ? b.clue.map(v => v | 0) : null;
   bst.fill(0);
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
   return b;
@@ -5645,7 +5695,7 @@ function freshCharacter() {
   P.look.skin = P.look.shirt = P.look.legs = P.look.face = 0;
   for (const s of EQ_SLOTS) eq[s] = null;
   P.maxhp = P.hp = lvl[SK.hitpoints]; P.maxpray = P.pray = lvl[SK.prayer];
-  P.energy = 100; P.run = 1; P.style = 0; P.prayers = 0; P.spell = null; P.slay = null; P.farm = Object.create(null); bst.fill(0);
+  P.energy = 100; P.run = 1; P.style = 0; P.prayers = 0; P.spell = null; P.slay = null; P.clue = null; P.farm = Object.create(null); bst.fill(0);
   for (const [id, n] of [['bronze_hatchet', 1], ['bronze_pickaxe', 1], ['tinderbox', 1], ['hammer', 1], ['small_net', 1], ['coins', 120]]) invAdd(id, n);
   eq.weapon = 'bronze_sword';
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
@@ -6696,11 +6746,11 @@ onKill.push(n => {
   say("You've completed your Slayer task. Return to a Slayer Master for another.", 'lv');
   P.slay = null; markDirty(1);
 });
-structHooks.push((rec, vs, inChunk) => {                   // one master a settlement, on a street tile, facing the square
+const slayerSpot = v => v.spots.length ? v.spots[(hash2(v.x, v.z, S + 310) >>> 4) % v.spots.length] : null;   // a street tile; the map reads it too
+structHooks.push((rec, vs, inChunk) => {                   // one master a settlement, facing the square
   for (const v of vs) {
-    if (!v.spots.length) continue;
-    const s = v.spots[(hash2(v.x, v.z, S + 310) >>> 4) % v.spots.length], y = heightAt(s.x, s.z);
-    if (inChunk(s.x, s.z) && !isWater(y)) rec.objs.push({ t: 12, k: v.rank, x: s.x, z: s.z, y, key: tk(s.x, s.z), n: MASTERS[v.rank].n, dir: Math.atan2(v.x - s.x, v.z - s.z) });
+    const s = slayerSpot(v), y = s && heightAt(s.x, s.z);
+    if (s && inChunk(s.x, s.z) && !isWater(y)) rec.objs.push({ t: 12, k: v.rank, x: s.x, z: s.z, y, key: tk(s.x, s.z), n: MASTERS[v.rank].n, dir: Math.atan2(v.x - s.x, v.z - s.z) });
   }
 });
 
@@ -6758,7 +6808,7 @@ defStack('vial_of_water', 'Vial of water', 'vial', '#8ac8e8', CORK, 3);
 for (const [id, name, g, c, c2, val] of [['eye_of_newt', 'Eye of newt', 'crop', '#d8c85a', '#2a2a1a', 3], ['unicorn_horn', 'Unicorn horn', 'bones', '#f0ece0', '#9a9484', 20],
   ['limpwurt_root', 'Limpwurt root', 'crop', '#c04a3a', '#6a2a1a', 15], ['red_spiders_eggs', "Red spiders' eggs", 'crop', '#d83a3a', '#7a1a1a', 8], ['white_berries', 'White berries', 'crop', '#f0f0f0', '#5a7a3a', 10],
   ['snape_grass', 'Snape grass', 'herb', '#6ab08a', '#3a6a4a', 6], ['mort_myre_fungus', 'Mort myre fungus', 'crop', '#9a8a6a', '#5a4a3a', 12], ['wine_of_zamorak', 'Wine of zamorak', 'vial', '#8a1a3a', CORK, 60],
-  ['potato_cactus', 'Potato cactus', 'crop', '#6aa05a', '#3a6a2a', 25]]) defStack(id, name, g, c, c2, val);
+  ['potato_cactus', 'Potato cactus', 'crop', '#6aa05a', '#3a6a2a', 25], ['dragon_scale_dust', 'Dragon scale dust', 'hide', '#6a8ad8', '#2a3a80', 45]]) defStack(id, name, g, c, c2, val);
 /* cleaning: a verb on each grimy herb starts its one-input recipe, one leaf a tick */
 for (const h of HERBS) { const r = recipe(h.k, 'herblore', h.lv, h.xp, [[h.grimy, 1]], { tk: 1, msg: 'You clean the dirt from the ' + h.n + ' leaf.' }); ITEMS[h.grimy].opt = ['Clean', () => startMake(r)]; }
 /* effects: a boost counts from the base level and never stacks (re-drinking resets it to the full amount); gameTick walks it back a point a minute */
@@ -6784,6 +6834,7 @@ const POTS = [
   ['super_strength', 'Super strength', 'kwuarm', 'limpwurt_root', 55, 125, '#e878a8', () => potBoost('strength', 5, .15)],
   ['super_restore', 'Super restore', 'snapdragon', 'red_spiders_eggs', 63, 142.5, '#d83a3a', () => { potRestore(); potPray(8); }],
   ['super_defence', 'Super defence', 'cadantine', 'white_berries', 66, 150, '#3ab04a', () => potBoost('defence', 5, .15)],
+  ['antifire', 'Antifire potion', 'lantadyme', 'dragon_scale_dust', 69, 157.5, '#d8903a', () => { P.afire = tickN + 600; }],
   ['ranging', 'Ranging potion', 'dwarf_weed', 'wine_of_zamorak', 72, 162.5, '#6a8a5a', () => potBoost('ranged', 4, .1)],
   ['magic', 'Magic potion', 'lantadyme', 'potato_cactus', 76, 172.5, '#6a3ad0', () => potBoost('magic', 4, 0)]
 ].map(([k, n, herb, sec, lv, xp, c, fx]) => {
@@ -7043,6 +7094,74 @@ on(spellGrid, 'click', e => {                               // runs after the co
   else { P.uspell = s; clearUse(); say('You ready ' + s.n + '. Choose an item in your pack.'); showTab('inv'); }
   drawSpells();
 });
+
+/* ---- TREASURE TRAILS: a clue falls from a kill and names a spot a walk away; a spade there turns up a casket. One trail at a time ---- */
+const CLUE_T = [['easy', 120, 320], ['medium', 300, 700], ['hard', 600, 1400]].map(([n, lo, hi], i) => {   // tier: name, how far it sends you
+  defItem({ id: 'clue_' + i, name: 'Clue scroll (' + n + ')', g: 'scroll', c: '#e8dcc0', c2: '#8a6a3a', val: 0, opt: ['Read', () => readClue(i)] });
+  defItem({ id: 'casket_' + i, name: 'Casket (' + n + ')', g: 'casket', c: '#6b4a2a', c2: '#8a6a3a', val: 0, opt: ['Open', s => openCasket(s, i)] });
+  return { n, lo, hi };
+});
+defItem({ id: 'spade', name: 'Spade', g: 'spade', c: '#75767a', c2: '#4a4b4f', val: 3, opt: ['Dig', dig] });
+for (const p of ['full_helm', 'platebody', 'platelegs', 'plateskirt', 'kiteshield']) for (const [sfx, c, nm, val] of [['_t', null, ' (t)', 12000], ['_g', '#e8c34a', ' (g)', 30000]]) {
+  const b = ITEMS['rune_' + p]; defWear(Object.assign({}, b, { id: b.id + sfx, name: b.name + nm, c: c || b.c, c2: c ? '#9a7414' : '#e8c34a', val }));   // trimmed and gilded rune: the trail's prestige
+}
+const CLUE_LOOT = [['coins', 30, 800, 6000], ['nature_rune', 10, 20, 60], ['law_rune', 8, 10, 40], ['death_rune', 6, 10, 40], ['blood_rune', 3, 5, 20], ['sapphire', 8, 1, 4], ['emerald', 6, 1, 3],
+  ['ruby', 5, 1, 2], ['diamond', 3], ['dragonstone', 1], ['rune_full_helm_t', 2], ['rune_platelegs_t', 2], ['rune_plateskirt_t', 1], ['rune_kiteshield_t', 2], ['rune_platebody_t', 1],
+  ['rune_full_helm_g', 1], ['rune_platelegs_g', 1], ['rune_kiteshield_g', 1], ['rune_platebody_g', 0.5], ['rune_plateskirt_g', 0.5]];
+const holdsClue = () => CLUE_T.some((c, i) => invCount('clue_' + i) || bank.some(b => b.id === 'clue_' + i));
+function clueSpot(i, x, z) {                               // dry, wild ground a tier's walk from (x, z)
+  for (let k = 0, T = CLUE_T[i]; k < 40; k++) {
+    const a = Math.random() * TAU, r = randInt(T.lo, T.hi), sx = Math.round(x + Math.sin(a) * r), sz = Math.round(z + Math.cos(a) * r), y = heightAt(sx, sz);
+    if (y > 1.5 && y < 45 && !nearTown(sx, sz)) return [sx, sz, i];
+  }
+  return null;
+}
+onKill.push((n, drop) => {
+  const i = n.t.lv < 40 ? 0 : n.t.lv < 90 ? 1 : 2;
+  if (Math.random() < 1 / 40 && !holdsClue() && (P.clue = clueSpot(i, n.tx, n.tz))) { drop('clue_' + i, 1); markDirty(1); }
+});
+function readClue(i) {                                     // a scroll without a spot (an old save) is given one from where you stand
+  const c = P.clue && P.clue[2] === i ? P.clue : (P.clue = clueSpot(i, P.tx, P.tz));
+  if (!c) return say('The ink has run; you cannot make the scroll out here.');
+  const dx = c[0] - P.tx, dz = c[1] - P.tz;
+  say('The scroll reads: "Dig at ' + c[0] + ', ' + c[1] + '" — about ' + Math.round(Math.hypot(dx, dz)) + ' tiles ' + COMPASS[Math.round(Math.atan2(dx, -dz) / (PI / 4)) & 7].split(' ')[0] + ' of here.', 'lv');
+}
+function dig() {
+  const c = P.clue;
+  kneel();
+  if (!c || !invCount('clue_' + c[2]) || chebDist(P.tx, P.tz, c[0], c[1]) > 2) return say('You dig a hole, and find nothing.');
+  invRemove('clue_' + c[2], 1); invAdd('casket_' + c[2], 1); P.clue = null; markDirty(1);
+  say('You dig up a casket!', 'lv');
+}
+function openCasket(s, i) {                                // two rolls, three, four by tier; stacks swell with it; a full pack spills to the ground
+  inv[s] = null; dirty.inv = 1;
+  for (let k = 0; k < 2 + i; k++) { const d = rollTable(CLUE_LOOT), n = randInt(d[2] || 1, d[3] || d[2] || 1) * (1 + i); if (!invAdd(d[0], n)) dropItem(d[0], n, P.tx, P.tz); }
+  say('You open the casket. Its treasures are yours.', 'lv'); markDirty(1);
+}
+
+/* ---- SKILL GUIDES: what each level unlocks, read off the data tables; a click on a skill opens its page. Recipes and the 99 cape join every list ---- */
+const tools = t => TIERS.filter(q => q.tool < 99).map(q => [q.tool, q.n + ' ' + t]), wpn = TIERS.filter(t => !t.armourOnly);
+const GUIDE = {
+  attack: wpn.map(t => [t.req, t.n + ' weapons']), strength: wpn.map(t => [t.req, t.n + ' warhammer']),
+  defence: TIERS.map(t => [t.req, t.n + ' armour']).concat(HIDES.map(h => [h.df, h.n + ' armour']), ROBE_TIERS.map(t => [t.def, t.n + ' robes'])),
+  ranged: BOWS.map(b => [b.lv, (b.n || 'Wooden ') + 'bows']).concat(XBOWS.map(b => [b.lv, TIER[b.k].n + ' crossbow']), ARROWS.map(a => [a.lv, ITEMS[a.k + '_arrow'].name + 's']),
+    BOLTS.map(a => [a.lv, ITEMS[a.k + '_bolts'].name]), HIDES.map(h => [h.lv, h.n + ' armour']), [[30, "Ava's attractor"], [50, "Ava's accumulator"]]),
+  prayer: PRAYERS.map(p => [p.lv, p.n]),
+  magic: SPELLS.map(s => [s.lv, s.n]).concat(USPELLS.map(s => [s.lv, s.n]), STAFF_TIERS.map(t => [t.lv, t.n.replace(/ of$/, 's')]), ROBE_TIERS.map(t => [t.mlv, t.n + ' robes']),
+    Object.values(ITEMS).filter(it => it.g === 'wand').map(it => [it.req.magic, it.name])),
+  runecraft: RC.map(r => [r.lv, cap(r.k) + ' runes']), hitpoints: [[10, 'Every blow you land feeds it']], agility: [[1, 'Log balances; run energy returns faster with every level'], [5, 'Climbing rocks — the higher, the harder']],
+  thieving: NPC_TYPES.filter(t => t.pick).map(t => [t.pick.lv, t.n]).concat(STALLS.map(s => [s.lv, s.n])), slayer: MASTERS.map(m => [1, m.n + (m.cb ? ' (combat ' + m.cb + ')' : '')]),
+  hunter: HUNT.map(c => [c.lv, c.n]), mining: ORES.map(o => [o.lv, o.n]).concat(tools('pickaxe')), fishing: FISH.map(f => [f.lv, f.n]), cooking: COOK.map(c => [c.cookLv, ITEMS[c.done].name]),
+  firemaking: TREES.map(t => [t.lv, ITEMS[t.log].name]), woodcutting: TREES.map(t => [t.lv, t.n]).concat(tools('hatchet')), farming: CROPS.map(c => [c.lv, c.n + ['', ' herb', ' tree'][c.t]]),
+  sailing: [[1, 'Deep water puts you in a rowboat']]
+};
+function skillGuide(i) {
+  const k = SKILLS[i].k, by = new Map();
+  for (const [lv, n] of (GUIDE[k] || []).concat(RECIPES.filter(r => r.sk === k).map(r => [r.lv, mkName(r)]), [[99, SKILLS[i].f + ' cape']])) by.set(lv, (by.get(lv) || new Set()).add(n));
+  showModal(SKILLS[i].f + ' guide', [...by].sort((a, b) => a[0] - b[0]).map(([lv, set]) => '<div class="stRow g' + (lvl[i] < lv ? ' no' : '') + '"><i>Level ' + lv + '</i><b>' + [...set].join(', ') + '</b></div>').join(''),
+    'Level ' + lvl[i] + ' · ' + Math.floor(xp[i]).toLocaleString() + ' xp' + (lvl[i] < MAXL ? ' · ' + Math.ceil(XP_TABLE[lvl[i] + 1] - xp[i]).toLocaleString() + ' to the next' : ''), 1);
+}
+on(skGrid, 'click', e => { const d = e.target.closest('.sk.live'); if (d) skillGuide(skEls.indexOf(d)); });
 
 requestAnimationFrame(frame);
 el('boot').classList.add('gone');
