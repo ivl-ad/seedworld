@@ -199,6 +199,8 @@
   #wx,#wz{width:0;text-align:center;font-variant-numeric:tabular-nums}
   #seed:focus,#wx:focus,#wz:focus{border-color:var(--amber)}
   .smsg{font-size:10px;line-height:1.6;color:var(--bone);margin:0 0 8px}
+  .chk{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--bone);margin:0 0 8px;cursor:pointer}
+  .chk input{accent-color:var(--amber);margin:0}
   .smsg b{color:var(--amber)}
   button.on{color:var(--amber);box-shadow:inset 0 0 0 1px var(--amber)}
   button{font:inherit;font-size:10px;padding:4px 7px;cursor:pointer;border-radius:2px;
@@ -5510,13 +5512,22 @@ function askPvp() {
   showModal('Leaving the safe zone',
     '<p class="smsg">Beyond the town\'s edge is the wilderness: <b>other players can attack ' +
     'you</b>, and dying to one costs everything you carry.</p>' +
+    '<label class="chk"><input type="checkbox" id="pvpNo"> Don\'t show this again</label>' +
     '<div class="wrow2"><button id="pvpGo">Continue</button><button id="pvpStay">Cancel</button></div>',
-    'This warning can be turned off in Setup.');
-  el('pvpGo').onclick = () => { pvpAck = 1; pvpHold = 0; closeOverlays(); };
-  el('pvpStay').onclick = closeOverlays;           // closing without consent cancels the walk
+    'It can be turned back on in Setup under "PvP border warning".');
+  // the tick box is honoured whichever way you answer
+  const remember = () => { if (el('pvpNo').checked) { OPT.pvpWarn = 0; applyOpts(); drawOpts(); } };
+  el('pvpGo').onclick = () => { remember(); pvpAck = 1; pvpHold = 0; closeOverlays(); };
+  el('pvpStay').onclick = () => { remember(); closeOverlays(); };   // closing without consent cancels the walk
 }
 function walkTick() {
-  if (pvpHold) { P.moved = 0; return; }            // stood at the border, being asked
+  if (pvpHold) {                                   // stood at the border, being asked
+    /* The anchor must still be synced, or the tile we had already stepped
+       onto this tick stays ahead of it and the render lerps us across the
+       gap again every tick — a shuffle back and forth until the box closes. */
+    P.px = P.tx; P.pz = P.tz; P.span = 1; P.moved = 0;
+    return;
+  }
   /* A stuck step is one tile spread over five ticks: the interpolation
      anchor stays on the departed tile while `stuckT` counts the window up,
      and the frame lerp divides by `span`. Resyncing the anchor every tick —
@@ -7269,6 +7280,7 @@ function applyOpts(r) {
   // every standing roof re-evaluates against the current rules
   for (const rec of chunks.values())
     for (const b of rec.roofs) if (b.roof) b.roof.visible = roofShown(b);
+  store.set('seedworld.opt', JSON.stringify(OPT));   // settings outlive the tab
 }
 
 /* --- floating combat text, health bars and respawn clocks --- */
@@ -8792,6 +8804,19 @@ const store = {
   set(k, v) { try { localStorage[k] = v; } catch {} },
   del(k) { try { delete localStorage[k]; } catch {} }
 };
+
+/* Settings come back the way they were left. Only keys the build still
+   knows are taken, so a stale entry cannot smuggle in a value the options
+   tab has no row for. */
+(function loadOpts() {
+  let saved = null;
+  try { saved = JSON.parse(store.get('seedworld.opt') || 'null'); } catch {}
+  if (!saved || typeof saved !== 'object') return;
+  // stuck mode is a rescue, not a preference: it never survives a reload
+  for (const k in OPT) if (k !== 'stuck' && typeof saved[k] === 'number' && isFinite(saved[k])) OPT[k] = saved[k];
+  RADIUS = OPT.viewRadius;
+  applyOpts();
+})();
 
 /* ----------------------------- MUSIC -------------------------------- */
 /* One track, looping from the moment the page loads. Browsers may hold
