@@ -2415,6 +2415,25 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(SKY, 120, RADIUS * CHUNK * 0.95);
 const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.4, 2600);
 
+/* Fog is measured from the player, not the camera. three's fog is view
+   depth, so pulling the camera right out walked the character into it;
+   these chunks swap the depth for horizontal distance to a point, and the
+   point follows you every frame. The result is a circle of clear ground
+   around you at any zoom — the same fog, kept centred on the one standing
+   in it. Every material here is a MeshBasicMaterial, so one prototype hook
+   hands them all the uniform; one shared value object feeds every program. */
+const fogCenter = { value: new THREE.Vector3() };
+THREE.ShaderChunk.fog_pars_vertex = '#ifdef USE_FOG\nvarying vec3 vFogWorld;\n#endif';
+THREE.ShaderChunk.fog_vertex = '#ifdef USE_FOG\nvec4 fogWp = vec4(transformed, 1.0);\n' +
+  '#ifdef USE_INSTANCING\nfogWp = instanceMatrix * fogWp;\n#endif\nvFogWorld = (modelMatrix * fogWp).xyz;\n#endif';
+THREE.ShaderChunk.fog_pars_fragment = '#ifdef USE_FOG\nuniform vec3 fogColor;\nuniform vec3 fogCenter;\nvarying vec3 vFogWorld;\n' +
+  '#ifdef FOG_EXP2\nuniform float fogDensity;\n#else\nuniform float fogNear;\nuniform float fogFar;\n#endif\n#endif';
+THREE.ShaderChunk.fog_fragment = '#ifdef USE_FOG\nfloat fogDepth = distance(vFogWorld.xz, fogCenter.xz);\n' +
+  '#ifdef FOG_EXP2\nfloat fogFactor = 1.0 - exp(-fogDensity * fogDensity * fogDepth * fogDepth);\n' +
+  '#else\nfloat fogFactor = smoothstep(fogNear, fogFar, fogDepth);\n#endif\n' +
+  'gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);\n#endif';
+THREE.MeshBasicMaterial.prototype.onBeforeCompile = function (shader) { shader.uniforms.fogCenter = fogCenter; };
+
 const water = new THREE.Mesh(
   new THREE.PlaneGeometry(3000, 3000),
   new THREE.MeshBasicMaterial({ color: 0x2f6f8c, transparent: true, opacity: 0.86, depthWrite: false })
@@ -8753,6 +8772,7 @@ function frame(now) {
   }
 
   boltFrame(dt);
+  fogCenter.value.set(P.rx, P.ry, P.rz);           // the clear circle walks with you
   renderer.render(scene, camera);
   fxFrame(dt); xpFrame(dt);
   if (OPT.timers) timerFrame(); else clearTimers();
