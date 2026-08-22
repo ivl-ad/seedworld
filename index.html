@@ -67,6 +67,13 @@
     display:grid;place-items:center;font-size:9px;font-weight:700;letter-spacing:.02em;
     color:var(--bone);background:linear-gradient(180deg,#4b4133,#2c251c);
     border:2px solid #171209;box-shadow:inset 0 0 0 1px var(--bevel);text-shadow:1px 1px 0 #000}
+  /* the globe sits on the minimap's lower rim, the compass's twin on the upper */
+  #wmBtn{position:absolute;top:139px;right:-5px;width:34px;height:34px;padding:0;border-radius:50%;
+    display:grid;place-items:center;cursor:pointer;
+    background:linear-gradient(180deg,#4b4133,#2c251c);
+    border:2px solid #171209;box-shadow:inset 0 0 0 1px var(--bevel)}
+  #wmBtn:hover{box-shadow:inset 0 0 0 1px var(--amber)}
+  #wmBtn svg{display:block;filter:drop-shadow(1px 1px 0 #000)}
   #signout{display:block;width:100%;margin-top:6px;padding:5px 0;font-size:9px;
     letter-spacing:.14em;text-transform:uppercase;
     background:linear-gradient(180deg,#5a4c39,#3a3024);color:var(--bone)}
@@ -533,7 +540,7 @@
   @media (max-width:900px){ #chatwrap{width:280px} #chat{height:104px} body.budget #budget{display:none}
     #chatbar{width:280px;bottom:122px} }
   @media (max-width:680px){
-    #side{width:180px} #panes{height:236px} #minimap{width:112px;height:112px} #mm{width:112px}
+    #side{width:180px} #panes{height:236px} #minimap{width:112px;height:112px} #mm{width:112px} #wmBtn{top:83px}
     #chatwrap{width:200px} #chat{width:200px;height:78px} #chatbar{width:200px;bottom:96px}
     #orbs{right:130px}
   }
@@ -561,6 +568,11 @@
 <div id="mm">
   <canvas id="minimap" width="120" height="120"></canvas>
   <span id="compass">N ↑</span>
+  <button id="wmBtn" title="World map" aria-label="World map"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true">
+    <circle cx="10" cy="10" r="7.6" fill="#3b6f9a" stroke="#f4ead0" stroke-width="1.3"/>
+    <path d="M2.4 10h15.2M10 2.4c3.6 3 3.6 12.2 0 15.2M10 2.4c-3.6 3-3.6 12.2 0 15.2" fill="none" stroke="#f4ead0" stroke-width="1.1" opacity=".85"/>
+    <path d="M4.6 6.2c2.2.6 3.2 2 4.4 2.2 1.4.2 2-1 3.4-.4 1.2.5 1 2.2 2.6 2.6-.4 1.4-1.6 2.8-3 3.2-1-.8-.6-2.2-1.8-2.6-1.4-.4-2.4.6-3.6-.2-1-.8-.6-2.6-2-3.4z" fill="#7ab05a"/>
+  </svg></button>
   <span id="posr">0, 0</span>
   <button id="signout" title="Save your character and return to the world list">Sign out</button>
 </div>
@@ -8033,24 +8045,17 @@ addEventListener('keydown', e => {
   if (e.key === 'Enter' && document.activeElement !== chatIn &&
       document.activeElement.tagName !== 'INPUT') { e.preventDefault(); chatIn.focus(); }
 }, true);
-/* A click on the minimap opens the world map; a right-click still walks you
-   to the spot, which is what the left button used to do. */
+/* A click on the minimap walks you there, as it always did; the globe badge
+   on its rim is what opens the world map. */
 mini.addEventListener('click', e => {
   const r = mini.getBoundingClientRect();
   const px = (e.clientX - r.left) / r.width * MW - MW / 2;
   const pz = (e.clientY - r.top) / r.height * MW - MW / 2;
   if (px * px + pz * pz > (MW / 2) * (MW / 2)) return;      // outside the disc
-  openWorldMap();
-});
-mini.addEventListener('contextmenu', e => {
-  e.preventDefault();
-  const r = mini.getBoundingClientRect();
-  const px = (e.clientX - r.left) / r.width * MW - MW / 2;
-  const pz = (e.clientY - r.top) / r.height * MW - MW / 2;
-  if (px * px + pz * pz > (MW / 2) * (MW / 2)) return;
   const a = -(yaw + Math.PI), cs = Math.cos(a), sn = Math.sin(a);   // undo the spin
   walkTo(P.rx + (px * cs - pz * sn) * MSTEP, P.rz + (px * sn + pz * cs) * MSTEP);
 });
+el('wmBtn').onclick = () => { if (wmOpen) closeWorldMap(); else openWorldMap(); };
 
 /* --------------------------- 27b. WORLD MAP ------------------------- */
 /* The minimap's big brother: the same paint at eight tiles a pixel, kept in
