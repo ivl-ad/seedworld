@@ -1173,7 +1173,8 @@ const CROPS = [['potato', 1, 8, 9, 4000, 1], ['onion', 5, 9.5, 10.5, 4000, 1], [
 }).concat(HERBS.map((h, i) => ({ k: h.k, n: cap(h.n), lv: CROP_HERB[i][0], plant: CROP_HERB[i][1], xp: CROP_HERB[i][2], grow: 8000, t: 1, yield: h.grimy })),
   [['oak', 15, 14, 467.3, 20000], ['willow', 30, 25, 1456.5, 28000], ['maple', 45, 45, 3403.4, 32000], ['yew', 60, 81, 7069.9, 40000], ['magic', 75, 145.5, 13768.3, 48000],
     ['mahogany', 55, 63, 15720, 36000]]                     // appended last: the crop index rides in the farm save
-    .map(([k, lv, plant, xp, grow]) => ({ k, n: cap(k), lv, plant, xp, grow, t: 2, yield: k + '_logs' })));
+    .map(([k, lv, plant, xp, grow]) => ({ k, n: cap(k), lv, plant, xp, grow, t: 2, yield: k + '_logs' })),
+  [{ k: 'wheat', n: 'Wheat', lv: 1, plant: 8, xp: 9, grow: 4000, t: 0, yield: 'grain' }]);   // appended after the trees for the same reason: the mill was built first
 CROPS.forEach((c, i) => { c.i = i; c.seed = c.k === 'oak' ? 'acorn' : c.k + '_seed'; defStack(c.seed, c.k === 'oak' ? 'Acorn' : c.n + ' seed', 'seed', ['#c8a86a', '#7ad04a', '#8a6a3a'][c.t], '#4a3a2a', 2 + c.lv * 3); });
 /* hides, fibres and feathers */
 defStack('feather', 'Feather', 'feather', '#f0f0f0', '#8a8a8a', 2);
@@ -1369,8 +1370,13 @@ const SPELLS = [
   /* curses deal nothing but leave the target weaker: drain names the flag swing sets on it */
   ['confuse', 'Confuse', 3, 13, 0, 0x9a7ad0, [['body_rune', 1], ['earth_rune', 2], ['water_rune', 3]], 'atk'],
   ['weaken', 'Weaken', 11, 20.5, 0, 0x9a7ad0, [['body_rune', 1], ['earth_rune', 2], ['water_rune', 3]], 'str'],
-  ['curse', 'Curse', 19, 29, 0, 0x9a7ad0, [['body_rune', 1], ['earth_rune', 3], ['water_rune', 2]], 'def']
-].map(([k, n, lv, xp, max, tint, need, drain], i) => ({ k, n, lv, xp, max, tint, need, drain, i }));
+  ['curse', 'Curse', 19, 29, 0, 0x9a7ad0, [['body_rune', 1], ['earth_rune', 3], ['water_rune', 2]], 'def'],
+  // appended, never inserted: the row index rides op 18. hold = ticks rooted to the ground; undead gates the cast to the risen
+  ['crumble_undead', 'Crumble Undead', 39, 24.5, 15, 0xd8cfa0, [['earth_rune', 2], ['air_rune', 2], ['chaos_rune', 1]], null, 0, 1],
+  ['bind', 'Bind', 20, 30.5, 0, 0x3aa04a, [['nature_rune', 2], ['earth_rune', 3], ['water_rune', 3]], 'hold', 8],
+  ['snare', 'Snare', 50, 60.5, 0, 0x2a8a3a, [['nature_rune', 3], ['earth_rune', 4], ['water_rune', 4]], 'hold', 16],
+  ['entangle', 'Entangle', 79, 89, 0, 0x1e7a2e, [['nature_rune', 4], ['earth_rune', 5], ['water_rune', 5]], 'hold', 24]
+].map(([k, n, lv, xp, max, tint, need, drain, hold, undead], i) => ({ k, n, lv, xp, max, tint, need, drain, hold, undead, i }));
 /* prayers drain points per tick while lit, at the 2007 rates: 0.6 / (seconds per point) — the 36s/18s/12s/6s/3s/2s/1.5s ladder */
 const PRAYERS = [
   ['thick_skin', 'Thick Skin', 1, 0.0167, { def: 1.05 }, 'shield'], ['burst_str', 'Burst of Str', 4, 0.0167, { str: 1.05 }, 'fist'], ['clarity', 'Clarity', 7, 0.0167, { atk: 1.05 }, 'sword'],
@@ -3506,6 +3512,7 @@ function buildStructures(rec, cx, cz) {
     if (v.lm && inChunk(v.lm.x, v.lm.z)) {
       lms.push(v.lm); rec.blk.push(...v.lm.blk);
       if (v.lm.t === 0) rec.objs.push(keeperObj(8, 0, v.lm.x + 1, v.lm.z - 4, v.lm.y, 'Altar'));   // the church porch altar
+      if (v.lm.t === 1) rec.objs.push(keeperObj(25, 0, v.lm.x + 1, v.lm.z - 4, v.lm.y, 'Windmill'));   // the mill finally grinds
     }
     for (const fu of v.fur) if (inChunk(fu.x, fu.z)) {
       furn.push(fu);
@@ -3747,7 +3754,7 @@ const eq = {}; for (const s of EQ_SLOTS) eq[s] = null;
 const dirty = { inv: 1, eq: 1, sk: 1, orb: 1 };
 const FULL = 'Your inventory is too full.';
 let useSel = null;                                        // { i, id, name } while an item is armed
-function clearUse() { if (useSel) { useSel = null; dirty.inv = 1; hoverObj = undefined; } }
+function clearUse() { if (useSel) { useSel = null; dirty.inv = 1; hoverObj = undefined; } P.teleG = 0; }
 const BANK_N = 300;
 let bank = [];                                            // [{ id, n }], everything stacks
 function bankAdd(id, n) {
@@ -3989,7 +3996,7 @@ function walkTick() {
     else if (!wet && P.afloat) { say('You step ashore.'); P.afloat = 0; }
     if (P.afloat) gainXp('sailing', 1.1 * took);
     else if ((P.agx = (P.agx || 0) + took * (P.run && P.energy > 0 ? 0.1 : 0.05)) >= 2) { gainXp('agility', P.agx); P.agx = 0; }   // (dev) the road trains agility, paid in lumps
-    if (!P.afloat && P.run && P.energy > 0 && took) { P.energy = Math.max(0, P.energy - 0.6 * (1 - lvl[SK.agility] / 300)); dirty.orb = 1; }   // drain: 60 x (1 - agility/300) units a running tick, at the unladen weight
+    if (!P.afloat && P.run && P.energy > 0 && took) { P.energy = Math.max(0, P.energy - 0.6 * (1 - lvl[SK.agility] / 300) * (P.stamT > tickN ? 0.3 : 1)); dirty.orb = 1; }   // drain: 60 x (1 - agility/300) units a running tick; a stamina draught keeps 70% of it
     if (crawl && !P.afloat) { P.span = 5; P.stuckT = 0; }
   }
   if (!P.path.length) chainGoal();
@@ -4291,14 +4298,21 @@ function npcTick(n) {
   const dun = n.tz > 500000;                                // below ground nothing outgrows you and nothing gets used to you
   if (!n.target && n.t.agg && !P.dead && near <= (n.t.boss ? 7 : 5) && (n.t.boss || dun || npw >= 1.5 || tickN - P.regionT < 1000 / (1 - npw / 1.5)) &&
       (n.t.boss || dun || combatLevel() < n.t.lv * 2 + 1)) { n.target = P; claimMon(n); }
+  if (n.psn > 0 && tickN >= n.psnT && !n.dead) {           // an envenomed wound bites every 30 ticks, shallowing as it goes
+    n.psnT = tickN + 30; n.hp -= n.psn; hitsplat(n.rx, n.ry + 1.2, n.rz, n.psn); healthBar(n);
+    if (++n.psnN % 5 === 0) n.psn--;
+    if (n.hp <= 0) { killNpc(n); return; }
+  }
   if (n.target) {
     const phase = n.t.boss ? n.t.at[n.styleIx % n.t.at.length] : null, want = phase === 'm' ? 1 : (n.t.rng || 1);   // bosses fight in phases
     if (near > want) {
+      if (n.heldT > tickN) { n.mv = 0; } else {            // a snared thing strains at the ground instead of closing in
       for (n.mv += n.t.mspd; n.mv >= 1; n.mv--) {         // mspd is tiles per tick, banked
         if (!npcStep(n, P.tx, P.tz, 0)) break;
         if (chebDist(n.tx, n.tz, P.tx, P.tz) <= (n.t.rng || 1)) break;
       }
       n.mv = Math.min(n.mv, 1);
+      }
     } else if (--n.cd <= 0) {
       n.cd = n.t.spd; n.mv = 0;
       let st;
@@ -4333,8 +4347,9 @@ function npcTick(n) {
       retaliate(n);
     }
   } else {
-    const d = wanderAt(n.kh, tickN, n.home.x, n.home.z);   // un-aggroed monsters mill about deterministically
+    const d = n.heldT > tickN ? null : wanderAt(n.kh, tickN, n.home.x, n.home.z);   // un-aggroed monsters mill about deterministically, unless rooted
     if (d) n.dest = d;
+    if (n.heldT > tickN) n.dest = null;
     if (n.dest && (n.dest.x !== n.tx || n.dest.z !== n.tz)) {
       for (n.mv += n.t.mspd; n.mv >= 1 && n.dest; n.mv--) {
         if (!npcStep(n, n.dest.x, n.dest.z, 1)) n.dest = null;
@@ -4357,7 +4372,7 @@ const GEM_DROPS = [['uncut_sapphire', 32], ['uncut_emerald', 16], ['uncut_ruby',
   ['rune_javelin', 1, 5], ['mega', 1]], GEM_W = 128;
 const HERB_SUB = [['grimy_guam', 32], ['grimy_marrentill', 24], ['grimy_tarromin', 18], ['grimy_harralander', 14], ['grimy_ranarr', 11], ['grimy_irit', 8],
   ['grimy_avantoe', 6], ['grimy_kwuarm', 5], ['grimy_cadantine', 4], ['grimy_lantadyme', 3], ['grimy_dwarf_weed', 3]], HERB_W = 128;
-const SEED_SUB = [['potato_seed', 368, 4], ['onion_seed', 276, 4], ['cabbage_seed', 184, 4], ['tomato_seed', 92, 3], ['sweetcorn_seed', 46, 3],
+const SEED_SUB = [['wheat_seed', 320, 4], ['potato_seed', 368, 4], ['onion_seed', 276, 4], ['cabbage_seed', 184, 4], ['tomato_seed', 92, 3], ['sweetcorn_seed', 46, 3],
   ['strawberry_seed', 23, 2], ['watermelon_seed', 11, 2]], SEED_W = 1008;                       // the general table's allotment band
 const USEED_SUB = [['strawberry_seed', 131], ['marrentill_seed', 125], ['tarromin_seed', 85], ['watermelon_seed', 63], ['harralander_seed', 56], ['ranarr_seed', 39],
   ['toadflax_seed', 27], ['irit_seed', 18], ['avantoe_seed', 12], ['kwuarm_seed', 9], ['snapdragon_seed', 5], ['cadantine_seed', 4], ['lantadyme_seed', 3],
@@ -4531,17 +4546,23 @@ function swing(o) {
     if (spc) { P.specArm = 0; P.spec = Math.max(0, P.spec - spc.cost); drawStyles(); }
     dmg = 0;
     for (let h = 0, hn = spc && spc.n || 1; h < hn; h++) { dmg += roll(ch, M); if (h && P.ammoN > 0) spendArrow(); }
+    dmg = boltProc(o, dmg, ch, M);                        // enchanted bolts have their say
     shootArrow(P, o, dmg, ammoTint());
     wsSend([19, o.tx, o.tz, ammoTint()]);
     spendArrow();
     xps = st.xp;
   } else if (sp) {
+    if (sp.undead && !(o.npc && (o.t.base || o.t).undead)) { say('That spell only crumbles the risen dead.', 'bad'); P.spell = null; drawSpells(); return -1; }
+    if (sp.drain === 'hold' && !o.npc) { say('The spell cannot root another adventurer.', 'bad'); P.spell = null; drawSpells(); return -1; }   // no wire field carries a hold
     if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return -1; }
     spendRunes(sp);
     if (sp.drain) {                                       // a curse rolls magic accuracy like any spell, holds for a minute, then the staff comes down
       dmg = 0; castFx(o, sp, null);
       const [cl, cb] = o.npc ? [o.t.mag * 1 + 9, o.t.mdb] : [dl, db];
-      if (Math.random() < hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), cl, cb)) { o[sp.drain + 'Dr'] = tickN + 100; say('Your spell weakens the ' + o.name + '.'); }
+      if (Math.random() < hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), cl, cb)) {
+        if (sp.hold) { o.heldT = tickN + sp.hold; say('Your spell roots the ' + o.name + ' to the ground!'); }
+        else { o[sp.drain + 'Dr'] = tickN + 100; say('Your spell weakens the ' + o.name + '.'); }
+      }
       else say('Your spell splashes off the ' + o.name + '.');
       gainXp('magic', sp.xp); P.spell = null;
     }
@@ -4566,8 +4587,12 @@ function swing(o) {
       if (spc.big2 && o.npc && o.t.big) dmg += roll(hitChance(aEff * 0.75, bonus('atk'), dl, db), M);   // the halberd sweeps large prey a second time
       if (spc.drainDef && dmg > 0 && o.npc) o.specDr = (o.specDr || 1) * spc.drainDef;
       if (spc.stun && o.npc) { o.cd = Math.max(o.cd, spc.stun); say('You shove the ' + o.name + ' back!'); }
+      if (spc.bonus && dmg > 0) { dmg += randInt(spc.bonus[0], spc.bonus[1]); say("Saradomin's lightning strikes!", 'lv'); }
+      if (spc.quick) P.actT = 1;                           // the maul comes around again at once
       drawStyles();
     } else dmg = roll(hitChance(aEff, bonus('atk'), dl, db), maxHit());
+    const wp = ITEMS[eq.weapon];                           // an envenomed blade bites one time in four
+    if (dmg > 0 && o.npc && wp && wp.psn && !o.psn && Math.random() < 0.25) { o.psn = wp.psn; o.psnN = 0; o.psnT = tickN + 30; say('Your poison courses through the ' + o.name + '.'); }
     hitsplat(o.rx, o.ry + 1.5, o.rz, dmg);
     xps = st.xp;
   }
@@ -4731,6 +4756,8 @@ function eat(slotIdx) {
   P.foodT = tickN + 3; P.actT += 3;
   invRemove(inv[slotIdx].id, 1);
   P.hp = Math.min(P.maxhp, P.hp + it.heal);
+  if (it.boost) { potBoost(it.boost[0], it.boost[1], 0); dirty.sk = 1; }   // the pies carry their little blessings
+  if (it.energy) { P.energy = Math.min(100, P.energy + it.energy); dirty.orb = 1; }
   dirty.orb = 1;
   say('You eat the ' + it.name.toLowerCase() + '. It heals some health.');
 }
@@ -5416,7 +5443,8 @@ const hoverEl = el('hover'), ctxEl = el('ctx');
 const act = (o, k, hostile) => () => { flashTarget(o, hostile || 0); if (typeof k === 'string') startTask(o, k); else P.task = { k: 'ui', o, fn: k }; };
 /* object type -> [verb, noun (null = its own name), task kind or ui fn] */
 const OBJ_OPTS = { 0: ['Chop down', null, 'chop'], 1: ['Mine', null, 'mine'], 3: ['Smelt at', 'Furnace', o => openMake(3, o)], 4: ['Smith at', 'Anvil', o => openMake(4, o)],
-  5: ['Trade with', null, startShop], 6: ['Cook at', 'Range', 'cook'], 7: ['Bank at', null, () => openBank()], 8: ['Pray at', 'Altar', 'pray'],
+  5: ['Trade with', null, startShop], 6: o => [{ t: 'Cook at', o: o.n || 'Range', f: act(o, 'cook') }, { t: 'Bake at', o: o.n || 'Range', f: act(o, o2 => openMake(6, o2)) }],
+  7: ['Bank at', null, () => openBank()], 8: ['Pray at', 'Altar', 'pray'],
   9: ['Groom at', null, () => openBarber()], 10: ['Exchange at', null, () => openGE()], 11: ['Craft at', 'Altar', o => rcAltar(o)], 12: ['Talk to', null, o => slayerTalk(o)],
   13: ['Saw at', 'Sawmill', o => openMake(13, o)], 14: ['Steal from', null, 'steal'], 15: o => farmOpts(o), 16: o => agilOpts(o) };
 /* what an armed item does to o: [noun, kind or fn]; the skills register USE_ON[type], and any fixture recipe using the item opens the make list */
@@ -5447,6 +5475,7 @@ function optionsFor(o) {
   }
   else if (o.npc) { opts.push({ t: 'Attack', o: o.name + ' <span class="lvl">(level ' + o.t.lv + ')</span>', f: act(o, 'attack', 1) }); if (o.t.pick) opts.push({ t: 'Pickpocket', o: o.name, f: act(o, 'pick') }); }
   else if (o.drop) {                                        // a death spills a whole pack onto one tile: list the heap, this one first
+    if (P.teleG) return [{ t: 'Grab', o: (o.n > 1 ? o.n + ' x ' : '') + o.name, cls: 'itm', f: () => teleGrab(o) }];
     const heap = drops.filter(d => Math.abs(d.x - o.x) <= 1 && Math.abs(d.z - o.z) <= 1).sort((a, b) => (a === o ? -1 : b === o ? 1 : 0));
     for (const d of heap.slice(0, 10)) opts.push({ t: 'Take', o: (d.n > 1 ? d.n + ' x ' : '') + d.name, cls: 'itm', f: () => { flashTarget(d, 0); P.task = { k: 'take', o: d }; } });
     if (heap.length > 1) opts.push({ t: 'Take all', o: heap.length + ' items', cls: 'itm', f: () => { flashTarget(o, 0); P.task = { k: 'take', o, all: 1 }; } });
@@ -6049,7 +6078,7 @@ function gameTick() {
   if (P.prayers) {
     let drain = 0;
     for (const p of PRAYERS) if (P.prayers & p.bit) drain += p.drain;
-    P.pray -= drain;
+    P.pray -= drain / (1 + bonus('pb') / 30);              // wiki: every point of prayer bonus stretches the drain by a thirtieth
     if (P.pray <= 0) { P.pray = 0; P.prayers = 0; say('You have run out of prayer points.', 'bad'); drawPrayers(); }
     dirty.orb = 1;
   }
@@ -7577,6 +7606,8 @@ function drink(i) {
   say('You drink some of your ' + p.n.toLowerCase() + '.' + (d > 1 ? ' You have ' + (d - 1) + (d > 2 ? ' doses' : ' dose') + ' left.' : ' You have finished your potion.'));
   dirty.inv = dirty.sk = dirty.orb = 1; markDirty();
 }
+defStack('goat_horn', 'Goat horn', 'horn', '#d8ccb0', '#8a7a5a', 12);       // every goat carries a pair; ground dust in all but name
+defStack('egg', 'Egg', 'egg', '#f0e8d0', '#b0a070', 4);
 /* [key, name, herb, secondary, level, xp, colour, effect]; ranarr shares one unfinished potion between defence and prayer */
 const POTS = [
   ['attack', 'Attack potion', 'guam', 'eye_of_newt', 3, 25, '#4aa0d8', () => potBoost('attack', 3, .1)],
@@ -7594,7 +7625,23 @@ const POTS = [
   ['super_defence', 'Super defence', 'cadantine', 'white_berries', 66, 150, '#3ab04a', () => potBoost('defence', 5, .15)],
   ['antifire', 'Antifire potion', 'lantadyme', 'dragon_scale_dust', 69, 157.5, '#d8903a', () => { P.afire = tickN + 600; }],
   ['ranging', 'Ranging potion', 'dwarf_weed', 'wine_of_zamorak', 72, 162.5, '#6a8a5a', () => potBoost('ranged', 4, .1)],
-  ['magic', 'Magic potion', 'lantadyme', 'potato_cactus', 76, 172.5, '#6a3ad0', () => potBoost('magic', 4, 0)]
+  ['magic', 'Magic potion', 'lantadyme', 'potato_cactus', 76, 172.5, '#6a3ad0', () => potBoost('magic', 4, 0)],
+  ['combat', 'Combat potion', 'harralander', 'goat_horn', 36, 84, '#a8783a', () => { potBoost('attack', 3, .1); potBoost('strength', 3, .1); }],   // the horn stands in for its ground dust
+  ['super_antipoison', 'Superantipoison', 'irit', 'unicorn_horn', 48, 106.3, '#2a8a4a', () => { P.psn = 0; P.psnImm = tickN + 600; say('The poison leaves your body.'); }],
+  ['antidote_p', 'Antidote+', 'toadflax', 'coconut', 68, 155, '#4aa08a', () => { P.psn = 0; P.psnImm = tickN + 900; say('You feel proofed against poison.'); }],       // coconut stands in for its milk and the yew roots
+  ['stamina', 'Stamina potion', 'avantoe', 'potato_cactus', 77, 102, '#d87a2a', () => { P.energy = Math.min(100, P.energy + 20); P.stamT = tickN + 200; dirty.orb = 1; }],   // cactus stands in for amylase; two minutes of light feet
+  ['zamorak_brew', 'Zamorak brew', 'torstol', 'wine_of_zamorak', 78, 175, '#8a2a2a', () => {
+    potBoost('attack', 2, .2); potBoost('strength', 2, .12);
+    bst[SK.defence] = Math.min(bst[SK.defence], -(2 + Math.floor(lvl[SK.defence] * .1)));
+    P.hp = Math.max(1, P.hp - (2 + Math.floor(P.hp * .1)));
+    P.pray = Math.min(P.maxpray, P.pray + Math.floor(P.maxpray * .1)); dirty.orb = 1;
+  }],   // the wine stands in for jangerberries; the lord of chaos takes his cut of your blood
+  ['antidote_pp', 'Antidote++', 'irit', 'coconut', 79, 177.5, '#3ab0a0', () => { P.psn = 0; P.psnImm = tickN + 1200; say('You feel thoroughly proofed against poison.'); }],   // wiki: irit and magic roots in coconut milk
+  ['saradomin_brew', 'Saradomin brew', 'toadflax', 'egg', 81, 180, '#d8c84a', () => {
+    P.hp = Math.min(Math.floor(P.maxhp * 1.15), P.hp + 2 + Math.floor(P.maxhp * .15));
+    for (const k of ['attack', 'strength', 'defence', 'ranged', 'magic']) bst[SK[k]] = Math.min(bst[SK[k]], -(2 + Math.floor(lvl[SK[k]] * .1)));
+    dirty.orb = dirty.sk = 1;
+  }]   // the egg stands in for a crushed nest; heals past full, at the cost of your edge
 ].map(([k, n, herb, sec, lv, xp, c, fx]) => {
   const p = { k, n, herb, sec, lv, xp, fx }, unf = herb + '_potion_u', hn = ITEMS[herb].name;
   if (!ITEMS[unf]) {
@@ -8476,11 +8523,19 @@ const ENCH = [['sapphire', 7, 17.5, [['cosmic_rune', 1], ['water_rune', 1]], 'ri
   ['emerald', 27, 37, [['cosmic_rune', 1], ['air_rune', 3]], 'ring_of_dueling', 'amulet_of_defence'],
   ['ruby', 49, 59, [['cosmic_rune', 1], ['fire_rune', 5]], 0, 'amulet_of_strength'],
   ['diamond', 57, 67, [['cosmic_rune', 1], ['earth_rune', 10]], 'ring_of_life', 'amulet_of_power'],
-  ['dragonstone', 68, 78, [['cosmic_rune', 1], ['water_rune', 15], ['earth_rune', 15]], 'ring_of_wealth', 'amulet_of_glory']]
+  ['dragonstone', 68, 78, [['cosmic_rune', 1], ['water_rune', 15], ['earth_rune', 15]], 'ring_of_wealth', 'amulet_of_glory'],
+  ['onyx', 87, 97, [['cosmic_rune', 1], ['fire_rune', 20], ['death_rune', 1]], 0, 0]]   // Lvl-6 exists for the bolts alone: onyx jewellery is drop-only
   .map(([g, lv, xp, need, ring, amu]) => ({ g, lv, xp, need, ring, amu }));
 function enchant(i, t) {
-  const id = inv[i].id, e = ENCH[t], out = id === e.g + '_ring' ? e.ring : id === e.g + '_amulet' ? e.amu : 0;
-  if (!out) return say(id.startsWith(e.g) ? 'That piece takes no enchantment.' : 'This spell can only enchant ' + e.g + ' jewellery.', 'bad');
+  const id = inv[i].id, e = ENCH[t];
+  if (id === e.g + '_bolts') {                              // the crossbow spell was always cast over a set of ten
+    if (inv[i].n < 10) return say('The spell needs a set of ten ' + e.g + ' bolts.', 'bad');
+    invRemove(id, 10); invAdd(e.g + '_bolts_e', 10);
+    say('The ' + e.g + ' bolts take the enchantment and glow faintly.');
+    return 1;
+  }
+  const out = id === e.g + '_ring' ? e.ring : id === e.g + '_amulet' ? e.amu : 0;
+  if (!out) return say(id.startsWith(e.g) ? 'That piece takes no enchantment.' : 'This spell can only enchant ' + e.g + ' jewellery or bolts.', 'bad');
   inv[i] = { id: out, n: 1 }; dirty.inv = 1; markDirty();
   say('You enchant the ' + ITEMS[id].name.toLowerCase() + '.');
   return 1;
@@ -8493,7 +8548,10 @@ const USPELLS = [
   ['Superheat Item', 43, 53, [['nature_rune', 1], ['fire_rune', 4]], 0xd05a2a, 'bar', 'an ore → its bar, coal and all', superheat, 1],
   ['City Teleport', 45, 55.5, [['law_rune', 1], ['air_rune', 5]], 0x6a8ad8, 'star', 'the nearest city', cityTp],
   ['High Level Alchemy', 55, 65, [['nature_rune', 1], ['fire_rune', 5]], 0xe0b436, 'coins', 'an item → coins, 60% of its value', i => alch(i, 0.6), 1],
-  ...ENCH.map((e, t) => ['Lvl-' + (t + 1) + ' Enchant', e.lv, e.xp, e.need, parseInt(GEMS[t].c.slice(1), 16), e.ring ? 'ring' : 'amulet', e.g + ' jewellery', i => enchant(i, t), 1])
+  ['Bones to Bananas', 15, 25, [['nature_rune', 1], ['water_rune', 2], ['earth_rune', 2]], 0xe8d44a, 'banana', 'every bone in the pack becomes a banana', () => b2fruit('banana')],
+  ['Telekinetic Grab', 33, 43, [['law_rune', 1], ['air_rune', 1]], 0x9a7ad0, 'coins', 'take a ground item from up to ten tiles away', teleArm],
+  ['Bones to Peaches', 60, 35.5, [['nature_rune', 2], ['water_rune', 4], ['earth_rune', 4]], 0xe8a05a, 'peach', 'every bone in the pack becomes a peach', () => b2fruit('peach')],
+  ...ENCH.map((e, t) => ['Lvl-' + (t + 1) + ' Enchant', e.lv, e.xp, e.need, parseInt(GEMS[t].c.slice(1), 16), e.ring ? 'ring' : 'amulet', e.g + ' jewellery or bolts', i => enchant(i, t), 1])
 ].map(([n, lv, xp, need, tint, g, d, f, item]) => ({ n, lv, xp, need, tint, g, d, f, item })).sort((a, b) => a.lv - b.lv);
 const usRow = s => liRow('data-us="' + USPELLS.indexOf(s) + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).concat(s.d).join(', ') + '"', P.uspell === s, lvl[SK.magic] < s.lv,
   drawIcon(s.g, '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (lvl[SK.magic] < s.lv ? 'level ' + s.lv : spellReady(s) ? 'ready' : 'no runes') + '</u>');
@@ -8516,6 +8574,150 @@ on(spellGrid, 'click', e => {                               // runs after the co
   else { P.uspell = s; clearUse(); say('You ready ' + s.n + '. Choose an item in your pack.'); showTab('inv'); }
   drawSpells();
 });
+
+/* ---- THE OLD BOOK'S MISSING PAGES: holds and grabs, gem bolts, the famous weapons, the baker's economy, prayer on the cloth ---- */
+/* the new faces, drawn like the rest */
+GLYPH.banana = (g, c, d) => { qcurve(g, [7, 10, 16, 26, 25, 10, 18, 20, 9, 12, 7, 10], c, d); fr(g, d, 6, 8, 3, 4); };
+GLYPH.peach = (g, c, d) => { poly(g, [16, 8, 22, 9, 26, 15, 24, 23, 16, 26, 8, 23, 6, 15, 10, 9], c, K); poly(g, [16, 9, 16, 25], null, d); qcurve(g, [16, 8, 20, 3, 24, 6, 17, 9, 16, 8], '#4a8a3a', K); };
+GLYPH.whip = (g, c, d) => { fr(g, d, 8, 4, 6, 7); qcurve(g, [11, 11, 4, 22, 16, 28, 27, 22, 20, 14], null, c); qcurve(g, [20, 14, 24, 18, 20, 22], null, c); };
+GLYPH.bread = (g, c, d) => { poly(g, [6, 14, 10, 9, 22, 9, 26, 14, 26, 23, 6, 23], c, K); for (const x of [10, 15, 20]) poly(g, [x, 11, x + 3, 14], null, d); };
+GLYPH.pie = (g, c, d) => { poly(g, [4, 18, 28, 18, 26, 24, 6, 24], d, K); poly(g, [7, 18, 9, 13, 16, 11, 23, 13, 25, 18], c, K); for (const x of [11, 16, 21]) fr(g, d, x, 14, 2, 2); };
+GLYPH.cake = (g, c, d) => { fr(g, c, 7, 14, 18, 9); fr(g, '#e8dcc8', 7, 12, 18, 4); for (const x of [10, 15, 20]) { fr(g, d, x + 1, 8, 2, 4); fr(g, '#e8a03a', x + 1, 6, 2, 2); } };
+GLYPH.pizza = (g, c, d) => { poly(g, [16, 4, 28, 26, 4, 26], c, K); poly(g, [16, 8, 25, 24, 7, 24], '#e8c86a', null); for (const [x, y] of [[14, 15], [18, 20], [11, 22]]) fr(g, d, x, y, 3, 3); };
+GLYPH.bowl = (g, c, d) => { poly(g, [5, 14, 27, 14, 24, 24, 8, 24], d, K); poly(g, [7, 14, 25, 14, 24, 17, 8, 17], c, null); fr(g, '#c8a060', 20, 8, 3, 7); };
+GLYPH.wine = (g, c, d) => { poly(g, [10, 5, 22, 5, 21, 13, 16, 16, 11, 13], c, K); fr(g, d, 15, 16, 2, 8); fr(g, d, 11, 25, 10, 2); };
+GLYPH.wheat = (g, c, d) => { for (const x of [10, 16, 22]) { poly(g, [x, 28, x, 12], null, d); for (let y = 6; y < 14; y += 3) { poly(g, [x, y + 4, x - 3, y], null, c); poly(g, [x, y + 4, x + 3, y], null, c); } } };
+GLYPH.sack = (g, c, d) => { poly(g, [9, 10, 23, 10, 26, 26, 6, 26], c, K); fr(g, d, 12, 6, 8, 5); poly(g, [10, 16, 22, 16], null, d); };
+GLYPH.cheese = (g, c, d) => { poly(g, [5, 22, 27, 22, 27, 14, 16, 8, 5, 14], c, K); for (const [x, y, r] of [[12, 15, 2], [20, 17, 3], [9, 19, 1.5]]) { g.fillStyle = d; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill(); } };
+GLYPH.egg = (g, c, d) => { g.fillStyle = c; g.strokeStyle = K; g.beginPath(); g.ellipse(16, 17, 8, 10, 0, 0, TAU); g.fill(); g.stroke(); g.fillStyle = d; g.beginPath(); g.ellipse(13, 13, 2.5, 3.5, 0.5, 0, TAU); g.fill(); };
+GLYPH.horn = (g, c, d) => { qcurve(g, [8, 26, 6, 10, 18, 4, 14, 14, 12, 26, 8, 26], c, K); qcurve(g, [9, 22, 8, 12, 15, 7], null, d); };
+GLYPH.grapes = (g, c, d) => { fr(g, '#6b4e22', 15, 4, 2, 6); for (const [x, y] of [[12, 12], [20, 12], [16, 15], [10, 18], [16, 21], [22, 18], [13, 25], [19, 25]]) { g.fillStyle = c; g.strokeStyle = d; g.beginPath(); g.arc(x, y, 3.6, 0, TAU); g.fill(); g.stroke(); } };
+GLYPH.bucket = (g, c, d) => { poly(g, [8, 12, 24, 12, 22, 26, 10, 26], c, K); qcurve(g, [9, 12, 16, 5, 23, 12], null, d); fr(g, '#f0ece4', 10, 13, 12, 3); };
+
+/* the risen dead, marked so Crumble Undead and the like know their own */
+for (const k of ['skeleton', 'skelwarrior', 'giantskeleton', 'zombie', 'ghost', 'shade', 'ghoul', 'banshee', 'spectre', 'revenant', 'vetion']) if (NPC_BY[k]) NPC_BY[k].undead = 1;
+
+/* bones to fruit: every bone in the pack, one cast */
+defStack('banana', 'Banana', 'banana', '#e8d44a', '#9a8a1e', 2, { heal: 2 });
+defStack('peach', 'Peach', 'peach', '#e8a05a', '#a05a2a', 8, { heal: 8 });
+function b2fruit(fruit) {
+  let n = 0;
+  for (let i = 0; i < INV_N; i++) if (inv[i] && ITEMS[inv[i].id].bury) { n += inv[i].n; inv[i] = { id: fruit, n: inv[i].n }; }
+  if (!n) return say('You have no bones to offer the spell.', 'bad');
+  const merged = [];                                        // collapse the converted stacks
+  for (let i = 0; i < INV_N; i++) if (inv[i] && inv[i].id === fruit) { merged.push(inv[i].n); inv[i] = null; }
+  invAdd(fruit, merged.reduce((a, b) => a + b, 0));
+  dirty.inv = 1; markDirty();
+  say('The bones wriggle and swell into ' + (n > 1 ? n + ' ' + fruit + 's.' : 'a ' + fruit + '.'));
+  return 1;
+}
+/* telekinetic grab: armed, then thrown at a ground item; walls mean nothing to it */
+function teleArm() { P.teleG = 1; say('You ready Telekinetic Grab. Click an item on the ground.'); return 0; }   // arming spends nothing
+function teleGrab(d2) {
+  const s = USPELLS.find(u => u.n === 'Telekinetic Grab');
+  P.teleG = 0;
+  if (chebDist(P.tx, P.tz, d2.x, d2.z) > MAGIC_RANGE) return say('That lies beyond the spell\'s reach.', 'bad');
+  if (!spellReady(s)) return say('You do not have the runes for that spell.', 'bad');
+  if ((!ITEMS[d2.id].stack && !invFree())) return say(FULL, 'bad');
+  spendRunes(s); gainXp('magic', s.xp);
+  spellBurst(d2.x, Math.max(walkY(d2.x, d2.z), 0) + 0.6, d2.z, s.tint);
+  takeDrop(d2);
+  P.pose = 2; P.acting = 1;
+}
+
+/* gem-tipped bolts: cut the tips, pin them to the matching metal, enchant ten at a time. Strengths are the book's own. */
+const EBOLT = [['sapphire', 'mithril_bolts', 56, 48, 59, 83, 36], ['emerald', 'mithril_bolts', 58, 66, 55, 85, 36], ['ruby', 'adamant_bolts', 63, 72, 63, 103, 46],
+  ['diamond', 'adamant_bolts', 65, 84, 70, 105, 46], ['dragonstone', 'rune_bolts', 71, 98.4, 82, 117, 61]];
+for (const [gm, base, lv, tipXp, boltXp, rst, req] of EBOLT) {
+  const G = GEMS.find(q => q.k === gm), N = cap(gm);
+  defStack(gm + '_bolt_tips', N + ' bolt tips', 'bolt', G.c, G.c2, Math.round(ITEMS[gm].val / 10));
+  recipe(gm + '_bolt_tips', 'fletching', lv, tipXp, [[gm, 1]], { tool: 'chisel', n: 12, msg: 'You chip the ' + gm + ' into 12 bolt tips.' });
+  defWear({ id: gm + '_bolts', name: N + ' bolts', g: 'bolt', c: G.c, c2: ITEMS[base].c2, slot: 'ammo', stack: 1, ammo: 1, aT: 'bolt', rst, rat: ITEMS[base].rat, req: { ranged: req }, val: ITEMS[base].val + Math.round(ITEMS[gm].val / 8) });
+  recipe(gm + '_bolts', 'fletching', lv, boltXp, [[base, 10], [gm + '_bolt_tips', 10]], { n: 10, tk: 1, msg: 'You pin ' + gm + ' tips to 10 bolts.' });
+  if (!ITEMS[gm + '_bolts_e']) defWear(Object.assign({}, ITEMS[gm + '_bolts'], { id: gm + '_bolts_e', name: N + ' bolts (e)', c2: '#c8f0e8', val: ITEMS[gm + '_bolts'].val + 20 }));
+  ITEMS[gm + '_bolts_e'].eb = gm;
+}
+defWear(Object.assign({}, ITEMS.onyx_bolts, { id: 'onyx_bolts_e', name: 'Onyx bolts (e)', c2: '#c8f0e8', val: ITEMS.onyx_bolts.val + 100, eb: 'onyx' }));
+ITEMS.diamond_bolts_e.eb = 'diamond';                       // the drop-only stock joins the family
+/* what an enchanted tip does when the bolt lands; the rates are the commonly kept ones — TODO: verify against the book */
+function boltProc(o, dmg, ch, M) {
+  const a = eq.ammo && ITEMS[eq.ammo];
+  if (!a || !a.eb || !o.npc) return dmg;
+  const r = Math.random();
+  if (a.eb === 'sapphire' && r < 0.05) { P.pray = Math.min(P.maxpray, P.pray + 5); dirty.orb = 1; say('Your bolt sips at the spirit.', 'lv'); }
+  else if (a.eb === 'emerald' && r < 0.55 && !o.psn) { o.psn = 5; o.psnN = 0; o.psnT = tickN + 30; say('Your bolt carries venom into the ' + o.name + '.'); }
+  else if (a.eb === 'ruby' && r < 0.06) { dmg = Math.max(dmg, Math.min(100, Math.floor(o.hp * 0.2))); P.hp = Math.max(1, P.hp - Math.floor(P.hp * 0.1)); say('Blood for blood: your bolt bites deep!', 'lv'); }
+  else if (a.eb === 'diamond' && r < 0.10) { dmg = randInt(1, Math.ceil(M * 1.15)); say('Your bolt shears clean through armour!', 'lv'); }
+  else if (a.eb === 'dragonstone' && r < 0.06 && !(o.t.fire)) { dmg += Math.floor(lvl[SK.ranged] * 0.2); say('Dragonfire erupts from your bolt!', 'lv'); }
+  else if (a.eb === 'onyx' && r < 0.11 && dmg > 0) { dmg = Math.floor(dmg * 1.2); P.hp = Math.min(P.maxhp, P.hp + Math.floor(dmg * 0.25)); dirty.orb = 1; say('Life drains back along your bolt.', 'lv'); }
+  return dmg;
+}
+
+/* the famous absences, armed and placed. Sources borrow the nearest kin of owners this world lacks. */
+defWear({ id: 'abyssal_whip', name: 'Abyssal whip', g: 'whip', c: '#8a4ad0', c2: '#3a3a44', slot: 'weapon', atk: 82, str: 82, spd: 4, req: { attack: 70 }, val: 120000 });
+SPEC.abyssal_whip = { cost: 50, acc: 1.25 };                // Energy Drain: the accuracy is the point of it here
+defWear({ id: 'granite_maul', name: 'Granite maul', g: 'wham', c: '#7a7a80', c2: '#4a4a50', slot: 'weapon', two: 1, atk: 81, str: 79, spd: 7, req: { attack: 50, strength: 50 }, val: 35000 });
+SPEC.granite_maul = { cost: 60, acc: 1, quick: 1 };         // Quick Smash: the next blow follows at once
+defWear({ id: 'dark_bow', name: 'Dark bow', g: 'bow', c: '#2a2430', c2: '#141018', slot: 'weapon', bow: 1, two: 1, spd: 9, rng: 10, rat: 95, req: { ranged: 60 }, val: 150000 });
+SPEC.dark_bow = { cost: 55, rng: 1, n: 2, dmg: 1.3 };       // Descent of Darkness
+defWear({ id: 'saradomin_sword', name: 'Saradomin sword', g: 'lsword', c: '#e8d44a', c2: '#3a5ac8', slot: 'weapon', two: 1, atk: 82, str: 84, spd: 4, req: { attack: 70 }, val: 90000 });
+SPEC.saradomin_sword = { cost: 100, acc: 1, bonus: [1, 16] };   // Saradomin's Lightning rides the blow
+defWear(Object.assign({}, ITEMS.dragon_dagger, { id: 'dragon_dagger_p', name: 'Dragon dagger (p++)', c2: '#3aa04a', psn: 6, val: ITEMS.dragon_dagger.val + 500 }));
+SPEC.dragon_dagger_p = SPEC.dragon_dagger;
+defItem({ id: 'weapon_poison', name: 'Weapon poison(++)', g: 'vial', c: '#3aa04a', c2: CORK, val: 300, opt: ['Apply', () => {
+  const i = inv.findIndex(s2 => s2 && s2.id === 'dragon_dagger');
+  if (i < 0) return say('You have no dragon dagger to envenom.', 'bad');
+  invRemove('weapon_poison', 1); inv[i] = { id: 'dragon_dagger_p', n: 1 }; dirty.inv = 1; markDirty();
+  say('You coat the dagger. The edge glistens green.');
+}] });
+recipe('weapon_poison', 'herblore', 60, 137.5, [['kwuarm', 1], ['dragon_scale_dust', 1], ['vial_of_water', 1]], { tk: 2, msg: 'You brew a vial of weapon poison.' });
+(LOOT.blackdemon.tert = LOOT.blackdemon.tert || []).push(['abyssal_whip', 512]);       // game-economy: the black demon stands in for its abyssal kin
+(LOOT.trollgeneral.tert = LOOT.trollgeneral.tert || []).push(['granite_maul', 256]);   // game-economy: the general stands in for the gargoyles
+(LOOT.venenatis.tert = LOOT.venenatis.tert || []).push(['dark_bow', 512]);             // game-economy: the great spider keeps the dark bow
+(LOOT.hero.tert = LOOT.hero.tert || []).push(['saradomin_sword', 512]);                // game-economy: a hero carries the god's blade
+
+/* the baker's economy: wheat from the allotments, the windmill grinds at last, the range bakes */
+OBJ_OPTS[25] = ['Mill at', 'Windmill', o => openMake(25, o)];
+defStack('grain', 'Grain', 'wheat', '#d8c05a', '#8a7a2a', 3);
+defStack('flour', 'Pot of flour', 'sack', '#e8e0d0', '#9a8a70', 6);
+defStack('bucket_of_milk', 'Bucket of milk', 'bucket', '#a8a8b0', '#f0ece4', 12);      // game-economy: no milking yet, the store keeps a churn
+defStack('cheese', 'Cheese', 'cheese', '#e8c84a', '#a08a1e', 8);
+defStack('grapes', 'Grapes', 'grapes', '#8a4ad0', '#4a2a70', 15);                      // game-economy: the vineyard is the store shelf
+recipe('flour', 'cooking', 1, 0, [['grain', 1]], { at: 25, tk: 1, msg: 'The stones grind your grain to flour.' });
+defItem({ id: 'bread_dough', name: 'Bread dough', g: 'sack', c: '#e8dcc0', c2: '#a89a78', val: 8 });
+defItem({ id: 'pastry_dough', name: 'Pastry dough', g: 'sack', c: '#e8d4a8', c2: '#a89a78', val: 8 });
+recipe('bread_dough', 'cooking', 1, 0, [['flour', 1], ['vial_of_water', 1]], { at: 6, tk: 1, msg: 'You knead the flour and water into dough.' });   // the vial stands in for a jug
+recipe('pastry_dough', 'cooking', 1, 0, [['flour', 1], ['vial_of_water', 1]], { at: 6, tk: 1, msg: 'You work the flour into a short pastry.' });
+const BAKES = [                                             // [id, name, glyph, colour, lv, xp, heal, need, extra]; pies skip the dish and eat in one go
+  ['bread', 0, 0, 0, 1, 40, 0, [['bread_dough', 1]]],
+  ['meat_pie', 'Meat pie', 'pie', '#c8a060', 20, 110, 12, [['pastry_dough', 1], ['cooked_meat', 1]]],
+  ['stew', 'Stew', 'bowl', '#a86a3a', 25, 117, 11, [['potato', 1], ['cooked_meat', 1]]],
+  ['garden_pie', 'Garden pie', 'pie', '#8ab04a', 34, 138, 12, [['pastry_dough', 1], ['tomato', 1], ['onion', 1], ['cabbage', 1]], { boost: ['farming', 3] }],
+  ['wine', 'Wine', 'wine', '#8a2a4a', 35, 200, 11, [['grapes', 1], ['vial_of_water', 1]]],
+  ['plain_pizza', 'Plain pizza', 'pizza', '#e8a05a', 35, 143, 14, [['bread_dough', 1], ['tomato', 1], ['cheese', 1]]],
+  ['cake', 'Cake', 'cake', '#e8b0c8', 40, 180, 12, [['flour', 1], ['egg', 1], ['bucket_of_milk', 1]]],
+  ['meat_pizza', 'Meat pizza', 'pizza', '#c86a3a', 45, 26, 16, [['plain_pizza', 1], ['cooked_meat', 1]]],
+  ['fish_pie', 'Fish pie', 'pie', '#6a9ab0', 47, 164, 12, [['pastry_dough', 1], ['trout', 1], ['salmon', 1], ['potato', 1]], { boost: ['fishing', 3] }],   // salmon stands in for cod
+  ['anchovy_pizza', 'Anchovy pizza', 'pizza', '#8a8ab0', 55, 39, 18, [['plain_pizza', 1], ['anchovies', 1]]],
+  ['admiral_pie', 'Admiral pie', 'pie', '#4a6ab0', 70, 210, 16, [['pastry_dough', 1], ['salmon', 1], ['tuna', 1], ['potato', 1]], { boost: ['fishing', 5] }],
+  ['summer_pie', 'Summer pie', 'pie', '#e8c84a', 95, 260, 22, [['pastry_dough', 1], ['strawberry', 1], ['watermelon', 1], ['banana', 1]], { boost: ['agility', 5], energy: 20 }]   // banana stands in for the orchard apple
+];
+for (const [id, name, gl, c, lv, xp, heal, need, x] of BAKES) {
+  if (name) defItem(Object.assign({ id, name, g: gl, c, c2: '#6b4e22', val: 6 + lv * 3, heal }, x));
+  recipe(id, 'cooking', lv, xp, need, { at: 6, tk: 2, msg: name ? 'You bake ' + aOrAn(name) + '.' : 'You bake a loaf of bread.' });   // no burning at the bakes
+}
+SHOP_KINDS[0].base.push('wheat_seed', 'cheese', 'bucket_of_milk', 'grapes');
+(LOOT.goat.alw = LOOT.goat.alw || []).push(['goat_horn', 1]);
+LOOT.chicken.tert = (LOOT.chicken.tert || []).concat([['egg', 2]]);
+
+/* prayer finally rides the cloth: pb stretches every drain by a thirtieth per point */
+defWear({ id: 'monk_robe_top', name: "Monk's robe top", g: 'robe', c: '#a8493a', c2: '#6b2e24', slot: 'body', def: 4, pb: 6, val: 40 });      // TODO: verify — the top/bottom split of the pair
+defWear({ id: 'monk_robe_bottom', name: "Monk's robe bottom", g: 'skirt', c: '#a8493a', c2: '#6b2e24', slot: 'legs', def: 3, pb: 5, val: 32 });
+defWear({ id: 'holy_symbol', name: 'Holy symbol', g: 'amulet', c: '#e8e0c8', c2: '#8a8470', slot: 'neck', pb: 8, val: 120 });
+defItem({ id: 'holy_mould', name: 'Holy mould', g: 'mould', c: '#9aa0a8', c2: '#5b5f66', val: 5 });
+SHOP_KINDS.filter(s2 => s2.k === 'craft')[0].base.push('holy_mould');
+recipe('holy_symbol', 'crafting', 16, 50, [['silver_bar', 1], ['ball_of_wool', 1]], { at: 3, tool: 'holy_mould', msg: 'You cast and string a holy symbol.' });
+LOOT.monk.den = 128; LOOT.monk.main = [['monk_robe_top', 8], ['monk_robe_bottom', 8]];   // game-economy: the brothers surrender their habit
 
 /* ---- TREASURE TRAILS: a clue falls from a kill and names a spot a walk away; a spade there turns up a casket. One trail at a time ---- */
 const CLUE_T = [['easy', 120, 320], ['medium', 300, 700], ['hard', 600, 1400]].map(([n, lo, hi], i) => {   // tier: name, how far it sends you
