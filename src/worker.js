@@ -44,7 +44,7 @@ const BUILD = 6;   // 6: player houses (op 23)
    (element 6). A client whose own SPAWN_REV differs keeps its world private
    rather than sharing keys that name different monsters. Keep in step with the
    client's SPAWN_REV when deploying both. */
-const SPAWN_REV = 6;
+const SPAWN_REV = 7;
 
 /* The clients' shared clock, mirrored so world deadlines can be sanity-checked
    and expired entries pruned. Same epoch, same 600 ms tick. */

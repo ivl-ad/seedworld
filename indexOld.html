@@ -3568,17 +3568,11 @@ function groundY(x, z) {
 }
 const isWater = h => h < SEA;
 const STUCK_CLIMB = 8.5;                                  // stuck mode clears the 6.5-unit ledges; masonry stays shut
-/* a doorway is a step, not a cliff: a house floor sits on the lot's high corner, so on sloping ground the
-   threshold can stand further above the grass than an ordinary stride. The doorstep budget covers the
-   worst lot the claim allows (2.2 of fall plus the floor's own 0.2) so a door is never a one-way trip. */
-const DOORSTEP = 2.6;
 function canStep(fx, fz, tx, tz) {
     if (blocked.has(tk(tx, tz)) && !blocked.has(tk(fx, fz))) return false;   // already inside something: walk out through it
   const a = walkY(fx, fz), b = walkY(tx, tz), aw = isWater(a), bw = isWater(b);
   if (aw !== bw) return Math.abs(a - b) < 8;
   if (bw) return true;
-  const ra = floorMap.get(tk(fx, fz)), rb = floorMap.get(tk(tx, tz));
-  if (!ra !== !rb && (ra || rb).house !== undefined) return Math.abs(a - b) <= Math.max(DOORSTEP, OPT.stuck ? STUCK_CLIMB : CLIMB);
   return Math.abs(a - b) <= (OPT.stuck ? STUCK_CLIMB : CLIMB);
 }
 const dry = (x, z) => !isWater(walkY(x, z)) && !blocked.has(tk(x, z));
@@ -7936,15 +7930,8 @@ function dirtyLot(h) {
       const key = ck(cx, cz), rec = chunks.get(key);
       if (rec) { disposeChunk(rec); chunks.delete(key); }
     }
-  /* dropping a chunk is only half the job: nothing re-lays it until the player crosses a chunk line, and a
-     player standing in a fresh house crosses nothing. Re-queue here and lay the ground back the same frame. */
-  refresh();
-  pump(40);
-  while (popQueue.length) { const r = popQueue.shift(); if (!r.pop && r.mesh.parent) populateChunk(r); }
-  nearDirty = 1;
 }
 function applyHouse(pid, h) {
-  if (h && h.z > DUN_MIN) h = null;                          // no holding stands below: a claim down there is a bad record, not a house
   const old = housesReg.get(pid), oldSig = old && old.sig, oldH = old && old.h;
   clearHouse(pid);
   if (!h || !h.rm || !h.rm.length) { if (oldH) dirtyLot(oldH); if (pid === hMe()) refreshGhosts(); return; }
