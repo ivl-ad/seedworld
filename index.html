@@ -413,6 +413,7 @@
       <div class="wrow"><input id="wx" inputmode="numeric" autocomplete="off" aria-label="X coordinate" placeholder="x">
         <input id="wz" inputmode="numeric" autocomplete="off" aria-label="Y coordinate" placeholder="y"><button id="go">Travel</button></div>
       <div class="wrow"><button id="rnd">Roll</button><button id="stuck">Stuck</button></div>
+      <div class="wrow"><button id="clogBtn" title="Every notable drop this character has ever logged">Collection log</button><button id="caBtn" title="Feats of combat, boss by boss">Feats</button></div>
       <div id="wstats" class="kv"><i>position</i><b id="pos">0, 0</b><i>elevation</i><b id="elev">0</b><i>terrain</i><b id="biome">—</b>
         <i>chunks resident</i><b id="resident">0</b><i>triangles</i><b id="tris">0</b><i>draw calls</i><b id="calls">0</b><i>fps</i><b id="fps">—</b></div>
       <p class="hint">Left-click walks · right-click for options · WASD / arrows swing the camera · drag to orbit · scroll to zoom · SPACE toggles run · ` opens the dev console.</p>
@@ -448,6 +449,8 @@
       <input id="devMonQty" type="number" min="1" max="20" value="1"></div><div id="devMons"></div></div>
     <div class="drow"><span class="dlab">Run speed</span><input id="devRun" type="number" min="0.25" max="8" step="0.25" value="1">
       <button data-d="run">Apply</button><span class="dnote" id="devRunNow">1x · 2 tiles/tick</span></div>
+    <div class="drow"><span class="dlab">Random event ×</span><input id="devRand" value="1" autocomplete="off">
+      <span class="dnote">multiplies the genie and evil chicken odds during the right activities</span></div>
   </div>
 </div></div>
 <div id="chatwrap"><b id="chatmin" class="mini" title="minimise the chat log">–</b><div id="chat" class="panel"></div></div>
@@ -879,6 +882,8 @@ function gainXp(k, amount) {
   const i = SK[k], a = amount * XP_RATE;
   xp[i] += a;
   xpDrop(i, a);
+  if (i !== 0 && i !== 1 && i !== 2 && i !== 3 && i !== 4 && i !== 5 && i !== 8 && Math.random() < devRandMul / 4000) spawnGenie();   // honest work draws the lamp
+
   let leveled = 0;
   while (lvl[i] < MAXL && xp[i] >= XP_TABLE[lvl[i] + 1]) { lvl[i]++; leveled = 1; }
   if (leveled) {
@@ -4340,6 +4345,7 @@ function npcTick(n) {
       const dealt = fire ? roll(1, pr >= 2 ? 0 : pr ? 10 : (n.t.fmax || 50)) : prayHas('prot', st) ? 0 : roll(c, mx);
       if (fire && pr < 2) say(pr ? 'Your protection absorbs most of the dragonfire.' : 'You are horribly burnt by the dragonfire!', 'bad');
       if (dealt > 0 && n.t.psn && !P.psn && tickN > P.psnImm && Math.random() < 0.25) { P.psn = n.t.psn; P.psnN = 0; P.psnT = tickN + 30; say('You have been poisoned!', 'bad'); }
+      if (dealt > 0) n.caHurt = 1;
       hurtPlayer(dealt);
       if (dealt > 0 && eq.ring === 'ring_of_recoil' && !n.dead && !P.dead) {   // a ring of recoil bites back a tenth
         const rec = Math.max(1, Math.ceil(dealt * 0.1));
@@ -4407,11 +4413,10 @@ function killNpc(n) {
   n.dead = 1;
   if (n.plate) { freePlate(n.plate); n.plate = null; }
   const due = tickN + (n.t.boss ? 3000 : 60);               // a slain boss stays down half an hour
-  npcDead.set(n.key, due);
-  if (n.key) netWorld([22, n.key, due]);
+  if (n.key) { npcDead.set(n.key, due); netWorld([22, n.key, due]); }   // keyless spawns (events, dev) leave no timer behind
   removeNpc(n);
   const p = Math.max(0, n.pw || 0), x = n.tx, z = n.tz, q = 1 + Math.min(1, p * 0.15);   // only coin stacks swell with the ground's power (capped 2x): authored quantities stay wiki-exact
-  const drop = (id, k) => { const nq = id === 'coins' ? Math.max(1, Math.round((k || 1) * q)) : (k || 1); if (id === 'coins') gpMade += nq; dropItem(id, nq, x, z); };
+  const drop = (id, k) => { const nq = id === 'coins' ? Math.max(1, Math.round((k || 1) * q)) : (k || 1); if (id === 'coins') gpMade += nq; clogAdd(id); dropItem(id, nq, x, z); };
   const T = LOOT[n.t.k + '@' + n.t.lv] || LOOT[n.t.k];      // a rung can carry its own wiki table; otherwise the family shares one (a missing table throws at startup)
   if (!T.nb) drop(n.t.bones || (n.t.big ? 'big_bones' : 'bones'), 1);
   if (n.t.meat) drop(n.t.meat, 1);
@@ -4461,6 +4466,12 @@ function die(byPlayer) {
   for (const sl of EQ_SLOTS) if (eq[sl]) { all.push({ id: eq[sl], n: sl === 'ammo' ? P.ammoN : 1 }); eq[sl] = null; }
   for (let i = 0; i < INV_N; i++) if (inv[i]) { all.push(inv[i]); inv[i] = null; }
   P.ammoN = 0;
+  for (let i = all.length - 1; i >= 0; i--) if (all[i].id.startsWith('pet_')) {   // pets never lie in the dirt: insured ones run to the insurer, the rest are gone
+    const pid2 = all.splice(i, 1)[0].id;
+    if (P.ins.includes(pid2)) { if (!P.petLost.includes(pid2)) P.petLost.push(pid2); say('Your ' + ITEMS[pid2].name.toLowerCase() + ' bolts for its insurer.', 'bad'); }
+    else say('Your ' + ITEMS[pid2].name.toLowerCase() + ' is gone for good.', 'bad');
+  }
+  P.pet = null;
   all.sort((a, b) => ITEMS[b.id].val - ITEMS[a.id].val);
   const K = 3 + (prayHas('item') ? 1 : 0);                  // Protect Item keeps a fourth
   if (prayHas('retri')) for (const n of npcs) if (!n.dead && chebDist(n.tx, n.tz, dx, dz) <= 1) {   // Retribution: a last blast at whatever stands beside you
@@ -4651,6 +4662,7 @@ function taskTick() {
     }
     if (o.owner && o.owner !== PID) return fail('Someone else is fighting that.');
     if (o.key && o.owner !== PID) { o.owner = PID; claimMon(o); }
+    if (o.t.boss) { if (!o.caT0) o.caT0 = tickN; o.caSt = (o.caSt || 0) | (P.spell !== null ? 4 : bowRange() ? 2 : 1); }   // the feat ledger watches the style and the clock
     const dmg = swing(o);
     if (dmg < 0) return;
     o.hp -= dmg;
@@ -4670,6 +4682,7 @@ function taskTick() {
     const id = inv[bi].id;
     invRemove(id, 1);
     gainXp('prayer', ITEMS[id].bury * (o && o.pm ? o.pm() : 2));   // village altars double; a house chapel pays its wiki multiplier, burners counted
+    diaryBump('bones', 0, P.tx, P.tz, 1);
     P.maxpray = lvl[SK.prayer]; P.pray = Math.min(P.maxpray, P.pray + 2); dirty.orb = 1;
     say('You offer the bones at the altar.');
   } else if (GATHER[t.k]) {
@@ -4680,6 +4693,7 @@ function taskTick() {
       const id = R.k === 'essence' && lvl[SK.mining] >= 30 ? 'pure_essence' : R[G.yield];
       if (!invAdd(id, 1)) { dropItem(id, 1, P.tx, P.tz); say('Your pack is full; the ' + ITEMS[id].name.toLowerCase() + ' falls at your feet.'); }
       else say(G.got + ITEMS[id].name.toLowerCase() + '.');
+      diaryBump(t.k, o.k, o.x, o.z, 1);
       gainXp(G.sk, R.xp);
       if (t.k === 'mine' && R.rs && Math.random() < 1 / 256 && invFree()) { const g = rollTable(GEM_T)[0]; invAdd(g, 1); say('You find an ' + ITEMS[g].name.toLowerCase() + '!', 'lv'); }
       if (R.rs && (t.k !== 'chop' || !R.i || Math.random() < 0.125)) { deplete(o, R.rs); P.task = null; }   // oaks and up fall one log in eight
@@ -4698,6 +4712,7 @@ function taskTick() {
       if (!invAdd(f.raw, 1)) { dropItem(f.raw, 1, P.tx, P.tz); say('Your pack is full; the ' + f.n.toLowerCase() + ' flops at your feet.'); }
       else say('You catch a ' + f.n.toLowerCase() + '.');
       if (f.k === 'trout' || f.k === 'salmon') invRemove('feather', 1);
+      diaryBump('fish', f.k, P.tx, P.tz, 1);
       gainXp('fishing', f.xp);
       if ((hash2(P.tx, tickN, S) & 7) === 0) deplete(o, 14);   // spots move on
     }
@@ -4742,6 +4757,7 @@ function craft(r) {
   const out = r.fn ? r.fn(r) : [[r.id, r.n]];
   if (out) for (const [id, n] of out) if (!invAdd(id, n)) { for (const [id2, n2] of r.need) { invAdd(id2, n2); if (id2 === 'coins') gpSunk -= n2; } fail(FULL); return 0; }
   if (out) { if (r.xp) gainXp(r.sk, r.xp); say(r.msg || 'You make ' + (out[0][1] > 1 ? out[0][1] + ' ' : 'a ') + ITEMS[out[0][0]].name.toLowerCase() + '.'); }
+  if (out && r.at === 6 && r.sk === 'cooking') diaryBump('bake', 0, P.tx, P.tz, 1);
   return 1;
 }
 function bury(id) {
@@ -5486,6 +5502,7 @@ function optionsFor(o) {
     opts.push({ t: 'Trade with', o: o.name, f: act(o, tradeRequest) });
     if (!inSafe(P.tx, P.tz) && !inSafe(o.tx, o.tz)) opts.push({ t: 'Attack', o: o.name, f: act(o, 'attack', 1) });
   }
+  else if (o.npc && o.t.k === 'genie') opts.push({ t: 'Talk to', o: 'Genie', f: act(o, o2 => { if (!invAdd('genie_lamp', 1)) return say(FULL, 'bad'); say('"Rub it well, master." The genie folds back into smoke.', 'lv'); removeNpc(o2); }) });
   else if (o.npc) { opts.push({ t: 'Attack', o: o.name + ' <span class="lvl">(level ' + o.t.lv + ')</span>', f: act(o, 'attack', 1) }); if (o.t.pick) opts.push({ t: 'Pickpocket', o: o.name, f: act(o, 'pick') }); }
   else if (o.drop) {                                        // a death spills a whole pack onto one tile: list the heap, this one first
     if (P.teleG) return [{ t: 'Grab', o: (o.n > 1 ? o.n + ' x ' : '') + o.name, cls: 'itm', f: () => teleGrab(o) }];
@@ -6290,6 +6307,7 @@ function frame(now) {
   if (deathSpot && Math.abs(deathSpot.x - P.rx) < 72 && Math.abs(deathSpot.z - P.rz) < 72)
     labelAt(deathSpot, 'mk', deathSpot.x, deathMark.position.y + 3.2, deathSpot.z, DEATH_HTML, 'plate mk boss');
   animate(P, avatar.parts, dt);
+  petFrame(dt);
   updateRemotes(dt, alpha);
   labelsEnd();
   const key = ck(Math.floor(P.rx / CHUNK), Math.floor(P.rz / CHUNK));
@@ -6411,8 +6429,9 @@ function packSave() {
     prayers: P.prayers, rstyle: P.rstyle, ammoN: P.ammoN, eq: EQ_SLOTS.map(s => eq[s] || null), inv: invp, bank: bank.map(s => [s.id, s.n]),
     look: [P.look.skin, P.look.shirt, P.look.legs, P.look.face], xp: Array.from(xp, v => Math.round(v)), home: [P.home.x, P.home.z],
     sl: P.slay ? [P.slay.k, P.slay.n, P.slay.m] : 0, farm: Object.keys(P.farm).map(k => [+k, P.farm[k][0], P.farm[k][1]]), clue: P.clue || 0,
-    bd: [...npcDead].filter(([k, t]) => k[0] === 'b' && t > tickN),         // slain boss lairs: the cell key is stable, so the timer survives a reload
-    hs: P.hs || 0 };
+    bd: [...npcDead].filter(([k, t]) => k && k[0] === 'b' && t > tickN),    // slain boss lairs: the cell key is stable, so the timer survives a reload
+    hs: P.hs || 0,
+    cl: [...P.cl], pet: P.pet || 0, ins: P.ins, pl: P.petLost, dy: P.dy, ca: P.ca };
 }
 function applySave(b) {
   if (!b || b.v !== 1) return 0;
@@ -6439,6 +6458,12 @@ function applySave(b) {
   P.hs = b.hs && Array.isArray(b.hs.rm) && b.hs.rm.length ? b.hs : null;
   applyHouse(hMe(), P.hs);
   if (P.hs && !OFFLINE && srvBuild >= 6) wsSend([23, P.hs]);   // the room may hold a staler copy of this house
+  P.cl = new Set((b.cl || []).filter(id => ITEMS[id]));
+  P.pet = b.pet && ITEMS[b.pet] ? b.pet : null;
+  P.ins = (b.ins || []).filter(id => ITEMS[id]);
+  P.petLost = (b.pl || []).filter(id => ITEMS[id]);
+  P.dy = b.dy && typeof b.dy === 'object' ? b.dy : {};
+  P.ca = b.ca && typeof b.ca === 'object' ? b.ca : {};
   bst.fill(0);
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
   return b;
@@ -6451,6 +6476,7 @@ function freshCharacter() {
   P.maxhp = P.hp = lvl[SK.hitpoints]; P.maxpray = P.pray = lvl[SK.prayer];
   P.energy = 100; P.run = 1; P.style = 0; P.prayers = 0; P.spell = null; P.slay = null; P.clue = null; P.farm = Object.create(null); bst.fill(0);
   P.hs = null;                                              // loadSeed already tore any standing house down
+  P.cl = new Set(); P.pet = null; P.ins = []; P.petLost = []; P.dy = {}; P.ca = {};
   for (const [id, n] of [['bronze_hatchet', 1], ['bronze_pickaxe', 1], ['tinderbox', 1], ['hammer', 1], ['small_net', 1], ['coins', 120]]) invAdd(id, n);
   eq.weapon = 'bronze_sword';
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
@@ -7388,6 +7414,7 @@ function rcAltar(o) {
   invRemove('pure_essence', ess); if (r.i <= 5) invRemove('rune_essence', ess);
   const runes = ess * runesPer(r);
   invAdd(r.id, runes); gainXp('runecraft', ess * r.xp);
+  diaryBump('rc', 0, P.tx, P.tz, runes);
   say("You bind the temple's power into " + runes + ' ' + ITEMS[r.id].name.toLowerCase() + (runes > 1 ? 's.' : '.'));
   P.pose = 2; P.acting = 1; P.actSpan = 3;
   spellBurst(o.x, o.y + 1.2, o.z, hexInt(r.c));
@@ -7536,6 +7563,7 @@ onKill.push(n => {
   gainXp('slayer', n.t.hp);                                // any rung of the family's ladder counts, at its own hitpoints
   if (--s.n > 0) return markDirty();
   say("You've completed your Slayer task. Return to a Slayer Master for another.", 'lv');
+  diaryBump('slay', s.m, P.tx, P.tz, 1);
   P.slay = null; markDirty(1);
 });
 const slayerSpot = v => v.spots.length ? v.spots[(hash2(v.x, v.z, S + 310) >>> 4) % v.spots.length] : null;   // a street tile; the map reads it too
@@ -8778,6 +8806,300 @@ SHOP_KINDS.filter(s2 => s2.k === 'craft')[0].base.push('holy_mould');
 recipe('holy_symbol', 'crafting', 16, 50, [['silver_bar', 1], ['ball_of_wool', 1]], { at: 3, tool: 'holy_mould', msg: 'You cast and string a holy symbol.' });
 LOOT.monk.den = 128; LOOT.monk.main = [['monk_robe_top', 8], ['monk_robe_bottom', 8]];   // game-economy: the brothers surrender their habit
 
+/* ---- THE LONG GAME: boss pets, the collection log, combat feats, town diaries, and the world's small surprises ---- */
+GLYPH.paw = (g, c, d) => { for (const [x, y2, r] of [[10, 10, 3], [16, 8, 3], [22, 10, 3], [7, 16, 2.6], [25, 16, 2.6]]) { g.fillStyle = c; g.strokeStyle = d; g.beginPath(); g.arc(x, y2, r, 0, TAU); g.fill(); g.stroke(); } g.fillStyle = c; g.strokeStyle = d; g.beginPath(); g.ellipse(16, 21, 7, 6, 0, 0, TAU); g.fill(); g.stroke(); };
+GLYPH.lamp = (g, c, d) => { poly(g, [8, 18, 24, 18, 21, 25, 11, 25], c, K); qcurve(g, [24, 18, 30, 14, 26, 11, 24, 17, 24, 18], c, K); fr(g, d, 13, 14, 6, 3); fr(g, c, 14, 11, 4, 3); qcurve(g, [10, 25, 16, 28, 22, 25], null, d); };
+let devRandMul = 1;
+P.pet = null; P.ins = []; P.petLost = []; P.cl = new Set(); P.dy = {}; P.ca = {};
+
+/* every boss walks again in miniature; wiki rates where the pet exists, 1/3000 where 2007 never granted one — TODO: verify */
+const PET_RATE = { skotizo: 65, scorpia: 2016, vetion: 2000, venenatis: 2000, callisto: 2000, kbd: 3000, vorkath: 3000, sarachnis: 3000, kalphitequeen: 3000, scurrius: 3000, graardor: 5000, kril: 5000 };
+for (const b of BOSSES) {
+  const k = b[0], t = NPC_BY[k], c = t.tint ? '#' + (t.tint & 0xffffff).toString(16).padStart(6, '0') : '#c8a878';
+  defItem({ id: 'pet_' + k, name: t.n + ' pet', g: 'paw', c, c2: '#3a3026', val: 0, opt: ['Follow', () => petFollow('pet_' + k)] });
+  (LOOT[k].tert = LOOT[k].tert || []).push(['pet_' + k, PET_RATE[k] || 3000]);
+}
+function petFollow(id) {
+  if (P.pet === id) { P.pet = null; say('Your pet climbs back into the pack.'); }
+  else { P.pet = id; say('The ' + ITEMS[id].name.toLowerCase() + ' pads along at your heel.', 'lv'); }
+  markDirty();
+}
+let petMesh = null, petFor = '';
+function petFrame(dt) {
+  if (!P.pet || !invCount(P.pet)) {
+    if (petMesh) { scene.remove(petMesh); petMesh = null; petFor = ''; }
+    if (P.pet && !invCount(P.pet)) P.pet = null;
+    return;
+  }
+  if (petFor !== P.pet) {
+    if (petMesh) scene.remove(petMesh);
+    const t = NPC_BY[P.pet.slice(4)], base = t.base || t;
+    if (!base.rig) base.rig = base.build(base.body);
+    if (t.tint && !t.mat) t.mat = basicMat({ color: t.tint });
+    petMesh = riggedMesh(base.rig, t.mat || null);
+    petMesh.scale.setScalar(0.42 * Math.min(t.scale || 1, 1.5));
+    petMesh.position.set(P.rx + 1, Math.max(P.ry, 0), P.rz + 1);
+    scene.add(petMesh);
+    petFor = P.pet;
+  }
+  const dx = petMesh.position.x - P.rx, dz = petMesh.position.z - P.rz, dd = Math.hypot(dx, dz) || 1;
+  if (dd > 14) petMesh.position.set(P.rx + 1, 0, P.rz + 1);                       // pets do not get lost; they get impatient
+  const gx = P.rx + dx / dd * 1.5, gz = P.rz + dz / dd * 1.5, e = Math.min(1, dt * 5);
+  petMesh.position.x += (gx - petMesh.position.x) * e;
+  petMesh.position.z += (gz - petMesh.position.z) * e;
+  petMesh.position.y = Math.max(groundY(petMesh.position.x, petMesh.position.z), 0) + Math.sin(tSec * 3.2) * 0.05;
+  petMesh.rotation.y = Math.atan2(P.rx - petMesh.position.x, P.rz - petMesh.position.z);
+}
+/* the insurer keeps her ledger in every city; the price is the book's — TODO: verify the 2007 figures */
+const INSURE_GP = 500000, RECLAIM_GP = 1000000;
+KEEP_TINT[26] = 0xe8a0c8;
+MK_ART[26] = ['paw', '#e8a0c8', '#6b3050', 'Pet insurer']; MARK_H[26] = 3.4; PICK_R[26] = 1.2; PICK_Y[26] = 0.9;
+MK_ART[27] = ['scroll', '#d8c890', '#6b4e22', 'Achievement board']; MARK_H[27] = 3.2; PICK_R[27] = 1.4; PICK_Y[27] = 1.0;
+const insurerSpot = v => v.spots.length > 1 ? v.spots[((hash2(v.x, v.z, S + 311) >>> 4) + 1) % v.spots.length] : null;
+const boardSpot = v => v.spots.length > 2 ? v.spots[((hash2(v.x, v.z, S + 312) >>> 4) + 2) % v.spots.length] : null;
+structHooks.push((rec, vs, inChunk) => {
+  for (const v of vs) {
+    if (v.rank >= 3) { const s = insurerSpot(v); if (s && inChunk(s.x, s.z)) rec.objs.push({ t: 26, k: 0, x: s.x, z: s.z, y: heightAt(s.x, s.z), key: tk(s.x, s.z), n: 'Petra the pet insurer', dir: Math.atan2(v.x - s.x, v.z - s.z) }); }
+    if (v.rank >= 2) {
+      const s = boardSpot(v);
+      if (s && inChunk(s.x, s.z)) {
+        const y = heightAt(s.x, s.z);
+        rec.objs.push({ t: 27, k: 0, x: s.x, z: s.z, y, key: tk(s.x, s.z), n: villageName(v) + ' achievements', vx: v.x, vz: v.z });
+        batchInto(rec, B => { for (const a of [-0.7, 0.7]) B.add(BOX, s.x + a, y + 0.9, s.z, 0.18, 1.8, 0.18, 0, C_BEAM); B.add(BOX, s.x, y + 1.5, s.z, 2.1, 1.1, 0.14, 0, C_FLOOR); B.add(BOX, s.x, y + 1.5, s.z, 1.8, 0.85, 0.18, 0, C_CLOTH); });
+      }
+    }
+  }
+});
+OBJ_OPTS[26] = ['Talk to', null, o => petInsurance()];
+OBJ_OPTS[27] = ['Read', null, o => diaryBoard(o)];
+function petInsurance() {
+  const rows = [];
+  for (let i = 0; i < INV_N; i++) if (inv[i] && inv[i].id.startsWith('pet_')) {
+    const id = inv[i].id, ins = P.ins.includes(id);
+    rows.push(mkRow(ins ? '' : 'data-pins="' + id + '"', id, ITEMS[id].name, ins ? 'insured' : 'click to insure — ' + fmt(INSURE_GP) + ' gp', ins ? '<b class="gp">✓</b>' : '', ins ? ' no' : ''));
+  }
+  for (const id of P.petLost) rows.push(mkRow('data-prec="' + id + '"', id, ITEMS[id].name, 'lost — reclaim for ' + fmt(RECLAIM_GP) + ' gp', '<b class="gp">' + fmt(RECLAIM_GP) + '</b>'));
+  showModal('Petra, pet insurer', rows.join('') || '<p class="smsg">No pets in your pack, none on my books. Go and charm something.</p>',
+    'Insurance survives death: a lost insured pet waits here. Uninsured pets are gone for good.');
+}
+on(modalBody, 'click', e => {
+  const pi = e.target.closest('[data-pins]'), pr = e.target.closest('[data-prec]');
+  if (pi) {
+    if (coins() < INSURE_GP) return say('Insurance costs ' + fmt(INSURE_GP) + ' gp.', 'bad');
+    invRemove('coins', INSURE_GP); gpSunk += INSURE_GP;
+    P.ins.push(pi.dataset.pins); markDirty(1); say('Petra notes the ' + ITEMS[pi.dataset.pins].name.toLowerCase() + ' in her ledger.', 'lv');
+    petInsurance();
+  } else if (pr) {
+    if (coins() < RECLAIM_GP) return say('Reclaiming a pet costs ' + fmt(RECLAIM_GP) + ' gp.', 'bad');
+    if (!invFree()) return say(FULL, 'bad');
+    invRemove('coins', RECLAIM_GP); gpSunk += RECLAIM_GP;
+    P.petLost = P.petLost.filter(x => x !== pr.dataset.prec);
+    invAdd(pr.dataset.prec, 1); markDirty(1); say('Your ' + ITEMS[pr.dataset.prec].name.toLowerCase() + ' leaps back to you!', 'lv');
+    petInsurance();
+  }
+});
+
+/* the collection log: every notable drop this character has ever seen, held against everything the world can give */
+const CLOG = new Map(), CLOG_ALL = new Set();
+for (const k in LOOT) {
+  const T = LOOT[k], ids = new Set();
+  for (const d of (T.alw || []).concat(T.main || [], T.tert || [], T.taskTert || [])) {
+    const id = d[0];
+    if (ITEMS[id] && id !== 'coins' && (ITEMS[id].equip || ITEMS[id].val >= 100 || id.startsWith('pet_'))) ids.add(id);
+  }
+  if (ids.size) { CLOG.set(k, [...ids]); for (const id of ids) CLOG_ALL.add(id); }
+}
+CLOG.set('treasure', ['rune_full_helm_t', 'rune_platebody_t', 'rune_platelegs_t', 'rune_plateskirt_t', 'rune_kiteshield_t',
+  'rune_full_helm_g', 'rune_platebody_g', 'rune_platelegs_g', 'rune_plateskirt_g', 'rune_kiteshield_g']);
+for (const id of CLOG.get('treasure')) CLOG_ALL.add(id);
+function clogAdd(id) {
+  if (P.cl.has(id) || !CLOG_ALL.has(id)) return;
+  P.cl.add(id);
+  say('New collection log entry: ' + ITEMS[id].name + '.', 'lv');
+  markDirty();
+}
+function clogModal() {
+  const fams = [...CLOG.keys()].sort((a, b) => {
+    const ab = NPC_BY[a] && NPC_BY[a].boss ? 0 : 1, bb = NPC_BY[b] && NPC_BY[b].boss ? 0 : 1;
+    return ab - bb || a.localeCompare(b);
+  });
+  let got = 0;
+  for (const id of CLOG_ALL) if (P.cl.has(id)) got++;
+  const rows = fams.map(k => {
+    const ids = CLOG.get(k), have = ids.filter(id => P.cl.has(id)).length;
+    if (!have && !(NPC_BY[k] && NPC_BY[k].boss) && k !== 'treasure') return '';   // quiet families stay folded until the first drop
+    const name = k === 'treasure' ? 'Treasure Trails' : (NPC_BY[k] ? NPC_BY[k].n : k);
+    return '<div class="mk"><span>' + name + '<u>' + have + ' / ' + ids.length + '</u></span></div><div style="display:flex;flex-wrap:wrap;gap:2px;margin:0 0 6px 4px">' +
+      ids.map(id => '<span title="' + ITEMS[id].name + '" style="' + (P.cl.has(id) ? '' : 'opacity:.22;filter:grayscale(1)') + '">' + img(id) + '</span>').join('') + '</div>';
+  });
+  showModal('Collection log — ' + got + ' / ' + CLOG_ALL.size, rows.join('') || '<p class="smsg">Nothing logged yet.</p>',
+    'Drops from kills and caskets are logged the first time they fall to you.');
+}
+el('clogBtn').onclick = clogModal;
+
+/* combat feats: four badges a boss — the kill, the flawless kill, the one-style kill, and the swift kill */
+const CA_BITS = [[1, 'Slain'], [2, 'Flawless'], [4, 'One style'], [8, 'Swift']];
+onKill.push(n => {
+  if (!n.t.boss) return;
+  const k = n.t.k, had = P.ca[k] || 0;
+  let bits = had | 1;
+  if (!n.caHurt) bits |= 2;
+  if (n.caSt === 1 || n.caSt === 2 || n.caSt === 4) bits |= 4;
+  if (n.caT0 && tickN - n.caT0 <= Math.max(34, Math.ceil(n.t.hp / 3))) bits |= 8;   // an invented pace: hp/3 ticks — no book to copy
+  if (bits === had) return;
+  P.ca[k] = bits;
+  for (const [b2, nm] of CA_BITS) if ((bits & b2) && !(had & b2)) say('Feat: ' + nm + ' — ' + n.t.n + '.', 'lv');
+  markDirty();
+});
+function caModal() {
+  let done = 0, all = 0;
+  const rows = BOSSES.map(b => {
+    const k = b[0], bits = P.ca[k] || 0;
+    all += 4;
+    const badges = CA_BITS.map(([b2, nm]) => { if (bits & b2) done++; return '<u style="' + (bits & b2 ? 'color:var(--amber)' : 'opacity:.3') + ';margin-right:8px">' + nm + '</u>'; }).join('');
+    return '<div class="mk"><span>' + NPC_BY[k].n + ' <span class="lvl">(level ' + NPC_BY[k].lv + ')</span><br>' + badges + '</span></div>';
+  });
+  showModal('Combat feats — ' + done + ' / ' + all, rows.join(''), 'Flawless: take no damage. One style: never switch. Swift: beat the sand-glass.');
+}
+el('caBtn').onclick = caModal;
+
+/* town diaries: each settlement reads its own hinterland and asks for what is actually there; the cloak is the receipt */
+function diaryOf(v) {
+  if (v.dyT) return v.dyT;
+  let bestTree = 0, bestOre = 2, fish = null, deepW = 0, shallowW = 0;
+  for (let i = 0; i < 48; i++) {                            // the same survey trick the map reader uses: hashed samples, no chunks needed
+    const hh = hash2(v.x + i * 37, v.z - i * 53, S + 901);
+    const ang = (hh & 1023) / 1024 * TAU, rad = v.r * 1.2 + ((hh >>> 10) & 255) / 255 * v.r * 2.2;
+    const x = Math.round(v.x + Math.cos(ang) * rad), z = Math.round(v.z + Math.sin(ang) * rad), y = heightAt(x, z);
+    if (y < SEA) { if (y < -4.5) deepW = 1; else shallowW = 1; continue; }
+    if (y < 1.7 || y > 70) continue;
+    const pw2 = powerAt(x, z);
+    bestTree = Math.max(bestTree, treeKind(y, biomeAt(x, z), hh, pw2));
+    const ok = oreKind(y, hh, pw2);
+    if (ok <= 6) bestOre = Math.max(bestOre, ok);
+  }
+  const fl = 12 + v.rank * 14;
+  for (let i = FISH.length - 1; i >= 0 && !fish; i--) if (FISH[i].lv <= fl && ((FISH[i].deep && deepW) || (!FISH[i].deep && shallowW))) fish = FISH[i];
+  const T = [];
+  const add = (tier, t, p, n, txt) => T.push({ tier, t, p, n, txt });
+  add(0, 'chop', 0, 12, 'Chop 12 trees in the hinterland');
+  add(0, 'mine', 2, 10, 'Mine 10 iron ores nearby');
+  add(0, 'kill', 0, 15, 'Defeat 15 creatures around the town');
+  add(1, 'mine', bestOre, 12, 'Mine 12 ' + ORES[bestOre].n.toLowerCase() + 's hereabouts');
+  if (fish) add(1, 'fish', fish.k, 10, 'Catch 10 ' + fish.n.toLowerCase() + ' in local waters');
+  else add(1, 'bake', 0, 8, 'Bake 8 things at a range here');
+  add(1, 'slay', v.rank, 1, 'Finish a task from ' + MASTERS[v.rank].n);
+  add(2, 'chop', bestTree, 15, 'Chop 15 ' + TREES[bestTree].n.toLowerCase() + 's hereabouts');
+  add(2, v.lm && v.lm.t === 0 ? 'bones' : 'rc', 0, 15, v.lm && v.lm.t === 0 ? 'Offer 15 bones at the church altar' : 'Bind 15 runes at the nearest ruin');
+  if (v.rank >= 3) add(2, 'dboss', 'bD' + v.x + '_' + v.z, 1, 'Slay the master of the castle dungeon');
+  else add(2, 'kill', 0, 50, 'Defeat 50 creatures around the town');
+  return v.dyT = T;
+}
+const dyKey = v => v.x + '_' + v.z;
+function diaryBump(t, p, x, z, amt) {
+  for (const key in P.dy) {
+    const e = P.dy[key], [vx, vz] = key.split('_').map(Number);
+    if (t !== 'slay' && t !== 'dboss' && Math.max(Math.abs(x - vx), Math.abs(z - vz)) > e.r * 3.5) continue;
+    const v = villageAt(Math.floor(vx * INV_CELL), Math.floor(vz * INV_CELL));
+    if (!v || v.x !== vx || v.z !== vz) continue;
+    diaryOf(v).forEach((task, i) => {
+      if (task.t !== t || e.c[i] >= task.n) return;
+      if ((t === 'chop' || t === 'mine') && p < task.p) return;               // a finer tree or ore counts for the lesser ask
+      if ((t === 'fish' || t === 'dboss') && p !== task.p) return;
+      if (t === 'slay' && p !== task.p) return;
+      e.c[i] = Math.min(task.n, e.c[i] + (amt || 1));
+      if (e.c[i] >= task.n) say('Diary task complete: ' + task.txt + '.', 'lv');
+      markDirty();
+    });
+  }
+}
+function diaryBoard(o) {
+  const v = nearVillage(o.x, o.z);
+  if (!v) return;
+  const key = dyKey(v.v), T = diaryOf(v.v);
+  if (!P.dy[key]) { P.dy[key] = { r: v.v.r, c: new Array(T.length).fill(0), done: 0 }; say('You take note of what ' + villageName(v.v) + ' asks of its heroes.', 'lv'); }
+  const e = P.dy[key], TIERN = ['Easy', 'Medium', 'Hard'];
+  let html = '';
+  for (let tier = 0; tier < 3; tier++) {
+    const rows = T.map((t2, i) => t2.tier === tier ? '<div class="mk' + (e.c[i] >= t2.n ? '' : ' no') + '"><span>' + t2.txt + '<u>' + e.c[i] + ' / ' + t2.n + '</u></span></div>' : '').join('');
+    const full = T.every((t2, i) => t2.tier !== tier || e.c[i] >= t2.n);
+    html += '<div class="mk"><span><b>' + TIERN[tier] + '</b></span>' + (e.done & (1 << tier) ? '<b class="gp">✓ claimed</b>' : full ? '<b class="gp" data-dyc="' + key + ':' + tier + '">CLAIM</b>' : '') + '</div>' + rows;
+  }
+  showModal(villageName(v.v) + ' — achievement diary', html, 'Finish a tier and claim its cloak. The cloak carries you back to any town whose diary you have finished.');
+}
+on(modalBody, 'click', e => {
+  const c = e.target.closest('[data-dyc]');
+  if (!c) return;
+  const [key, tier] = c.dataset.dyc.split(':'), en = P.dy[key];
+  if (!en || (en.done & (1 << +tier))) return;
+  if (!invFree()) return say(FULL, 'bad');
+  en.done |= 1 << +tier;
+  invAdd('town_cloak_' + (+tier + 1), 1);
+  say('You claim the tier ' + (+tier + 1) + ' cloak!', 'lv');
+  markDirty(1);
+  closeOverlays();
+});
+for (const [tier, def2, pb2, x2] of [[1, 2, 0, {}], [2, 4, 1, {}], [3, 6, 2, { atk: 2, str: 2 }]])
+  defWear(Object.assign({ id: 'town_cloak_' + tier, name: 'Town cloak ' + tier, g: 'cape', c: ['#4a8ad8', '#b04ad0', '#e8b43a'][tier - 1], c2: '#2a2a30', slot: 'cape', def: def2, pb: pb2, val: 0,
+    opt: ['Rub', () => cloakTp(tier)] }, x2));   // game-economy: the diary cloak in this world's shape — its rub rides home to any finished town
+function cloakTp(tier) {
+  let best = null, bd = 1e18;
+  for (const key in P.dy) {
+    if (!(P.dy[key].done & ((1 << tier) - 1))) continue;    // any claimed tier at or below carries you
+    const [vx, vz] = key.split('_').map(Number), d2 = Math.hypot(vx - P.tx, vz - P.tz);
+    if (d2 < bd) { bd = d2; best = { x: vx, z: vz }; }
+  }
+  if (!best) return say('The cloak only knows towns whose diary you have finished.', 'bad');
+  const v = nearestVillageTo(best.x, best.z, 2);
+  if (v) { const s = safeSpotIn(v); tpTo(s.x, s.z, 'home to ' + villageName(v)); }
+}
+
+/* the world's small surprises: honest work draws the genie; slaughter draws the Evil Chicken */
+const impT2 = NPC_BY.imp;
+const genieT = { k: 'genie', n: 'Genie', town: 1, lv: 1, hp: 6, atk: 1, str: 1, def: 1, db: 0, abon: 0, sbon: 0, max: 0, fmax: 0, at: 'm', rng: 1, spd: 8, mspd: 0.06,
+  sz: impT2.sz, scale: impT2.scale, tint: 0x4a8ad8, body: impT2.body, build: impT2.build, mag: 1, mdb: 0 };
+NPC_TYPES.push(genieT); NPC_BY.genie = genieT; LOOT.genie = { nb: 1 };
+defItem({ id: 'genie_lamp', name: 'Genie lamp', g: 'lamp', c: '#e8c34a', c2: '#8a6a14', val: 0, opt: ['Rub', i => lampRub(i)] });
+function spawnGenie() {
+  if (npcs.some(n2 => n2.t.k === 'genie')) return;
+  const s = openNear(P.tx + 1, P.tz + 1, 3);
+  if (!s) return;
+  spawnNpc(NPC_BY.genie, s.x, s.z, null, 0);
+  const g = npcs[npcs.length - 1];
+  if (g && g.t.k === 'genie') g.despawn = tickN + 200;
+  say('A genie appears in a puff of smoke!', 'lv');
+}
+onKill.push(n => {                                          // the diaries hear every local kill, and the castle dungeon's master by name
+  if (n.key && String(n.key).startsWith('bD')) diaryBump('dboss', n.key, n.tx, n.tz, 1);
+  if (!n.t.town && !n.t.flee) diaryBump('kill', 0, n.tx, n.tz, 1);
+});
+onKill.push(n => {                                          // the Evil Chicken has always taken slaughter personally
+  if (n.t.boss || n.t.town || n.t.flee) return;
+  if (Math.random() >= devRandMul / 2000) return;
+  const s = openNear(P.tx - 2, P.tz - 2, 4);
+  if (!s || npcs.some(q => q.t.k === 'evilchicken')) return;
+  spawnNpc(NPC_BY.evilchicken, s.x, s.z, null, Math.max(0, powerAt(P.tx, P.tz)));
+  const g = npcs[npcs.length - 1];
+  if (g && g.t.k === 'evilchicken') { g.despawn = tickN + 300; g.target = P; }
+  say('The Evil Chicken descends, shrieking!', 'bad');
+});
+tickHooks.push(() => { for (let i = npcs.length - 1; i >= 0; i--) if (npcs[i].despawn && npcs[i].despawn <= tickN && !npcs[i].dead) removeNpc(npcs[i]); });
+function lampRub(i) {
+  const rows = SKILLS.map((s, si) => s.locked ? '' : liRow('data-lamp="' + si + '"', 0, 0, drawIcon(s.g || 'star', '#e8c34a', '#f0e6c8'), s.n, '<u>+' + lvl[si] * 10 + ' xp</u>')).join('');
+  showModal('The lamp glows...', rows, 'Choose a skill: it grants ten times its level in experience.');
+}
+on(modalBody, 'click', e => {
+  const l = e.target.closest('[data-lamp]');
+  if (!l || !invCount('genie_lamp')) return;
+  const si = +l.dataset.lamp;
+  invRemove('genie_lamp', 1);
+  gainXp(SKILLS[si].k, lvl[si] * 10);
+  say('The lamp crumbles to dust in your hands.', 'lv');
+  closeOverlays();
+});
+const devRandEl = el('devRand');
+if (devRandEl) devRandEl.oninput = () => { devRandMul = parseFloat(devRandEl.value) || 1; };
+
 /* ---- TREASURE TRAILS: a clue falls from a kill and names a spot a walk away; a spade there turns up a casket. One trail at a time ---- */
 const CLUE_T = [['easy', 120, 320], ['medium', 300, 700], ['hard', 600, 1400]].map(([n, lo, hi], i) => {   // tier: name, how far it sends you
   defItem({ id: 'clue_' + i, name: 'Clue scroll (' + n + ')', g: 'scroll', c: '#e8dcc0', c2: '#8a6a3a', val: 0, opt: ['Read', () => readClue(i)] });
@@ -8841,6 +9163,7 @@ function openCasket(s, i) {                                // two rolls, three, 
   for (let k = 0; k < 2 + i; k++) {
     const d = rollTable(CLUE_LOOT[i]), n = randInt(d[2] || 1, d[3] || d[2] || 1) * (ITEMS[d[0]].stack ? 1 + i : 1);
     if (d[0] === 'coins') gpMade += n;
+    clogAdd(d[0]);
     if (!invAdd(d[0], n)) dropItem(d[0], n, P.tx, P.tz);
   }
   say('You open the casket. Its treasures are yours.', 'lv'); markDirty(1);
