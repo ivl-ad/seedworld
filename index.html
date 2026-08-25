@@ -635,12 +635,16 @@ function nbrs(cx, cz) {
   return a;
 }
 let _lcx = 1e9, _lcz = 1e9, _llist = [];                 // one-entry cell cache
+let _nvx = 1e9, _nvz = 1e9, _nvr = null;                 // and a one-entry answer per integer tile: finish() asks four times per tile
 function nearVillage(x, z) {
+  const ix = Math.floor(x), iz = Math.floor(z);
+  if (ix === _nvx && iz === _nvz) return _nvr;
+  _nvx = ix; _nvz = iz;
   const cx = Math.floor(x * INV_CELL), cz = Math.floor(z * INV_CELL);
   if (cx !== _lcx || cz !== _lcz) { _lcx = cx; _lcz = cz; _llist = nbrs(cx, cz); }
   let best = null, bd = 1e9;
-  for (const v of _llist) { const d = villageDist(v, x, z); if (d < v.r * 1.6 && d < bd) { bd = d; best = v; } }
-  return best ? { v: best, d: bd } : null;
+  for (const v of _llist) { const d = villageDist(v, ix, iz); if (d < v.r * 1.6 && d < bd) { bd = d; best = v; } }
+  return _nvr = (best ? { v: best, d: bd } : null);
 }
 function villageDist(v, x, z) {                          // in the settlement's rotated, stretched frame
   const dx = x - v.x, dz = z - v.z, rx = dx * v.cs + dz * v.sn, rz = -dx * v.sn + dz * v.cs;
@@ -878,7 +882,7 @@ function gainXp(k, amount) {
     if (i === SK.hitpoints) { P.hp += lvl[i] - P.maxhp; P.maxhp = lvl[i]; }   // a level heals only the point it grants
     if (i === SK.defence) sendEquip();                    // the room rolls against it
     dirty.orb = 1;
-    markDirty(1);                                         // a level is never worth losing
+    markDirty();                                          // levels re-derive from the xp array in the same blob: a routine save suffices
   }
   dirty.sk = 1;
 }
@@ -1365,6 +1369,7 @@ const PRAYERS = [
   ['piety', 'Piety', 70, 0.4, { def: 1.25, str: 1.23, atk: 1.20 }, 'star', 70], ['rigour', 'Rigour', 74, 0.4, { rng: 1.23, def: 1.25 }, 'bow', 70], ['augury', 'Augury', 77, 0.4, { mag: 1.25, def: 1.25 }, 'staff', 70],
   ['smite', 'Smite', 52, 0.3, { smite: 1, prot: 0 }, 'star']
 ].map(([k, n, lv, drain, fx, g, dl], i) => Object.assign({ k, n, lv, drain, g, dl: dl || 0, fx: Object.keys(fx), bit: 1 << i }, fx));
+if (PRAYERS.length > 32) throw new Error('prayer bitfield full: P.prayers holds 32 bits');   // bit 31 (the sign) still works through & masks; bit 32 wraps to 1
 const prayerMul = f => { let m = 1; for (const p of PRAYERS) if ((P.prayers & p.bit) && p[f]) m *= p[f]; return m; };
 const prayHas = (f, v) => PRAYERS.some(p => (P.prayers & p.bit) && (v === undefined ? p[f] : p[f] === v));
 
@@ -3216,11 +3221,23 @@ const unblock = k => { const c = blocked.get(k); if (c > 1) blocked.set(k, c - 1
 const depleted = new Map();                               // tile key -> tick it comes back
 const objIndex = new Map();
 
+/* the macro field never changes for a seed, and steps 0.5 and 1 sample the identical grid — every LOD promotion
+   used to recompute it. Keyed on (cx, cz, ms), kept across disposeChunk, distance-evicted in refresh(). */
+const mhCache = new Map();
+function macroGrid(cx, cz, ms) {
+  const key = cx + ':' + cz + ':' + ms;
+  let MH = mhCache.get(key);
+  if (MH) return MH;
+  const M = Math.round(CHUNK / ms), ox = cx * CHUNK, oz = cz * CHUNK;
+  MH = new Float32Array((M + 1) * (M + 1));
+  for (let j = 0; j <= M; j++) for (let i = 0; i <= M; i++) MH[j * (M + 1) + i] = macroHeight(ox + i * ms, oz + j * ms);
+  mhCache.set(key, MH);
+  return MH;
+}
 function buildChunk(cx, cz, step, ring) {
   const N = Math.round(CHUNK / step), ox = cx * CHUNK, oz = cz * CHUNK;
   // macro relief sampled per tile and interpolated; micro relief and flattening at full mesh resolution
-  const ms = Math.max(step, 1), M = Math.round(CHUNK / ms), MH = new Float32Array((M + 1) * (M + 1));
-  for (let j = 0; j <= M; j++) for (let i = 0; i <= M; i++) MH[j * (M + 1) + i] = macroHeight(ox + i * ms, oz + j * ms);
+  const ms = Math.max(step, 1), M = Math.round(CHUNK / ms), MH = macroGrid(cx, cz, ms);
   const stride = N + 1, H = new Float32Array(stride * stride), ratio = step / ms;
   let lo = 1e9, hi = -1e9;
   for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
@@ -3262,13 +3279,17 @@ function buildChunk(cx, cz, step, ring) {
   geo.computeBoundingSphere();
   const mesh = new THREE.Mesh(geo, mat);
   scene.add(mesh);
-  const rec = { mesh, step, cx, cz, extra: [], objs: [], blk: [], roofs: [], H, stride, gs: Math.round(1 / step), lo, hi, near: step <= 1 };
-  if (rec.near) {
-    scatterResources(rec, cx, cz, ring); scatterDecor(rec, cx, cz, ring); buildStructures(rec, cx, cz);
-    for (const k of rec.blk) block(k);
-    for (const o of rec.objs) objIndex.set(o.key, o);
-  }
+  const rec = { mesh, step, cx, cz, extra: [], objs: [], blk: [], roofs: [], H, stride, gs: Math.round(1 / step), lo, hi, near: step <= 1, ring, pop: 0 };
   return rec;
+}
+/* the second phase: trees, veins, decor and buildings land on a near chunk a frame or two after its ground does,
+   so no single frame pays for both. pump() drains this before starting new terrain. */
+function populateChunk(rec) {
+  rec.pop = 1;
+  if (!rec.near) return;
+  scatterResources(rec, rec.cx, rec.cz, rec.ring); scatterDecor(rec, rec.cx, rec.cz, rec.ring); buildStructures(rec, rec.cx, rec.cz);
+  for (const k of rec.blk) block(k);
+  for (const o of rec.objs) objIndex.set(o.key, o);
 }
 const recH = (rec, x, z) => rec.H[((z - rec.cz * CHUNK) * rec.gs) * rec.stride + (x - rec.cx * CHUNK) * rec.gs];
 /* species and ore are pure functions of tile plus the ground's power; the top rungs need distance as well as altitude */
@@ -3502,6 +3523,8 @@ function stepFor(d, cur) {
   if (cur !== undefined) for (const b of BANDS) if (b[2] === cur && d >= b[0] - 1 && d <= b[1] + 1) return cur;
   return d <= 1 ? 0.5 : d <= 3 ? 1 : d <= 5 ? 2 : 4;
 }
+/* delete the oldest half of a memo once it outgrows its cap: an infinite world must not grow them without bound */
+const capMap = (m, cap) => { if (m.size > cap) { let n = m.size - (cap >> 1); for (const k of m.keys()) { if (n-- <= 0) break; m.delete(k); } } };
 function refresh() {
   const pcx = Math.floor(focus.x / CHUNK), pcz = Math.floor(focus.z / CHUNK);
   pending.length = 0;
@@ -3511,28 +3534,50 @@ function refresh() {
   }
   pending.sort((p, q) => p.d - q.d);
   for (const [k, rec] of chunks) if (Math.max(Math.abs(rec.cx - pcx), Math.abs(rec.cz - pcz)) > RADIUS + 1) { disposeChunk(rec); chunks.delete(k); }
+  for (const k of mhCache.keys()) { const [cx, cz] = k.split(':'); if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > RADIUS + 2) mhCache.delete(k); }
+  capMap(villageCache, 3000); capMap(nbrCache, 3000); capMap(roadCache, 2000); capMap(ruinCache, 600);
   nearDirty = 1;
 }
+const popQueue = [];
 function pump(budgetMs, maxChunks) {
   const t0 = performance.now();
+  while (popQueue.length && performance.now() - t0 < budgetMs) {   // finish grounds already laid before laying more
+    const rec = popQueue.shift();
+    if (!rec.pop && rec.mesh.parent) { populateChunk(rec); nearDirty = 1; }
+  }
   let n = 0;
   while (pending.length && n < (maxChunks || 99) && performance.now() - t0 < budgetMs) {
     n++;
     const job = pending.shift(), old = chunks.get(job.k);
     if (old) disposeChunk(old);
-    chunks.set(job.k, buildChunk(job.cx, job.cz, job.step, job.d));
+    const rec = buildChunk(job.cx, job.cz, job.step, job.d);
+    chunks.set(job.k, rec);
+    if (rec.near) popQueue.push(rec); else rec.pop = 1;
     nearDirty = 1;
   }
 }
 let nearObjs = [], nearDirty = 1;
+/* the short list: only what sits within ~64 tiles, for the consumers that scan every frame (pools, minimap dots,
+   town markers). Picking keeps the full list so a far tree on screen still answers a click. */
+let closeObjs = [], _cox = 1e9, _coz = 1e9;
+function rebuildClose() {
+  _cox = P.tx; _coz = P.tz; closeObjs.length = 0;
+  for (const o of nearObjs) if (Math.abs(o.x - _cox) <= 64 && Math.abs(o.z - _coz) <= 64) closeObjs.push(o);
+}
+function closeList() {
+  if (Math.abs(P.tx - _cox) > 12 || Math.abs(P.tz - _coz) > 12) rebuildClose();
+  return closeObjs;
+}
 function rebuildNear() {
   nearDirty = 0; nearObjs.length = 0;
   const pcx = Math.floor(focus.x / CHUNK), pcz = Math.floor(focus.z / CHUNK);
   for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) { const rec = chunks.get(ck(pcx + a, pcz + b)); if (rec && rec.near) nearObjs.push(...rec.objs); }
+  rebuildClose();
 }
 /* move the player and the world around them in one go; ms is the chunk-build budget */
 function teleport(x, z, ms) {
   focus.set(x, 0, z); refresh(); pump(ms);
+  while (popQueue.length) { const r = popQueue.shift(); if (!r.pop && r.mesh.parent) populateChunk(r); }   // arrival ground must be fully furnished
   placePlayer(x, z); rebuildNear(); refreshNpcs();
   mapOX = 1e9; mapRow = MW; mapImg = null;
 }
@@ -4170,8 +4215,8 @@ function npcTick(n) {
       if (st !== 'm') npcBolt(n, st);
       // monster effective level is level + 9; max hit comes from the shared 2007 formula off its strength and strength bonus.
       // a cast rolls the monster's Magic against 0.7 x your Magic + 0.3 x your Defence and your magic gear; all else rolls your Defence
-      const cast = st === 'g' && !n.t.fire, mx = n.t.max !== null ? n.t.max : maxFrom(n.t.str * (n.strDr ? 0.95 : 1) + 1, n.t.sbon);
-      const c = hitChance((cast && n.t.mag > 1 ? n.t.mag : n.t.atk) * (n.atkDr ? 0.95 : 1) + 9, n.t.abon,
+      const cast = st === 'g' && !n.t.fire, mx = n.t.max !== null ? n.t.max : maxFrom(n.t.str * (n.strDr > tickN ? 0.95 : 1) + 1, n.t.sbon);
+      const c = hitChance((cast && n.t.mag > 1 ? n.t.mag : n.t.atk) * (n.atkDr > tickN ? 0.95 : 1) + 9, n.t.abon,
         cast ? Math.floor(0.7 * eff('magic') + 0.3 * defLevel()) + 8 : defLevel() + 8, cast ? bonus('mag') : bonus('def'));
       // dragonfire ignores armour: a shield or an antifire draught each count one (prayer a half); two is immunity, one leaves a max of 10.
       // unprotected it hits up to 50 as in 2007 (fmax overrides where the wiki differs, e.g. the KBD)
@@ -4371,7 +4416,7 @@ function swing(o) {
   P.pose = sp ? 2 : rng ? 1 : stabbing() ? 4 : 0;
   if (--P.actT > 0) return -1;
   P.actT = P.actSpan;
-  const [dl, db] = o.npc ? [o.t.def * (o.defDr ? 0.95 : 1) * (o.specDr || 1) + 9, o.t.db] : remoteDef(o);
+  const [dl, db] = o.npc ? [o.t.def * (o.defDr > tickN ? 0.95 : 1) * (o.specDr || 1) + 9, o.t.db] : remoteDef(o);
   let dmg, xps = null;
   if (rng) {
     const st = RSTYLES[P.rstyle], spc = P.specArm && SPEC[eq.weapon] && SPEC[eq.weapon].rng ? SPEC[eq.weapon] : null;
@@ -4387,10 +4432,16 @@ function swing(o) {
   } else if (sp) {
     if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return -1; }
     spendRunes(sp);
-    if (sp.drain) { dmg = 0; o[sp.drain + 'Dr'] = 1; castFx(o, sp, null); say('Your spell weakens the ' + o.name + '.'); gainXp('magic', sp.xp); P.spell = null; }   // a curse lands once, then the staff comes down
+    if (sp.drain) {                                       // a curse rolls magic accuracy like any spell, holds for a minute, then the staff comes down
+      dmg = 0; castFx(o, sp, null);
+      const [cl, cb] = o.npc ? [o.t.mag * 1 + 9, o.t.mdb] : [dl, db];
+      if (Math.random() < hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), cl, cb)) { o[sp.drain + 'Dr'] = tickN + 100; say('Your spell weakens the ' + o.name + '.'); }
+      else say('Your spell splashes off the ' + o.name + '.');
+      gainXp('magic', sp.xp); P.spell = null;
+    }
     else {
       // gear buys accuracy only, never damage; a monster defends a spell with its Magic level and magic defence bonus
-      const [ml, mb] = o.npc ? [o.t.mag * (o.defDr ? 0.95 : 1) + 9, o.t.mdb] : [dl, db];
+      const [ml, mb] = o.npc ? [o.t.mag * (o.defDr > tickN ? 0.95 : 1) + 9, o.t.mdb] : [dl, db];
       dmg = roll(hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), ml, mb), sp.max); castFx(o, sp, dmg); gainXp('magic', sp.xp + dmg * 2);
     }
     wsSend([18, sp.i, o.tx, o.tz]);                       // observers cannot see a bolt they were never told about
@@ -4484,7 +4535,7 @@ function taskTick() {
     }
     const id = inv[bi].id;
     invRemove(id, 1);
-    gainXp('prayer', ITEMS[id].bury * 1.5);
+    gainXp('prayer', ITEMS[id].bury * 2);   // the gilded-altar double, as close as this world has
     P.maxpray = lvl[SK.prayer]; P.pray = Math.min(P.maxpray, P.pray + 2); dirty.orb = 1;
     say('You offer the bones at the altar.');
   } else if (GATHER[t.k]) {
@@ -4500,13 +4551,18 @@ function taskTick() {
       if (R.rs && (t.k !== 'chop' || !R.i || Math.random() < 0.125)) { deplete(o, R.rs); P.task = null; }   // oaks and up fall one log in eight
     }
   } else if (t.k === 'fish') {
-    const pool = FISH.filter(f => f.deep === o.k && lvl[SK.fishing] >= f.lv);
+    // every qualifying fish rolls its own chance, best first, so shrimp still turn up beside the trout;
+    // the fly fish (trout, salmon) each spend a feather, as ever
+    const flies = invCount('feather') > 0;
+    const pool = FISH.filter(f => f.deep === o.k && lvl[SK.fishing] >= f.lv && (flies || (f.k !== 'trout' && f.k !== 'salmon')));
     if (!pool.length) return fail('You need a higher Fishing level to fish here.');
-    const f = pool[pool.length - 1];
     if (!o.k && invCount('small_net') + invCount('fishing_rod') === 0) return fail('You need a small net or a fishing rod.');
     if (o.k && !invCount('harpoon')) return fail('You need a harpoon to fish these waters.');
-    if (Math.random() < rollChance(lvl[SK.fishing], f.lv, 2)) {
+    let f = null;
+    for (let i = pool.length - 1; i >= 0 && !f; i--) if (Math.random() < rollChance(lvl[SK.fishing], pool[i].lv, 2)) f = pool[i];
+    if (f) {
       if (!invAdd(f.raw, 1)) return fail(FULL);
+      if (f.k === 'trout' || f.k === 'salmon') invRemove('feather', 1);
       say('You catch a ' + f.n.toLowerCase() + '.');
       gainXp('fishing', f.xp);
       if ((hash2(P.tx, tickN, S) & 7) === 0) deplete(o, 14);   // spots move on
@@ -5376,7 +5432,7 @@ function mapTick() {
     mapOX = P.rx; mapOZ = P.rz; mapRow = 0;
   }
   const ox = mapOX - MSPAN / 2, oz = mapOZ - MSPAN / 2;
-  for (let r = 0; r < 8 && mapRow < MW; r++, mapRow++) {
+  for (let r = 0; r < 3 && mapRow < MW; r++, mapRow++) {   // three rows a frame: the old picture holds, rescaled, while the repaint walks down
     const j = mapRow, z = oz + j * MSTEP;
     for (let i = 0; i <= MW; i++) MROW[i] = macroHeight(ox + i * MSTEP, z);
     for (let i = 0; i < MW; i++) mapPixel(mimg.data, (j * MW + i) * 4, ox + i * MSTEP, z, MROW[i], MROW[i + 1] - MROW[i], MSTEP, 0.085, 0.4);
@@ -5394,7 +5450,7 @@ function mapMarks() {
   const sc = imgStep / MSTEP;                               // an older picture is shown rescaled until the repaint lands
   mctx.drawImage(mapCan, -C * sc + (imgX - P.rx) * k, -C * sc + (imgZ - P.rz) * k, MW * sc, MW * sc);
   const dot = (x, z, col, s) => { const px = (x - P.rx) * k, pz = (z - P.rz) * k; if (px * px + pz * pz > C * C) return; mctx.fillStyle = col; mctx.fillRect(px - s / 2, pz - s / 2, s, s); };
-  for (const o of nearObjs) {                               // things you walk to, not things you walk past
+  for (const o of (MSPAN <= 140 ? closeList() : nearObjs)) {   // the tight zooms only ever show the short list
     if (depleted.has(o.key)) continue;
     if (o.t === 2) dot(o.x, o.z, '#7fd8ff', 2);
     else if (o.t === 5) dot(o.x, o.z, '#ffd34a', 4);
@@ -5723,8 +5779,14 @@ function wmDraw() {
     wmCtx.closePath(); wmCtx.fillStyle = '#fff'; wmCtx.fill(); wmCtx.stroke();
   }
 }
-function wmLoop() { if (!wmOpen) return; wmDraw(); requestAnimationFrame(wmLoop); }
-function openWorldMap() { if (wmOpen) return; wmOpen = 1; wmEl.classList.add('on'); wmCx = P.rx; wmCz = P.rz; wmResize(); wmLoop(); }
+let wmDirty = 1, wmPX = 1e9, wmPZ = 1e9;
+function wmLoop() {
+  if (!wmOpen) return;
+  if (Math.abs(P.rx - wmPX) + Math.abs(P.rz - wmPZ) > 0.5) { wmDirty = 1; wmPX = P.rx; wmPZ = P.rz; }   // redraw only on pan, zoom or movement
+  if (wmDirty) { wmDirty = 0; wmDraw(); }
+  requestAnimationFrame(wmLoop);
+}
+function openWorldMap() { if (wmOpen) return; wmOpen = 1; wmDirty = 1; wmEl.classList.add('on'); wmCx = P.rx; wmCz = P.rz; wmResize(); wmLoop(); }
 function closeWorldMap() { wmOpen = 0; wmEl.classList.remove('on'); }
 el('wmX').onclick = closeWorldMap;
 function wmZoomAt(sx, sy, f) {                              // the tile under the cursor stays under it
@@ -5732,10 +5794,11 @@ function wmZoomAt(sx, sy, f) {                              // the tile under th
   wmZoom = clamp(wmZoom * f, 0.5, 10);
   const s1 = wmZoom / WM_TPP;
   wmCx = wx - (sx - wmW / 2) / s1; wmCz = wz - (sy - wmH / 2) / s1;
+  wmDirty = 1;
 }
 el('wmIn').onclick = () => wmZoomAt(wmW / 2, wmH / 2, 1.4);
 el('wmOut').onclick = () => wmZoomAt(wmW / 2, wmH / 2, 1 / 1.4);
-el('wmHome').onclick = () => { wmCx = P.rx; wmCz = P.rz; };
+el('wmHome').onclick = () => { wmCx = P.rx; wmCz = P.rz; wmDirty = 1; };
 on(wmCv, 'wheel', e => { e.preventDefault(); const r = wmCv.getBoundingClientRect(); wmZoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.2 : 1 / 1.2); }, { passive: false });
 /* one finger or the left button pans, two fingers pinch, the middle button drags to zoom */
 const wmPtr = new Map();
@@ -5758,14 +5821,14 @@ on(wmCv, 'pointermove', e => {
     if (wmPinch > 0 && d > 0) { const it = wmPtr.values(), a = it.next().value, b = it.next().value; wmZoomAt((a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top, d / wmPinch); }
     wmPinch = d;
   } else if (prev.b === 1) wmZoomAt(wmW / 2, wmH / 2, Math.exp(-(e.clientY - prev.y) * 0.012));
-  else { wmCx -= (e.clientX - prev.x) / s; wmCz -= (e.clientY - prev.y) / s; }
+  else { wmCx -= (e.clientX - prev.x) / s; wmCz -= (e.clientY - prev.y) / s; wmDirty = 1; }
 });
 on(wmCv, 'pointerup pointercancel', e => { wmPtr.delete(e.pointerId); if (wmPtr.size < 2) wmPinch = 0; });
 on(wmCv, 'contextmenu', e => e.preventDefault());
 on(window, 'contextmenu', e => { if (e.target.closest('#ctx')) e.preventDefault(); });
 on(window, 'resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
-  if (wmOpen) wmResize();
+  if (wmOpen) { wmResize(); wmDirty = 1; }
 });
 /* ---- 32. RESET ---- */
 function hashSeed(str) {
@@ -5773,7 +5836,7 @@ function hashSeed(str) {
   for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
-const resetLookups = () => { _lcx = _lcz = 1e9; _llist = []; roadCache.clear(); _rcx = _rcz = 1e9; _rlist = []; };
+const resetLookups = () => { _lcx = _lcz = 1e9; _llist = []; _nvx = _nvz = 1e9; _nvr = null; roadCache.clear(); _rcx = _rcz = 1e9; _rlist = []; };
 function loadSeed(str) {
   tickN = globalTick() - 1;                                 // join the world's clock, not a fresh one
   S = hashSeed(str) | 0;
@@ -5781,7 +5844,7 @@ function loadSeed(str) {
   for (const [, rec] of chunks) disposeChunk(rec);
   chunks.clear(); pending.length = 0; tilesGenerated = 0;
   blocked.clear(); depleted.clear(); objIndex.clear(); floorMap.clear();
-  drops.length = 0; fires.length = 0; npcDead.clear(); indoors = null;
+  drops.length = 0; fires.length = 0; npcDead.clear(); indoors = null; mhCache.clear(); popQueue.length = 0;
   for (const n of npcs) scene.remove(n.mesh);
   npcs.length = 0;
   closeOverlays();
@@ -5883,7 +5946,7 @@ function gameTick() {
   if ((tickN & 7) === 0) refreshNpcs();
   const rgn = (P.tx >> 6) + ':' + (P.tz >> 6);               // the tolerance clock restarts in a new region
   if (rgn !== P.regionK) { P.regionK = rgn; P.regionT = tickN; }
-  netSend(); netMon();
+  netSend(); netMon(); flushNet();
   if (P.moved && (tickN % 100) === 0) markDirty();         // a wandering player is worth persisting every minute or so
 }
 function cameraKeys(dt) {
@@ -5961,7 +6024,7 @@ const POOL_KEEP = Pool(KEEP_GEO, 24, 1), POOLS = [POOL_STUMP, POOL_FIRE, POOL_DR
 const KEEP_TINT = { 7: 0x9fb4e8, 9: 0xf2b8d8, 10: 0xf2cf6a, 5: 0xffffff, 12: 0xd8c8a0 };
 function updatePools(t) {
   POOLS.forEach(poolReset);
-  for (const o of nearObjs) {
+  for (const o of closeList()) {
     if (o.t === 0) { if (depleted.has(o.key)) poolPut(POOL_STUMP, o.x, o.y - 0.18, o.z, o.x * 0.7, 1); }
     else if (o.t === 2) { if (!depleted.has(o.key)) { const w = 0.85 + Math.sin(t * 2.2 + o.x * 0.7 + o.z * 0.4) * 0.16; poolPut(POOL_SPOT, o.x, 0.08, o.z, t * 0.5 + o.x, w, 1, w); } }
     else if (KEEP_TINT[o.t]) poolPut(POOL_KEEP, o.kx !== undefined ? o.kx : o.x, o.y, o.kz !== undefined ? o.kz : o.z, o.dir !== undefined ? o.dir : o.b ? o.b.door * (PI / 2) : 0, 1, 1, 1, KEEP_TINT[o.t]);
@@ -6052,7 +6115,7 @@ function frame(now) {
     } else if (n.plate) { freePlate(n.plate); n.plate = null; }
   }
   let marks = 0;                                            // icon markers over the town's plumbing
-  for (const o of nearObjs) {
+  for (const o of closeList()) {
     if (!(o.t >= 3) || o.noMark || marks >= 16 || Math.abs(o.x - P.rx) > 42 || Math.abs(o.z - P.rz) > 42) continue;
     if (labelAt(o, 'mk', o.x, o.y + MARK_H[o.t], o.z, markHtml(o), 'plate mk')) { marks++; o.mk.el._obj = o; }
   }
@@ -6082,7 +6145,7 @@ function frame(now) {
   }
   boltFrame(dt);
   fogCenter.value.set(P.rx, P.ry, P.rz);
-  renderer.render(scene, camera);
+  if (!wmOpen) renderer.render(scene, camera);              // the world map covers the screen: no point painting behind it
   fxFrame(dt); xpFrame(dt);
   if (OPT.timers) timerFrame(); else clearTimers();
   if (++hoverFrame % 3 === 0 && mx >= 0 && !drag) {
@@ -6221,10 +6284,18 @@ function freshCharacter() {
    purchase, gear, a trade, death) flushes promptly but bursts coalesce behind SAVE_GAP; unload and sign-out go straight through.
    Writing is disarmed until a read has succeeded: nothing may overwrite a character we could not load. Every send expects an ack. ---- */
 let saveDirty = 0, lastSave = 0, saveTimer = 0, saveArmed = 0, savedOnce = 0, ackPending = 0, ackWarned = 0;
-const NEED_BUILD = 3;                                       // the wire contract this client speaks
+const NEED_BUILD = 4;                                       // the wire contract this client speaks
 const SPAWN_REV = 6;                                        // bumped with any change to powerAt / spawnTable / pickMonster / tame / TOWNFOLK / LADDERS / bossAt / TREES / ruinAt
-let worldSync = 0;                                          // build >= 4: rooms relay 20/21/22
-const wsSend = m => { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(m)); } catch {} } };
+let worldSync = 0, srvBuild = 0;                            // build >= 4: rooms relay 20/21/22; build >= 5 accepts batched sends
+/* every routine message a tick produces rides one socket send (one billable request), flushed at tick's end.
+   Saves go alone (their own size lane), and clock pings and trade signals go straight out (latency-sensitive). */
+const outQ = [];
+const wsSend = m => {
+  if (!ws || ws.readyState !== 1) return;
+  if (srvBuild < 5 || m[0] === 8 || m[0] === 9 || m[0] === 14 || m[0] === 15) { try { ws.send(JSON.stringify(m)); } catch {} }
+  else outQ.push(m);
+};
+const flushNet = () => { if (!outQ.length) return; try { if (ws && ws.readyState === 1) ws.send(JSON.stringify(outQ.length === 1 ? outQ[0] : outQ)); } catch {} outQ.length = 0; };
 const netWorld = m => { if (worldSync) wsSend(m); };
 const SAVE_MS = 60000, SAVE_GAP = 5000;
 function markDirty(now) {
@@ -6328,6 +6399,7 @@ function onNet(m) {
     case 0: {                                               // hello: a stale Worker deployment is otherwise invisible from here
       NAME = m[3] || NAME;
       const build = m[5] | 0;
+      srvBuild = build;
       worldSync = build >= 4 ? 1 : 0;
       if (worldSync && m[6] !== undefined && (m[6] | 0) !== SPAWN_REV) {   // different monsters on one key: degrade to a private world
         worldSync = 0;
@@ -6622,44 +6694,61 @@ say('Welcome to Seedworld.', 'lv');
 say('This whole world is four bytes. Everything else is arithmetic.');
 
 /* ---- 41. WELCOME: the preview runs the same macroHeight and siting pass the world will use ---- */
-const WEL = el('welcome'), welCan = el('welmap'), welCtx = welCan.getContext('2d'), WPX = welCan.width, WTILE = 8, welImg = welCtx.createImageData(WPX, WPX);
+const WEL = el('welcome'), welCan = el('welmap'), welCtx = welCan.getContext('2d'), WPX = welCan.width, WTILE = 8;
 const WORDS = ['ash', 'fen', 'mor', 'var', 'dun', 'kel', 'thorn', 'bry', 'loch', 'gald', 'riven', 'oak', 'stow', 'mere', 'harrow', 'cairn', 'wyn', 'drake', 'elm', 'vale'];
 const rollSeed = () => WORDS[(Math.random() * WORDS.length) | 0] + WORDS[(Math.random() * WORDS.length) | 0] + (Math.random() * 900 + 99 | 0);
 const DISC = ['rgba(255,220,140,.55)', 'rgba(255,214,110,.6)', 'rgba(255,190,70,.68)', 'rgba(255,150,40,.78)', 'rgba(255,96,32,.88)'];
-let welBusy = 0;
+/* painted at half resolution and upscaled, one field sample per pixel (the row's neighbour doubles as the shading sample),
+   a few milliseconds of rows per frame. A newer keystroke, Roll, or Enter simply abandons the job mid-paint. */
+const welLow = document.createElement('canvas'); welLow.width = welLow.height = WPX >> 1;
+const welLowCtx = welLow.getContext('2d'), welLowImg = welLowCtx.createImageData(WPX >> 1, WPX >> 1);
+let welJob = 0;
 function previewSeed(str) {
-  if (welBusy) return;
-  welBusy = 1;
-  const keep = S, vc = villageCache, nc = nbrCache;
-  S = hashSeed(str) | 0; villageCache = new Map(); nbrCache = new Map();
-  let p = 0, land = 0;
-  for (let j = 0; j < WPX; j++) for (let i = 0; i < WPX; i++) {
-    const x = (i - WPX / 2) * WTILE, z = (j - WPX / 2) * WTILE, h = macroHeight(x, z);
-    let r, g, b;
-    if (h < 0) { const t = clamp(-h / 16, 0, 1); r = 44 - t * 20; g = 88 - t * 42; b = 112 - t * 48; }
-    else {
-      land++;
-      const e = macroHeight(x + WTILE, z), sh = clamp(0.95 - (e - h) * 0.07, 0.45, 1.35), c = colorAt(x, z, h, Math.abs(e - h) / WTILE);
-      r = c[0] * 255 * sh; g = c[1] * 255 * sh; b = c[2] * 255 * sh;
+  const job = ++welJob, HPX = WPX >> 1, HT = WTILE * 2;
+  const mySeed = hashSeed(str) | 0, myVc = new Map(), myNc = new Map();
+  let j = 0, land = 0, keep, vc, nc;
+  const enter = () => { keep = S; vc = villageCache; nc = nbrCache; S = mySeed; villageCache = myVc; nbrCache = myNc; resetLookups(); };
+  const leave = () => { S = keep; villageCache = vc; nbrCache = nc; resetLookups(); };
+  const rows = () => {
+    if (job !== welJob) return;
+    enter();
+    const t0 = performance.now(), D = welLowImg.data;
+    for (; j < HPX && performance.now() - t0 < 6; j++) {
+      const z = (j - HPX / 2) * HT;
+      let p = j * HPX * 4, h = macroHeight((-HPX / 2) * HT, z);
+      for (let i = 0; i < HPX; i++) {
+        const x = (i - HPX / 2) * HT, e = macroHeight(x + HT, z);
+        let r, g, b;
+        if (h < 0) { const t = clamp(-h / 16, 0, 1); r = 44 - t * 20; g = 88 - t * 42; b = 112 - t * 48; }
+        else {
+          land++;
+          const sh = clamp(0.95 - (e - h) * 0.07, 0.45, 1.35), c = colorAt(x, z, h, Math.abs(e - h) / HT);
+          r = c[0] * 255 * sh; g = c[1] * 255 * sh; b = c[2] * 255 * sh;
+        }
+        D[p++] = r; D[p++] = g; D[p++] = b; D[p++] = 255;
+        h = e;
+      }
     }
-    welImg.data[p++] = r; welImg.data[p++] = g; welImg.data[p++] = b; welImg.data[p++] = 255;
-  }
-  welCtx.putImageData(welImg, 0, 0);
-  const cells = Math.ceil(WPX * WTILE / 2 / SETTLE_CELL) + 1, tally = [0, 0, 0, 0, 0];   // the settlements the siting stage approves of
-  for (let a = -cells; a <= cells; a++) for (let b = -cells; b <= cells; b++) {
-    const v = villageAt(a, b);
-    if (!v) continue;
-    tally[v.rank]++;
-    const px = WPX / 2 + v.x / WTILE, pz = WPX / 2 + v.z / WTILE;
-    if (px < -8 || pz < -8 || px > WPX + 8 || pz > WPX + 8) continue;
-    welCtx.beginPath(); welCtx.arc(px, pz, Math.max(1.6, v.r / WTILE), 0, TAU);
-    welCtx.fillStyle = DISC[v.rank]; welCtx.fill();
-    welCtx.strokeStyle = 'rgba(30,20,10,.7)'; welCtx.lineWidth = 1; welCtx.stroke();
-  }
-  el('welStat').innerHTML = '<b>' + (tally[4] + tally[3]) + '</b> cities &nbsp; <b>' + tally[2] + '</b> towns &nbsp; <b>' + (tally[0] + tally[1]) + '</b> villages &nbsp;·&nbsp; <b>' +
-    Math.round(land / (WPX * WPX) * 100) + '%</b> land';
-  S = keep; villageCache = vc; nbrCache = nc; resetLookups();
-  welBusy = 0;
+    if (j < HPX) { leave(); setTimeout(rows, 16); return; }   // setTimeout, not rAF: a hidden tab must still finish the paint
+    welLowCtx.putImageData(welLowImg, 0, 0);
+    welCtx.imageSmoothingEnabled = true;
+    welCtx.drawImage(welLow, 0, 0, WPX, WPX);
+    const cells = Math.ceil(WPX * WTILE / 2 / SETTLE_CELL) + 1, tally = [0, 0, 0, 0, 0];   // the settlements the siting stage approves of
+    for (let a = -cells; a <= cells; a++) for (let b = -cells; b <= cells; b++) {
+      const v = villageAt(a, b);
+      if (!v) continue;
+      tally[v.rank]++;
+      const px = WPX / 2 + v.x / WTILE, pz = WPX / 2 + v.z / WTILE;
+      if (px < -8 || pz < -8 || px > WPX + 8 || pz > WPX + 8) continue;
+      welCtx.beginPath(); welCtx.arc(px, pz, Math.max(1.6, v.r / WTILE), 0, TAU);
+      welCtx.fillStyle = DISC[v.rank]; welCtx.fill();
+      welCtx.strokeStyle = 'rgba(30,20,10,.7)'; welCtx.lineWidth = 1; welCtx.stroke();
+    }
+    el('welStat').innerHTML = '<b>' + (tally[4] + tally[3]) + '</b> cities &nbsp; <b>' + tally[2] + '</b> towns &nbsp; <b>' + (tally[0] + tally[1]) + '</b> villages &nbsp;·&nbsp; <b>' +
+      Math.round(land / (HPX * HPX) * 100) + '%</b> land';
+    leave();
+  };
+  rows();
 }
 let welTimer = 0;
 const welSeedEl = el('welSeed'), welGoEl = el('welGo');
@@ -6671,6 +6760,7 @@ on(welSeedEl, 'keydown', e => { if (e.key === 'Enter') welGoEl.click(); });
 const setGo = (txt, off) => { welGoEl.disabled = !!off; welGoEl.textContent = txt; };
 /* fetch the character for this seed, apply it, open the socket, reveal the world; every await has an offline fallback */
 async function enterWorld(seed) {
+  welJob++;                                                 // abandon any preview mid-paint before the world takes the seed globals
   seed = (seed || 'lumbridge').trim().toLowerCase().slice(0, 32) || 'lumbridge';
   SEED = seed;
   welSeedEl.blur();
@@ -6712,7 +6802,7 @@ async function enterWorld(seed) {
   setGo('Enter this world', 0);
   started = 1;
   document.body.classList.add('ingame');
-  if (!OFFLINE && AUTH) { connect(); markDirty(1); geGreet(); }
+  if (!OFFLINE && AUTH) { connect(); if (isNew || !(blob && blob.v === 1)) markDirty(1); geGreet(); }   // a loaded character need not write back the byte-identical blob it just read
 }
 let started = 0;
 

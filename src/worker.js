@@ -38,7 +38,13 @@ const cleanSeed = s => (String(s || '').trim().toLowerCase().slice(0, 32)) || 'l
    invisible from the browser: assets update instantly and the Worker does not,
    so the game looks new while the server is months old and silently dropping
    everything it does not understand. */
-const BUILD = 4;
+const BUILD = 5;
+
+/* The spawn-table revision this deployment expects, echoed in the socket hello
+   (element 6). A client whose own SPAWN_REV differs keeps its world private
+   rather than sharing keys that name different monsters. Keep in step with the
+   client's SPAWN_REV when deploying both. */
+const SPAWN_REV = 6;
 
 /* The clients' shared clock, mirrored so world deadlines can be sanity-checked
    and expired entries pruned. Same epoch, same 600 ms tick. */
@@ -58,13 +64,18 @@ function levelFor(xp) {
   return L;
 }
 /* Indices match the client's SKILLS array: attack 0, strength 1, defence 2,
-   hitpoints 8. Anything else here is a silent wrong number on the menu. */
+   ranged 3, prayer 4, magic 5, hitpoints 8; 24-27 are locked reserved slots the
+   client's totalLevel() skips. The formula mirrors the client's combatLevel()
+   exactly — prayer half-counts, and ranged/magic builds take the best branch. */
 function summarise(save) {
   const xp = Array.isArray(save && save.xp) ? save.xp : [];
   let total = 0;
   const lv = [];
-  for (let i = 0; i < 28; i++) { const L = levelFor(+xp[i] || 0); lv[i] = L; total += L; }
-  const combat = Math.floor(0.25 * (lv[2] + lv[8]) + 0.325 * (lv[0] + lv[1])) || 3;
+  for (let i = 0; i < 28; i++) { const L = levelFor(+xp[i] || 0); lv[i] = L; if (i < 24) total += L; }
+  const base = 0.25 * (lv[2] + lv[8] + Math.floor(lv[4] / 2));
+  const melee = 0.325 * (lv[0] + lv[1]);
+  const range = 0.325 * Math.floor(lv[3] * 1.5), mage = 0.325 * Math.floor(lv[5] * 1.5);
+  const combat = Math.floor(base + Math.max(melee, range, mage)) || 3;
   return { combat, totalLevel: total };
 }
 
@@ -133,11 +144,11 @@ export class World extends DurableObject {
     this.players.set(pid, { ws: server, ...rec, seen: new Set(), n: 0, t0: 0 });
 
     // extra fields appended, so older clients reading only [1] and [2] still work
-    server.send(JSON.stringify([[0, pid, Date.now(), name, seed, BUILD]]));
+    server.send(JSON.stringify([[0, pid, Date.now(), name, seed, BUILD, SPAWN_REV]]));
 
     /* A late arrival must see the stumps and absences everyone else does.
        Snapshots go only to the joiner; live traffic covers everyone else. */
-    this.pruneWorld();
+    this.pruneWorld(1);
     const snap = [];
     for (const [k, d] of this.depleted) snap.push([20, k, d]);
     for (const [k, d] of this.monDead) snap.push([22, k, d]);
@@ -165,7 +176,6 @@ export class World extends DurableObject {
 
     const now = Date.now();
     if (now - me.t0 > 1000) { me.t0 = now; me.n = 0; }
-    if (++me.n > RATE) return;
 
     let m;
     try { m = JSON.parse(raw); } catch { return; }
@@ -173,11 +183,30 @@ export class World extends DurableObject {
     // Size is judged after the type is known, and a rejection is never silent:
     // a save that vanishes without a word is indistinguishable from one that
     // was never sent, which is exactly how this went unnoticed.
-    if (m[0] !== 8 && raw.length > MAXSMALL) {
-      console.log('oversize', m[0], raw.length, me.pid);
+    /* Build 5 clients pack a tick's routine traffic into ONE socket send — an
+       array of messages instead of a message — so a fighting player costs one
+       billable request a tick instead of several. Inner messages still count
+       against the rate, and saves never ride a batch (their own size lane). */
+    const batch = Array.isArray(m[0]);
+    const msgs = batch ? m.slice(0, 16) : [m];
+    if ((me.n += msgs.length) > RATE) return;
+    if (m[0] !== 8 && raw.length > (batch ? MAXSMALL * 4 : MAXSMALL)) {
+      console.log('oversize', batch ? 'batch' : m[0], raw.length, me.pid);
       return;
     }
+    for (const one of msgs) if (Array.isArray(one)) await this.handle(me, ws, one, now);
+  }
 
+  saveAtt(ws, me) {
+    try {
+      ws.serializeAttachment({
+        pid: me.pid, name: me.name, seed: me.seed, x: me.x, z: me.z,
+        face: me.face, flags: me.flags, eq: me.eq, savedSeed: me.savedSeed || null
+      });
+    } catch {}
+  }
+
+  async handle(me, ws, m, now) {
     switch (m[0]) {
 
       case 1: {                                  // move
@@ -188,19 +217,23 @@ export class World extends DurableObject {
         me.face = (face | 0) & 15;
         me.flags = (flags | 0) & 3;
         this.queue('1:' + me.pid, [1, [[me.pid, tick | 0, x, z, me.face, me.flags]]]);
-        break;
+        // position across a hibernation wake needs no precision — the next move fixes
+        // it — so the attachment is refreshed every 16th step, not every step
+        if ((me.mvN = ((me.mvN || 0) + 1) & 15) === 0) this.saveAtt(ws, me);
+        return;
       }
 
       case 2:                                    // action animation
         this.queue('2:' + me.pid, [2, me.pid, (m[2] | 0) & 255]);
-        break;
+        return;
 
       case 3:                                    // equipment — 11 slots as of the armoury expansion
         me.eq = Array.isArray(m[1])
           ? m[1].slice(0, 12).map(v => (v == null ? null : String(v).slice(0, 32)))
           : [];
         this.queue('3:' + me.pid, [3, me.pid, me.eq]);
-        break;
+        this.saveAtt(ws, me);                    // gear matters across a wake: onlookers dress you from it
+        return;
 
       case 19: {                                  // an arrow was loosed, and where
         this.queue('19:' + me.pid + ':' + now,
@@ -262,9 +295,16 @@ export class World extends DurableObject {
       }
 
       case 11: {                                 // pvp hit, delivered to one player
+        /* Attacker-authoritative by design, but budgeted: a single hit is capped at 60
+           and a rolling four-tick window at 110, which clears any legitimate spec chain
+           and shuts the 25-messages-a-second firehose a modified client could open. */
+        const d = (m[2] | 0) & 255;
+        if (d > 60) return;
+        if (now - (me.dmgT || 0) > 2400) { me.dmgT = now; me.dmgSum = 0; }
+        if ((me.dmgSum = (me.dmgSum || 0) + d) > 110) return;
         const target = this.players.get(String(m[1] || ''));
         if (target) {
-          try { target.ws.send(JSON.stringify([[11, me.pid, (m[2] | 0) & 255]])); } catch {}
+          try { target.ws.send(JSON.stringify([[11, me.pid, d, m[3] ? 1 : 0]])); } catch {}   // element 3 carries Smite
         }
         return;
       }
@@ -299,10 +339,21 @@ export class World extends DurableObject {
           return;
         }
         try {
-          await this.env.DB.prepare(
-            'INSERT INTO characters (pid, seed, save, created, updated) VALUES (?,?,?,?,?) ' +
-            'ON CONFLICT(pid, seed) DO UPDATE SET save=excluded.save, updated=excluded.updated'
-          ).bind(me.pid, seed, blob, now, now).run();
+          /* combat and total level ride the same write as columns, so /characters can
+             select two integers instead of parsing forty 8 KB blobs. Rows older than
+             the columns migrate lazily: the ALTER runs once, on the first save that
+             finds them missing. */
+          const s = summarise(payload);
+          const put = () => this.env.DB.prepare(
+            'INSERT INTO characters (pid, seed, save, combat, total_level, created, updated) VALUES (?,?,?,?,?,?,?) ' +
+            'ON CONFLICT(pid, seed) DO UPDATE SET save=excluded.save, combat=excluded.combat, total_level=excluded.total_level, updated=excluded.updated'
+          ).bind(me.pid, seed, blob, s.combat, s.totalLevel, now, now).run();
+          try { await put(); } catch (e) {
+            if (!/no column|no such column/i.test(String(e))) throw e;
+            await this.env.DB.prepare('ALTER TABLE characters ADD COLUMN combat INTEGER').run().catch(() => {});
+            await this.env.DB.prepare('ALTER TABLE characters ADD COLUMN total_level INTEGER').run().catch(() => {});
+            await put();
+          }
           // Remember the last world played so login can preselect it — but only
           // when it actually changes. Writing it on every flush doubled the D1
           // cost of a save for a column that changes once a session.
@@ -310,6 +361,7 @@ export class World extends DurableObject {
             me.savedSeed = seed;
             await this.env.DB.prepare('UPDATE players SET seed=?, updated=? WHERE pid=?')
               .bind(seed, now, me.pid).run();
+            this.saveAtt(ws, me);
           }
           // confirm the write, so a client can tell "saved" from "swallowed"
           try { ws.send(JSON.stringify([[10, seed, blob.length]])); } catch {}
@@ -332,16 +384,14 @@ export class World extends DurableObject {
       default:
         return;
     }
-
-    ws.serializeAttachment({
-      pid: me.pid, name: me.name, seed: me.seed, x: me.x, z: me.z,
-      face: me.face, flags: me.flags, eq: me.eq, savedSeed: me.savedSeed || null
-    });
   }
 
   /* One-shot timer only, never a repeating alarm. A repeating alarm keeps the
      object awake forever and blocks hibernation, which is where the bill is. */
-  pruneWorld() {
+  pruneWorld(force) {
+    const t = Date.now();
+    if (!force && t - (this.lastPrune || 0) < 5000) return;   // entries self-expire; a sweep every few seconds is plenty
+    this.lastPrune = t;
     const gt = wTick();
     for (const [k, d] of this.depleted) if (d <= gt) this.depleted.delete(k);
     for (const [k, d] of this.monDead) if (d <= gt) this.monDead.delete(k);
@@ -360,27 +410,33 @@ export class World extends DurableObject {
     const msgs = [...this.pending.values()];
     this.pending.clear();
 
+    /* Interest management on a VIEW-sized grid: anyone within the view radius of p
+       sits in p's 3x3 cell neighbourhood, so each player scans local density, not
+       the whole room. Leaves (and reaping the departed) fall out of the seen set. */
+    const grid = new Map();
+    for (const q of this.players.values()) {
+      const c = Math.floor(q.x / VIEW) + ':' + Math.floor(q.z / VIEW);
+      const a = grid.get(c); if (a) a.push(q); else grid.set(c, [q]);
+    }
+
     for (const p of this.players.values()) {
       const out = [];
 
-      /* Reap anyone this player still thinks is here but who is not in the
-         room any more. A missed close, or this object hibernating and losing
-         its seen sets, would otherwise leave a ghost that never departs and
-         that the client can never be told about. */
       for (const pid of p.seen) {
-        if (!this.players.has(pid)) { p.seen.delete(pid); out.push([5, pid]); }
+        const q = this.players.get(pid);
+        if (!q || Math.abs(q.x - p.x) > VIEW || Math.abs(q.z - p.z) > VIEW) { p.seen.delete(pid); out.push([5, pid]); }
       }
 
-      // interest management: emit enter/leave as people cross the view radius
-      for (const q of this.players.values()) {
-        if (q.pid === p.pid) continue;
-        const near = Math.abs(q.x - p.x) <= VIEW && Math.abs(q.z - p.z) <= VIEW;
-        if (near && !p.seen.has(q.pid)) {
-          p.seen.add(q.pid);
-          out.push([6, q.pid, q.name, q.x, q.z, q.eq]);
-        } else if (!near && p.seen.has(q.pid)) {
-          p.seen.delete(q.pid);
-          out.push([5, q.pid]);
+      const bx = Math.floor(p.x / VIEW), bz = Math.floor(p.z / VIEW);
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        const cell = grid.get((bx + a) + ':' + (bz + b));
+        if (!cell) continue;
+        for (const q of cell) {
+          if (q.pid === p.pid || p.seen.has(q.pid)) continue;
+          if (Math.abs(q.x - p.x) <= VIEW && Math.abs(q.z - p.z) <= VIEW) {
+            p.seen.add(q.pid);
+            out.push([6, q.pid, q.name, q.x, q.z, q.eq]);
+          }
         }
       }
 
@@ -488,15 +544,22 @@ export class Exchange extends DurableObject {
       .bind(pid, slot).first();
   }
   async fetch(req) {
+    const u = new URL(req.url);
+    const pid = u.searchParams.get('pid') || '';
+    if (!pid) return Response.json({ e: 'no pid' }, { status: 400 });
+    /* The 10-second poll from every open GE panel is a plain read: serving it
+       outside the lock means the whole world's polls no longer queue behind
+       one player's fills. A read racing a fill sees the book a beat stale,
+       which the next poll corrects. Mutations still run strictly in turn. */
+    if (u.pathname === '/ge') {
+      try { await this.ensure(); return Response.json(await this.state(pid)); }
+      catch (e) { console.log('ge error', String(e)); return Response.json({ e: 'exchange error' }, { status: 500 }); }
+    }
     return this.serial(async () => {
       try {
         await this.ensure();
-        const u = new URL(req.url);
-        const pid = u.searchParams.get('pid') || '';
-        if (!pid) return Response.json({ e: 'no pid' }, { status: 400 });
         let b = {};
         if (req.method === 'POST') { try { b = await req.json(); } catch {} }
-        if (u.pathname === '/ge') return Response.json(await this.state(pid));
         if (u.pathname === '/ge/place') return Response.json(await this.place(pid, b));
         if (u.pathname === '/ge/abort') return Response.json(await this.abort(pid, b));
         if (u.pathname === '/ge/collect') return Response.json(await this.collect(pid, b));
@@ -528,20 +591,24 @@ export class Exchange extends DurableObject {
       'INSERT INTO ge_offers (pid, slot, kind, item, price, qty, filled, coins_box, items_box, state, created, updated) ' +
       'VALUES (?,?,?,?,?,?,0,0,0,0,?,?)').bind(pid, slot, kind, item, price, qty, now, now).run();
 
-    let remaining = qty;
-    while (remaining > 0) {
-      const c = await this.env.DB.prepare(kind === 0
-        ? 'SELECT * FROM ge_offers WHERE item=? AND kind=1 AND state=0 AND price<=? AND pid<>? ORDER BY price ASC, created ASC LIMIT 1'
-        : 'SELECT * FROM ge_offers WHERE item=? AND kind=0 AND state=0 AND price>=? AND pid<>? ORDER BY price DESC, created ASC LIMIT 1'
-      ).bind(item, price, pid).first();
-      if (!c) break;
+    /* One page of candidates in one query, matches bounded per request: a large
+       order against a fragmented book fills against up to twenty resting offers
+       now and meets the rest of the book on later placements, instead of holding
+       the global lock for a round-trip per row. */
+    let remaining = qty, mineFilled = 0;
+    const page = await this.env.DB.prepare(kind === 0
+      ? 'SELECT * FROM ge_offers WHERE item=? AND kind=1 AND state=0 AND price<=? AND pid<>? ORDER BY price ASC, created ASC LIMIT 20'
+      : 'SELECT * FROM ge_offers WHERE item=? AND kind=0 AND state=0 AND price>=? AND pid<>? ORDER BY price DESC, created ASC LIMIT 20'
+    ).bind(item, price, pid).all();
+    const upd = 'UPDATE ge_offers SET filled=filled+?, coins_box=coins_box+?, items_box=items_box+?, state=?, updated=? WHERE pid=? AND slot=?';
+    for (const c of (page.results || [])) {
+      if (remaining <= 0) break;
       const t = Math.min(remaining, c.qty - c.filled);
-      if (t <= 0) break;                             // a corrupt row must not spin forever
+      if (t <= 0) continue;                          // a corrupt row must not spin forever
       const tp = c.price;                            // the resting offer sets the price
-      const mine = await this.row(pid, slot);
-      const upd = 'UPDATE ge_offers SET filled=filled+?, coins_box=coins_box+?, items_box=items_box+?, state=?, updated=? WHERE pid=? AND slot=?';
       const doneC = c.filled + t >= c.qty ? 1 : 0;
-      const doneM = mine.filled + t >= mine.qty ? 1 : 0;
+      mineFilled += t;
+      const doneM = mineFilled >= qty ? 1 : 0;
       // both sides of the trade land in one transaction, or neither does
       await this.env.DB.batch(kind === 0
         ? [this.env.DB.prepare(upd).bind(t, t * tp, 0, doneC, now, c.pid, c.slot),               // seller is paid the ask
@@ -613,31 +680,55 @@ async function whoami(env, auth) {
 
 async function population(env, u, origin) {
   const seed = cleanSeed(u.searchParams.get('seed'));
+  /* Every open world-select screen polls this; without a cache each poll
+     instantiates the seed's Durable Object. Eight seconds of staleness on a
+     head-count costs nothing and absorbs the whole crowd into one request. */
+  const ck = new Request('https://population.cache/?seed=' + encodeURIComponent(seed));
+  try {
+    const hit = await caches.default.match(ck);
+    if (hit) return json(await hit.json(), 200, origin);
+  } catch {}
+  let body;
   try {
     const stub = env.WORLD.get(env.WORLD.idFromName('world:' + seed));
     const r = await stub.fetch(new Request('https://do/count'));
     const j = await r.json();
-    return json({ seed, n: j.n | 0, build: BUILD }, 200, origin);
+    body = { seed, n: j.n | 0, build: BUILD };
   } catch {
     // an empty world has never been instantiated; that is not an error
-    return json({ seed, n: 0, build: BUILD }, 200, origin);
+    body = { seed, n: 0, build: BUILD };
   }
+  try {
+    await caches.default.put(ck, new Response(JSON.stringify(body),
+      { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=8' } }));
+  } catch {}
+  return json(body, 200, origin);
 }
 async function characters(env, u, origin) {
   const who = await whoami(env, u.searchParams.get('auth') || '');
   if (who.e) return json({ e: who.e }, who.code, origin);
   const row = who.row;
 
+  /* The columns are written at save time; the blob ships only for rows that
+     predate them, and those are summarised the old way until their next save. */
   let rows;
   try {
     rows = await env.DB.prepare(
-      'SELECT seed, save, updated FROM characters WHERE pid=? ORDER BY updated DESC LIMIT 40'
+      'SELECT seed, updated, combat, total_level, CASE WHEN combat IS NULL THEN save ELSE NULL END AS save ' +
+      'FROM characters WHERE pid=? ORDER BY updated DESC LIMIT 40'
     ).bind(row.pid).all();
   } catch {
-    // no table yet: an account with no characters, not a server fault
-    return json({ pid: row.pid, name: row.name, last: row.seed, characters: [], build: BUILD }, 200, origin);
+    try {
+      rows = await env.DB.prepare(
+        'SELECT seed, save, updated FROM characters WHERE pid=? ORDER BY updated DESC LIMIT 40'
+      ).bind(row.pid).all();
+    } catch {
+      // no table yet: an account with no characters, not a server fault
+      return json({ pid: row.pid, name: row.name, last: row.seed, characters: [], build: BUILD }, 200, origin);
+    }
   }
   const list = (rows?.results || []).map(r => {
+    if (r.combat != null) return { seed: r.seed, updated: r.updated, combat: r.combat, totalLevel: r.total_level };
     let save = {};
     try { save = JSON.parse(r.save || '{}'); } catch {}
     const s = summarise(save);
@@ -831,6 +922,14 @@ export default {
     if (u.pathname === '/health') {
       try {
         await env.DB.prepare('SELECT 1').first();
+        /* the indexes every hot query assumes; IF NOT EXISTS makes /health the
+           one-call migration to run after a deploy */
+        for (const q of [
+          'CREATE INDEX IF NOT EXISTS idx_players_auth ON players (auth_hash)',
+          'CREATE INDEX IF NOT EXISTS idx_players_name ON players (name COLLATE NOCASE)',
+          'CREATE INDEX IF NOT EXISTS idx_players_ip ON players (ip_hash, created)',
+          'CREATE INDEX IF NOT EXISTS idx_characters_pid ON characters (pid, updated)'
+        ]) { try { await env.DB.prepare(q).run(); } catch {} }
         return json({ ok: 1, db: 'up', now: Date.now(), build: BUILD }, 200, origin);
       } catch (e) {
         return json({ ok: 0, db: 'down', err: String(e) }, 500, origin);
