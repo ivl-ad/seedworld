@@ -989,6 +989,8 @@ const defAmmo = (a, suffix, g, aT, pm) => { const t = TIER[a.k]; defWear({ id: a
   c: a.c || t.c, c2: a.c2 || t.c2, slot: 'ammo', stack: 1, ammo: 1, aT, rst: a.rs, rat: Math.round(a.rs * 0.45), req: { ranged: a.lv }, val: Math.max(1, Math.round(a.rs * pm)) }); };
 for (const a of ARROWS) defAmmo(a, '_arrow', 'arrow', undefined, 0.9);
 for (const a of BOLTS) defAmmo(a, '_bolts', 'bolt', 'bolt', 1.1);
+/* diamond-tipped adamant bolts, enchanted: drop-only — no enchant-bolt spell exists here, and ENCH stays jewellery-only */
+defWear({ id: 'diamond_bolts_e', name: 'Diamond bolts (e)', g: 'bolt', c: '#e8f0f8', c2: '#8a98a8', slot: 'ammo', stack: 1, ammo: 1, aT: 'bolt', rst: 105, rat: 47, req: { ranged: 46 }, val: 800 });
 /* thrown weapons: ammunition that is its own launcher (bow: 1 so the ranged code reads its speed and range); knives and darts come off the anvil,
    axes and javelins from the archery shop, chinchompas from box traps. [kind, glyph, speed, range, strength per metal: bronze iron steel black mithril adamant rune dragon] */
 const THROWN = [['knife', 'knife', 3, 4, [3, 4, 7, 8, 9, 14, 24, 28]], ['dart', 'dart', 3, 3, [1, 3, 4, 6, 7, 10, 14, 20]], ['thrownaxe', 'axe', 5, 4, [5, 7, 11, 0, 16, 23, 36, 44]],
@@ -1018,7 +1020,8 @@ for (const h of HIDES) for (const q of HIDEPIECE) defWear({
 const TREES = [
   ['tree', 'Tree', 1, 25, 40, 25, 0x3f7a34, 1.00, 'logs'], ['oak', 'Oak', 15, 37, 60, 30, 0x4e7a2b, 1.18, 'oak_logs'],
   ['willow', 'Willow', 30, 67, 90, 40, 0x6f8f3a, 1.10, 'willow_logs'], ['maple', 'Maple', 45, 100, 135, 55, 0xa8632a, 1.22, 'maple_logs'],
-  ['yew', 'Yew', 60, 175, 202, 90, 0x2f5a3c, 1.34, 'yew_logs'], ['magic', 'Magic tree', 75, 250, 303, 140, 0x6f6fc8, 1.28, 'magic_logs']
+  ['yew', 'Yew', 60, 175, 202, 90, 0x2f5a3c, 1.34, 'yew_logs'], ['magic', 'Magic tree', 75, 250, 303, 140, 0x6f6fc8, 1.28, 'magic_logs'],
+  ['mahogany', 'Mahogany', 50, 125, 157.5, 70, 0x8a3a2a, 1.26, 'mahogany_logs']   // appended, never inserted: tree kinds are part of the deterministic world
 ].map(([k, n, lv, xp, fire, rs, tint, sc, log], i) => {
   defItem({ id: log, name: k === 'tree' ? 'Logs' : cap(k) + ' logs', g: 'log', c: '#8a6438', c2: '#5b4123', stack: 1, fire, fireLv: lv, val: 8 + i * 30 });
   return { k, n, lv, xp, fire, rs, tint, sc, log, i };
@@ -1095,7 +1098,8 @@ for (const [k, c, c2, val] of [['recoil', '#4a72d0', '#2a4485', 1200], ['life', 
 for (const [id, name, g, c, c2, val, x] of [['tinderbox', 'Tinderbox', 'tinder', '#8a6438', '#4a3620', 4], ['hammer', 'Hammer', 'hammer', '#75767a', '#4a4b4f', 10],
   ['fishing_rod', 'Fishing rod', 'rod', '#8a6438', '#4a3620', 12], ['small_net', 'Small net', 'net', '#b0a074', '#6a5f42', 12], ['harpoon', 'Harpoon', 'rod', '#9aa0a8', '#5b5f66', 60],
   ['coins', 'Coins', 'coins', '#e0b436', '#9a7414', 1, { stack: 1 }], ['bones', 'Bones', 'bones', '#e0dcc8', '#9a9484', 1, { stack: 1, bury: 4.5 }],
-  ['big_bones', 'Big bones', 'bones', '#e8e4d0', '#a09a88', 3, { stack: 1, bury: 15 }]])
+  ['big_bones', 'Big bones', 'bones', '#e8e4d0', '#a09a88', 3, { stack: 1, bury: 15 }],
+  ['dragon_bones', 'Dragon bones', 'bones', '#dcd0b8', '#8a7a60', 150, { stack: 1, bury: 72 }]])
   defItem(Object.assign({ id, name, g, c, c2, val }, x));
 /* ---- 5b. THE LARDER: what the gathering and making skills pass between them; a family is one line ---- */
 const defStack = (id, name, g, c, c2, val, x) => defItem(Object.assign({ id, name, g, c, c2, val, stack: 1 }, x));
@@ -1103,7 +1107,8 @@ const defStack = (id, name, g, c, c2, val, x) => defItem(Object.assign({ id, nam
 const RC = [['air', 1, 5, 11, '#cfd8e0', '#8f9aa6', 5, 1], ['mind', 2, 5.5, 14, '#9a7ad0', '#65509a', 4, 1], ['water', 5, 6, 19, '#4f8fd0', '#2f5f92', 5, 1],
   ['earth', 9, 6.5, 26, '#8a6a3a', '#5b4524', 5, 1], ['fire', 14, 7, 35, '#d05a2a', '#8f3a16', 5, 1], ['body', 20, 7.5, 46, '#d8cfc4', '#8a8078', 5, 1],
   ['cosmic', 27, 8, 59, '#e8d86a', '#9a8a2a', 120], ['chaos', 35, 8.5, 74, '#c04a4a', '#802e2e', 90, 1], ['nature', 44, 9, 91, '#5aa04a', '#2f6a28', 180],
-  ['law', 54, 9.5, 0, '#6a8ad8', '#3a4f8a', 200], ['death', 65, 10, 0, '#e8e8f0', '#6a6a74', 220, 1], ['blood', 77, 10.5, 0, '#8a1a24', '#4a0a10', 400]]
+  ['law', 54, 9.5, 0, '#6a8ad8', '#3a4f8a', 200], ['death', 65, 10, 0, '#e8e8f0', '#6a6a74', 220, 1], ['blood', 77, 10.5, 0, '#8a1a24', '#4a0a10', 400],
+  ['soul', 90, 29.7, 0, '#f0e8f8', '#8a7a9a', 600]]        // appended, never inserted: RC index is wire format
   .map(([k, lv, xp, step, c, c2, val, shop], i) => ({ k, lv, xp, step, c, c2, val, shop: shop || 0, id: k + '_rune', i }));
 const RUNES = RC.map(r => defStack(r.id, cap(r.k) + ' rune', 'rune', r.c, r.c2, r.val, { rune: 1 }));
 const runesPer = r => r.step ? 1 + Math.floor(lvl[SK.runecraft] / r.step) : 1;   // air x2 at 11, x3 at 22...
@@ -1115,7 +1120,8 @@ for (const r of RC) {
 }
 /* gems: crafting level and xp to cut; uncut ones turn up while mining, weighted toward the cheap end */
 const GEMS = [['sapphire', 20, 50, '#3a64c8', '#1e3a80', 25, 64], ['emerald', 27, 67.5, '#3aa05a', '#1e6030', 50, 32], ['ruby', 34, 85, '#c82a3a', '#801a24', 100, 16],
-  ['diamond', 43, 107.5, '#e8f0f8', '#8a98a8', 200, 8], ['dragonstone', 55, 137.5, '#b04ad0', '#6a2a80', 1000, 1]].map(([k, lv, xp, c, c2, val, w], i) => {
+  ['diamond', 43, 107.5, '#e8f0f8', '#8a98a8', 200, 8], ['dragonstone', 55, 137.5, '#b04ad0', '#6a2a80', 1000, 1],
+  ['onyx', 67, 167.5, '#2a2028', '#141018', 30000, 0]].map(([k, lv, xp, c, c2, val, w], i) => {   // w 0: onyx never turns up mining
   defItem({ id: 'uncut_' + k, name: 'Uncut ' + k, g: 'gem', c, c2, val }); defItem({ id: k, name: cap(k), g: 'gem', c, c2, val: val * 2 });
   return { k, lv, xp, c, c2, w, i };
 });
@@ -1144,7 +1150,8 @@ const CROPS = [['potato', 1, 8, 9, 4000, 1], ['onion', 5, 9.5, 10.5, 4000, 1], [
   defStack(k, cap(k), 'crop', ['#c8a86a', '#d8c8e8', '#9ad07a', '#d8403a', '#e8d05a', '#d83a4a', '#4aa85a'][i], '#4a3a2a', 4 + i * 12, { heal });
   return { k, n: cap(k), lv, plant, xp, grow, t: 0, yield: k };
 }).concat(HERBS.map((h, i) => ({ k: h.k, n: cap(h.n), lv: CROP_HERB[i][0], plant: CROP_HERB[i][1], xp: CROP_HERB[i][2], grow: 8000, t: 1, yield: h.grimy })),
-  [['oak', 15, 14, 467.3, 20000], ['willow', 30, 25, 1456.5, 28000], ['maple', 45, 45, 3403.4, 32000], ['yew', 60, 81, 7069.9, 40000], ['magic', 75, 145.5, 13768.3, 48000]]
+  [['oak', 15, 14, 467.3, 20000], ['willow', 30, 25, 1456.5, 28000], ['maple', 45, 45, 3403.4, 32000], ['yew', 60, 81, 7069.9, 40000], ['magic', 75, 145.5, 13768.3, 48000],
+    ['mahogany', 55, 63, 15720, 36000]]                     // appended last: the crop index rides in the farm save
     .map(([k, lv, plant, xp, grow]) => ({ k, n: cap(k), lv, plant, xp, grow, t: 2, yield: k + '_logs' })));
 CROPS.forEach((c, i) => { c.i = i; c.seed = c.k === 'oak' ? 'acorn' : c.k + '_seed'; defStack(c.seed, c.k === 'oak' ? 'Acorn' : c.n + ' seed', 'seed', ['#c8a86a', '#7ad04a', '#8a6a3a'][c.t], '#4a3a2a', 2 + c.lv * 3); });
 /* hides, fibres and feathers */
@@ -2139,7 +2146,8 @@ const NPC_TYPES = [
   { k: 'jungledemon', n: 'Jungle demon', lv: 195, agg: 1, hp: 170, atk: 170, str: 170, def: 170, db: 0, abon: 50, sbon: 50, spd: 6, mspd: 0.9, sz: 2.3, big: 1, body: [0.24, 0.44, 0.22], build: H(2.0, 4.4, { skin: [0.32, 0.54, 0.26], horns: 1, wings: 1, wing: [0.16, 0.3, 0.14], belt: [0.14, 0.26, 0.12] }) },
   { k: 'trollgeneral', n: 'Troll general', lv: 113, agg: 1, hp: 140, atk: 70, str: 140, def: 40, db: 0, abon: 60, sbon: 100, spd: 4, mspd: 0.6, sz: 2.5, big: 1, body: [0.38, 0.36, 0.42], build: H(2.5, 4.8, { skin: [0.46, 0.44, 0.5], horns: 1, belt: [0.26, 0.24, 0.28] }) },
   { k: 'blackdemon', n: 'Black demon', lv: 172, agg: 1, hp: 157, atk: 145, str: 148, def: 152, db: 0, abon: 0, spd: 4, mspd: 0.9, sz: 2.8, big: 1, body: [0.11, 0.09, 0.12], build: H(2.7, 5.8, { skin: [0.18, 0.14, 0.18], horns: 1, wings: 1, wing: [0.07, 0.05, 0.08], belt: [0.06, 0.05, 0.07] }) },
-  { k: 'masterfarmer', n: 'Master Farmer', lv: 32, town: 1, hp: 64, atk: 23, str: 24, def: 21, db: 12, abon: 11, spd: 5, sz: 0.95, body: [0.46, 0.5, 0.26], human: 1,
+  { k: 'masterfarmer', n: 'Master Farmer', lv: 32, town: 1, hp: 64, atk: 23, str: 24, def: 21, db: 12, abon: 11, spd: 5, sz: 0.95, body: [0.46, 0.5, 0.26], human: 1,   // unattackable in 2007: flavour stats
+
     pick: { lv: 38, xp: 43, loot: [500, 300, 250, 180, 80, 50, 20, 60, 40, 30, 20, 12, 10, 8, 6, 5, 3, 3, 2, 2, 1].map((w, i) => [CROPS[i].seed, w]) }, build: H(0.72, 1.62, { skin: [0.76, 0.58, 0.42], belt: [0.3, 0.22, 0.14] }) },
   { k: 'rogue', n: 'Rogue', lv: 15, town: 1, hp: 17, atk: 13, str: 13, def: 13, db: 0, abon: 5, sbon: 5, spd: 4, sz: 0.95, body: [0.22, 0.2, 0.24], human: 1,
     pick: { lv: 32, xp: 35.5, loot: [['coins', 8, 25, 40], ['air_rune', 1, 8], ['sapphire', 1], ['flax', 1, 3]] }, build: H(0.68, 1.6, { skin: [0.74, 0.56, 0.42], belt: [0.12, 0.1, 0.12] }) },
@@ -2245,36 +2253,38 @@ NPC_TYPES.forEach((t, i) => {
   const m = MAGIC_STATS[t.k];
   t.mag = m ? m[0] : 1; t.mdb = m ? m[1] : 0;
   t.psn = { poisonspider: 6, kalphitesoldier: 4, scorpia: 20 }[t.k] || 0;   // wiki starting poison damage
+  if (t.fire) t.bones = 'dragon_bones';                     // dragonkind leave dragon bones; everything else keeps the big/small split
   t.i = i;
 });
 const NPC_BY = Object.create(null); NPC_TYPES.forEach(t => NPC_BY[t.k] = t);
 
 /* ---- 12c. LEVEL VARIANTS: every rung is the wiki's own stat block, never a scaled copy. A bare number is the base row's level;
    extra rungs are [lv, hp, atk, str, def, sbon?, max?] straight off the monster's wiki page (db, abon and speed inherit the base
-   row; a null max forces the formula past a base override). A spawnable type missing here, or a bare rung that is not the row's
-   own level, throws at startup — fabricated levels stay impossible. Base rung first and commonest. ---- */
+   row; an omitted sbon inherits too, so rungs whose wiki bonus differs from the base carry it explicitly; a null max forces the
+   formula past a base override). A spawnable type missing here, or a bare rung that is not the row's own level, throws at
+   startup — fabricated levels stay impossible. Base rung first and commonest. ---- */
 const LADDERS = {
   chicken: [1], cow: [2], duck: [1], sheep: [1], camel: [1], ram: [2], goat: [23], pig: [8],
-  rat: [3, [6, 10, 6, 5, 2], [26, 25, 22, 23, 22]], spider: [2, [27, 32, 20, 24, 21], [50, 50, 41, 51, 31, 10]], smallspider: [1, [24, 22, 21, 21, 21, 58]],
-  goblin: [5, [2, 5, 1, 1, 1], [13, 16, 12, 13, 7]], redgoblin: [5, [2, 5, 1, 1, 1], [13, 16, 12, 13, 7]], imp: [2, [7, 10, 5, 5, 6]],
-  barbarian: [8], zombie: [13, [18, 24, 13, 13, 18], [24, 30, 19, 21, 16, 7]], bandit: [22, [57, 50, 50, 50, 50], [74, 65, 65, 65, 65], [130, 155, 27, 27, 27, 52, 12]],
+  rat: [3, [6, 10, 6, 5, 2], [26, 25, 22, 23, 22]], spider: [2, [27, 32, 20, 24, 21, 0], [50, 50, 41, 51, 31, 10]], smallspider: [1, [24, 22, 21, 21, 21, 58]],
+  goblin: [5, [2, 5, 1, 1, 1, -15], [13, 16, 12, 13, 7, 0]], redgoblin: [5, [2, 5, 1, 1, 1, -15], [13, 16, 12, 13, 7, 0]], imp: [2, [7, 10, 5, 5, 6, -37]],
+  barbarian: [8], zombie: [13, [18, 24, 13, 13, 18], [24, 30, 19, 21, 16, 7]], bandit: [22, [57, 50, 50, 50, 50, 0], [74, 65, 65, 65, 65, 0], [130, 155, 27, 27, 27, 52, 12]],
   skeleton: [21, [22, 29, 15, 18, 17], [25, 17, 24, 24, 24, 14], [45, 59, 32, 35, 36, 14]], ghost: [19], guard: [21], scorpion: [32],
   smallscorpion: [14, [37, 37, 31, 32, 31], [59, 55, 50, 52, 50]], wolf: [25, [11, 10, 10, 10, 10], [14, 15, 10, 15, 10], [64, 69, 50, 55, 52]],
   whitewolf: [25, [38, 44, 30, 31, 32]], bigwolf: [73], bear: [19, [15, 20, 10, 15, 10]], grizzly: [21, [33, 35, 30, 26, 25], [42, 35, 35, 35, 35, 0, 5]],
-  hobgoblin: [28, [42, 49, 33, 31, 36, 10], [47, 52, 39, 39, 35]], hillgiant: [28], mossgiant: [42, [48, 85, 30, 30, 30], [84, 120, 60, 60, 60, 62]],
+  hobgoblin: [28, [42, 49, 33, 31, 36, 10], [47, 52, 39, 39, 35]], hillgiant: [28], mossgiant: [42, [48, 85, 30, 30, 30, 31], [84, 120, 60, 60, 60, 62]],
   icegiant: [53, [67, 100, 40, 60, 40, 31]], ogre: [53, [58, 70, 46, 48, 43, 21], [63, 60, 54, 54, 54, 6]], ogrechief: [81], jogre: [53, [58, 70, 46, 48, 43, 21]],
-  troll: [69, [71, 90, 40, 90, 25]], icetroll: [74, [82, 80, 80, 80, 40, 60], [100, 80, 100, 100, 60, 60]], trollgeneral: [113],
+  troll: [69, [71, 90, 40, 90, 25, 20]], icetroll: [74, [82, 80, 80, 80, 40, 60], [100, 80, 100, 100, 60, 60]], trollgeneral: [113],
   greendragon: [79, [88, 100, 68, 75, 68]], firegiant: [86, [104, 130, 65, 65, 120, 20], [109, 150, 90, 80, 65, 31]],
   lesserdemon: [82, [87, 87, 80, 70, 71], [94, 98, 80, 70, 85]], greaterdemon: [92, [100, 115, 90, 70, 80], [101, 120, 90, 90, 50], [113, 130, 120, 90, 50]],
   blackdemon: [172, [178, 160, 145, 148, 175], [184, 170, 155, 158, 162]], jungledemon: [195], blackdragon: [227, [247, 250, 200, 215, 200]],
-  man: [2], woman: [2], mugger: [6], farmer: [7], dwarf: [10], thug: [10], pirate: [23, [26, 23, 23, 23, 23, 10], [57, 52, 49, 50, 50]],
+  man: [2], woman: [2], mugger: [6], farmer: [7], dwarf: [10], thug: [10], pirate: [23, [26, 23, 23, 23, 23, 10], [57, 52, 49, 50, 50, 0]],
   blackknight: [33], ghoul: [42], whiteknight: [42, [36, 52, 27, 29, 21, 31], [38, 52, 30, 29, 25, 31], [39, 52, 32, 29, 27, 31]], chaosdwarf: [48],
   earthwarrior: [51], cyclops: [56, [76, 100, 47, 50, 26], [106, 150, 47, 50, 26]], icewarrior: [57], paladin: [62], hero: [69],
   masterfarmer: [32], rogue: [15], watchman: [33],
   monk: [5, [3, 5, 2, 2, 3]], wizard: [9], darkwizard: [20, [7, 12, 5, 2, 5, 0, 2], [11, 15, 5, 5, 10, 0, 5]], banshee: [23, [89, 100, 75, 85, 50, 0, null]],
   druid: [33, [13, 20, 8, 8, 12], [129, 150, 98, 98, 65, 0, 17]], shade: [40, [60, 56, 64, 47, 42], [80, 76, 88, 55, 60], [100, 90, 102, 84, 70], [120, 110, 120, 100, 85]],
   zamorakmonk: [17], spectre: [96],
-  revenant: [90, [7, 10, 5, 5, 4, 0, 2], [15, 14, 13, 14, 14, 8], [52, 48, 60, 40, 33], [60, 72, 50, 50, 41, 24], [82, 110, 60, 73, 49, 64], [98, 80, 83, 76, 80, 50],
+  revenant: [90, [7, 10, 5, 5, 4, 0, 2], [15, 14, 13, 14, 14, 8], [52, 48, 60, 40, 33, 0], [60, 72, 50, 50, 41, 24], [82, 110, 60, 73, 49, 64], [98, 80, 83, 76, 80, 50],
     [105, 105, 99, 100, 60, 55], [120, 140, 93, 110, 80, 60], [126, 143, 100, 119, 80, 71], [135, 155, 106, 126, 87, 78]],
   skelwarrior: [45], giantskeleton: [84],   // TODO: verify — giantskeleton has no sourced OSRS block
   jackal: [21], unicorn: [15, [27, 29, 21, 23, 23]], wilddog: [63], boar: [5, [7, 12, 6, 5, 4]],
@@ -2289,7 +2299,7 @@ function variantOf(t, r) {
   let v = t.vars[L];
   if (v) return v;
   v = Object.create(t);
-  Object.assign(v, { base: t, lv: L, hp: r[1], atk: r[2], str: r[3], def: r[4], sbon: r[5] || 0, max: r[6] !== undefined ? r[6] : t.max });
+  Object.assign(v, { base: t, lv: L, hp: r[1], atk: r[2], str: r[3], def: r[4], sbon: r[5] !== undefined ? r[5] : t.sbon, max: r[6] !== undefined ? r[6] : t.max });
   return t.vars[L] = v;
 }
 const SPAWNABLE = [];
@@ -2365,7 +2375,7 @@ const LOOT = {
     ['rune_arrow', 5, 12], ['blood_rune', 4, 5], ['fire_rune', 1, 37], ['law_rune', 1, 2], ['herb', 19], ['lobster', 3], ['steel_bar', 2], ['coins', 40, 60], ['coins', 7, 15],
     ['coins', 6, 25], ['coins', 2, 300], ['coins', 1, 50], ['rdt', 1], ['gem', 11]] },
   ogre: { den: 128, main: [['seed', 19]] }, ogrechief: { den: 128, main: [['seed', 19]] },
-  jogre: { den: 129, main: [['bronze_spear', 30], ['iron_spear', 4], ['nature_rune', 10, 2], ['nature_rune', 2, 10], ['nature_rune', 2, 5], ['steel_javelin', 2, 5], ['knife', 5],
+  jogre: { nb: 1, alw: [['big_bones', 1]], den: 129, main: [['bronze_spear', 30], ['iron_spear', 4], ['nature_rune', 10, 2], ['nature_rune', 2, 10], ['nature_rune', 2, 5], ['steel_javelin', 2, 5], ['knife', 5],
     ['herb', 6], ['seed', 15], ['bones', 3], ['big_bones', 2, 3], ['gem', 1]] },
   troll: { den: 128, main: [['steel_med_helm', 4], ['black_warhammer', 3], ['steel_warhammer', 3], ['adamant_med_helm', 1], ['adamant_warhammer', 1], ['mithril_sq_shield', 1],
     ['earth_rune', 8, 60], ['nature_rune', 5, 7], ['law_rune', 3, 2], ['earth_rune', 1, 45], ['earth_rune', 1, 25], ['herb', 15], ['seed', 19], ['coal', 3, 3], ['coins', 29, 35],
@@ -2517,12 +2527,12 @@ const LOOT = {
   kbd: { alw: [['black_dragonhide', 2]], den: 128, main: [['rune_longsword', 10], ['adamant_platebody', 9], ['air_rune', 10, 300], ['fire_rune', 5, 300], ['iron_arrow', 10, 690],
     ['rune_bolts', 10, 10, 20], ['law_rune', 5, 30], ['blood_rune', 5, 30], ['yew_logs', 10, 150], ['rune_bar', 3], ['amulet_of_power', 7], ['dragon_arrowtips', 5, 5, 14],
     ['dragon_dart_tips', 5, 5, 14], ['dragon_javelin', 5, 15], ['dragon_med_helm', 1]], tert: [['dragon_pickaxe', 1000]] },
-  sarachnis: { den: 800, main: [['battlestaff', 16, 8, 10], ['rune_platebody', 16], ['rune_med_helm', 16], ['rune_2h_sword', 16], ['blood_rune', 40, 80, 100], ['chaos_rune', 40, 175, 200],
+  sarachnis: { nb: 1, den: 800, main: [['battlestaff', 16, 8, 10], ['rune_platebody', 16], ['rune_med_helm', 16], ['rune_2h_sword', 16], ['blood_rune', 40, 80, 100], ['chaos_rune', 40, 175, 200],
     ['cosmic_rune', 40, 125, 150], ['death_rune', 40, 80, 100], ['mithril_arrow', 16, 450, 600], ['mithril_bolts', 16, 175, 225], ['maple_seed', 8, 2], ['yew_seed', 8], ['rseed', 16],
     ['grimy_kwuarm', 15, 10, 15], ['grimy_dwarf_weed', 12, 10, 15], ['grimy_cadantine', 12, 10, 15], ['grimy_avantoe', 10, 5, 10], ['grimy_lantadyme', 9, 10, 15],
     ['grimy_snapdragon', 8, 5, 10], ['grimy_ranarr', 8, 5, 10], ['grimy_torstol', 6, 5, 10], ['mithril_ore', 48, 60, 90], ['red_dragonhide', 40, 15, 25], ['uncut_sapphire', 32, 20, 30],
     ['adamantite_ore', 24, 30, 40], ['uncut_emerald', 24, 20, 30], ['uncut_ruby', 16, 20, 30], ['runite_ore', 8, 4, 6], ['uncut_diamond', 8, 20, 30], ['coins', 48, 17000, 25000],
-    ['big_bones', 40, 10, 15], ['gem', 8]], tert: [['dragon_med_helm', 192], ['dragon_battleaxe', 384]] },   // the cudgel slot
+    ['dragon_bones', 40, 10, 15], ['gem', 8]], tert: [['dragon_med_helm', 192], ['dragon_battleaxe', 384]] },   // the cudgel slot
   skotizo: { nb: 1, den: 100, main: [['rune_platebody', 7, 3], ['rune_platelegs', 7, 3], ['rune_plateskirt', 7, 3], ['death_rune', 7, 500], ['blood_rune', 7, 450],
     ['adamantite_ore', 7, 75], ['grimy_snapdragon', 7, 20], ['grimy_torstol', 7, 20], ['raw_anglerfish', 7, 60], ['rune_bar', 7, 20], ['battlestaff', 7, 25]],
     tert: [['uncut_dragonstone', 111, 10]] },
@@ -2531,32 +2541,73 @@ const LOOT = {
     ['torstol_seed', 4, 2], ['watermelon_seed', 3, 25], ['magic_seed', 3, 2], ['rune_bar', 5, 3], ['gold_ore', 4, 250], ['magic_logs', 4, 60], ['uncut_emerald', 3, 25],
     ['uncut_ruby', 3, 25], ['uncut_diamond', 3, 25], ['wine_of_zamorak', 10, 60], ['potato_cactus', 8, 100], ['coins', 5, 15000, 20000], ['rdt', 1]],
     tert: [['dragon_chainbody', 128], ['dragon_2h_sword', 256], ['dragon_pickaxe', 400], ['monkfish', 9, 3], ['shark', 9, 2], ['dark_crab', 9, 2]] },
-  vorkath: { alw: [['big_bones', 1], ['blue_dragonhide', 2]], den: 150, rolls: 2, main: [['rune_longsword', 5, 2, 3], ['rune_kiteshield', 5, 2, 3], ['battlestaff', 4, 5, 15],
+  vorkath: { nb: 1, alw: [['dragon_bones', 2], ['blue_dragonhide', 2]], den: 150, rolls: 2, main: [['rune_longsword', 5, 2, 3], ['rune_kiteshield', 5, 2, 3], ['battlestaff', 4, 5, 15],
     ['dragon_battleaxe', 2], ['dragon_longsword', 2], ['dragon_platelegs', 2], ['dragon_plateskirt', 2], ['chaos_rune', 6, 250, 350], ['death_rune', 6, 200, 300],
     ['blue_dragonhide', 8, 25, 30], ['green_dragonhide', 7, 25, 30], ['red_dragonhide', 7, 20, 25], ['black_dragonhide', 7, 15, 25], ['dragon_bolts_u', 8, 50, 100],
     ['dragon_dart', 6, 10, 50], ['dragon_arrowtips', 3, 25, 50], ['rune_dart', 3, 75, 100], ['adamantite_ore', 7, 10, 30], ['coins', 5, 20000, 80000], ['magic_logs', 5, 50],
-    ['big_bones', 4, 15, 20], ['diamond', 4, 10, 20], ['dragonstone', 3, 2, 3], ['raw_shark', 4, 35, 55], ['snapdragon_seed', 1], ['torstol_seed', 1], ['rdt', 5]] },
-  vetion: { den: 126, main: [['coins', 10, 50000], ['rune_pickaxe', 8, 5], ['chaos_rune', 7, 900], ['death_rune', 7, 700], ['blood_rune', 7, 500], ['magic_logs', 5, 225],
-    ['uncut_ruby', 4, 50], ['uncut_dragonstone', 2, 5], ['big_bones', 3, 150]], tert: [['dragon_2h_sword', 256], ['dragon_pickaxe', 256], ['ring_of_wealth', 512]] },
-  venenatis: { den: 126, main: [['coins', 10, 50000], ['rune_pickaxe', 8, 5], ['chaos_rune', 7, 500], ['death_rune', 7, 700], ['blood_rune', 7, 900], ['uncut_diamond', 8, 25],
-    ['magic_logs', 5, 225]], tert: [['dragon_2h_sword', 256], ['dragon_pickaxe', 256], ['ring_of_wealth', 512]] },
-  callisto: { den: 126, main: [['coins', 10, 50000], ['rune_pickaxe', 8, 5], ['blood_rune', 7, 500], ['death_rune', 7, 700], ['chaos_rune', 7, 900], ['magic_logs', 5, 225],
-    ['ranarr_seed', 5, 11], ['snapdragon_seed', 5, 5]], tert: [['dragon_2h_sword', 256], ['dragon_pickaxe', 256], ['ring_of_wealth', 512]] },
+    ['dragon_bones', 4, 15, 20], ['diamond', 4, 10, 20], ['dragonstone', 3, 2, 3], ['raw_shark', 4, 35, 55], ['snapdragon_seed', 1], ['torstol_seed', 1], ['rdt', 5]] },
+  venenatis: { nb: 1, den: 126, alw: [['big_bones', 1]], main: [
+    ['mystic_of_air', 2, 4], ['rune_pickaxe', 8, 5], ['rune_dart', 3, 150], ['rune_knife', 5, 150],
+    ['rune_platelegs', 2, 4], ['rune_sq_shield', 2, 4], ['dragon_dagger', 2, 6],
+    ['chaos_rune', 7, 500], ['death_rune', 7, 700], ['blood_rune', 7, 900],
+    ['diamond_bolts_e', 5, 300], ['steel_cannonball', 4, 600],
+    ['uncut_ruby', 1, 50], ['uncut_diamond', 8, 25], ['gold_ore', 6, 675], ['onyx_bolt_tips', 5, 150],
+    ['magic_logs', 5, 225], ['limpwurt_root', 5, 100], ['red_spiders_eggs', 3, 500], ['unicorn_horn', 1, 225],
+    ['uncut_dragonstone', 2, 5], ['grimy_ranarr', 1, 45], ['grimy_snapdragon', 1, 100], ['grimy_toadflax', 1, 45],
+    ['battlestaff', 2, 12], ['coins', 10, 50000], ['supercompost', 4, 225], ['antipoison_4', 3, 20],
+    ['super_restore_4', 5, 10], ['dark_crab', 5, 50], ['blighted_anglerfish', 1, 100], ['law_rune', 3, 60]],
+    tert: [['dragon_2h_sword', 256], ['dragon_pickaxe', 256], ['ring_of_wealth', 512]] },
+  callisto: { nb: 1, den: 126, alw: [['big_bones', 1]], main: [
+    ['mystic_of_earth', 2, 4], ['mystic_robe_top', 2, 4], ['mystic_robe_bottom', 2, 4], ['rune_pickaxe', 8, 5],
+    ['rune_2h_sword', 3, 3], ['rune_kiteshield', 2, 4], ['rune_platebody', 2, 4],
+    ['blood_rune', 7, 500], ['death_rune', 7, 700], ['chaos_rune', 7, 900], ['soul_rune', 5, 450],
+    ['steel_cannonball', 4, 600],
+    ['uncut_ruby', 4, 50], ['uncut_diamond', 3, 25], ['uncut_dragonstone', 2, 5], ['limpwurt_root', 5, 100],
+    ['magic_logs', 5, 225], ['mahogany_logs', 6, 600], ['red_dragonhide', 3, 170], ['coconut', 2, 135],
+    ['grimy_toadflax', 1, 100], ['grimy_dwarf_weed', 1, 45], ['grimy_ranarr', 1, 45], ['grimy_snapdragon', 1, 45],
+    ['ranarr_seed', 5, 11], ['snapdragon_seed', 5, 5],
+    ['coins', 10, 50000], ['dark_crab', 5, 50], ['super_restore_4', 5, 10], ['supercompost', 4, 225],
+    ['dragon_bones', 3, 75], ['blighted_anglerfish', 1, 100], ['law_rune', 3, 60]],
+    tert: [['dragon_2h_sword', 256], ['dragon_pickaxe', 256], ['ring_of_wealth', 512]] },
+  vetion: { nb: 1, den: 126, alw: [['big_bones', 1]], main: [
+    ['mystic_of_fire', 2, 4], ['mystic_of_water', 2, 4], ['mystic_robe_top', 2, 4], ['mystic_robe_bottom', 2, 4],
+    ['rune_full_helm', 2, 4], ['rune_pickaxe', 8, 5], ['rune_dart', 3, 150], ['rune_knife', 3, 150],
+    ['chaos_rune', 7, 900], ['death_rune', 7, 700], ['blood_rune', 7, 500], ['steel_cannonball', 4, 550],
+    ['uncut_ruby', 4, 50], ['uncut_diamond', 3, 25], ['uncut_dragonstone', 2, 5], ['gold_ore', 6, 675],
+    ['limpwurt_root', 5, 60], ['wine_of_zamorak', 5, 100], ['magic_logs', 5, 225], ['oak_plank', 5, 400],
+    ['dragon_bones', 3, 150], ['mort_myre_fungus', 2, 450], ['grimy_ranarr', 1, 100], ['grimy_dwarf_weed', 1, 45],
+    ['grimy_snapdragon', 1, 45], ['grimy_toadflax', 1, 45],
+    ['coins', 10, 50000], ['supercompost', 4, 225], ['super_restore_4', 5, 10], ['blighted_anglerfish', 1, 100],
+    ['sanfew_4', 5, 20], ['dark_crab', 5, 50], ['law_rune', 3, 60]],
+    tert: [['dragon_2h_sword', 256], ['dragon_pickaxe', 256], ['ring_of_wealth', 512]] },
   graardor: { den: 127, main: [['coins', 32, 19500, 20000], ['rune_longsword', 8], ['rune_2h_sword', 8], ['rune_platebody', 8], ['rune_pickaxe', 6], ['grimy_snapdragon', 8, 3],
     ['nature_rune', 8, 65, 70]], tert: [['dragon_warhammer', 381], ['dragon_chainbody', 381], ['dragon_boots', 381]] },   // the Bandos chestplate/tassets/boots slots
   kril: { nb: 1, den: 127, main: [['coins', 37, 19500, 20000], ['adamant_arrow', 8, 295, 300], ['rune_scimitar', 8], ['adamant_platebody', 8], ['rune_platelegs', 7],
     ['dragon_dagger', 2], ['death_rune', 8, 120, 125], ['blood_rune', 8, 80, 85], ['grimy_lantadyme', 8, 10]],
     tert: [['steam_battlestaff', 127], ['dragon_spear', 127], ['master_wand', 508]] },   // steam bstaff / zamorakian spear / staff of the dead slots
   evilchicken: { alw: [['raw_chicken', 1], ['feather', 90, 242]], tert: [['dragon_spear', 128], ['amulet_of_glory', 128]] },   // TODO: verify — random-event boss, no OSRS table
-  slashbash: { alw: [['big_bones', 4]], tert: [['dragon_spear', 128], ['dragon_hasta', 128]] },   // TODO: verify — zogre/ourg bones stand in as big bones
+  slashbash: { nb: 1, alw: [['big_bones', 5]], tert: [['dragon_spear', 128], ['dragon_hasta', 128]] },   // TODO: verify — two zogre and three ourg bones stand in as big bones
   bktitan: { den: 128, main: [['iron_full_helm', 5], ['iron_dagger', 4], ['iron_kiteshield', 3], ['steel_longsword', 2], ['iron_arrow', 6, 3], ['fire_rune', 3, 15], ['water_rune', 3, 7],
     ['law_rune', 3, 2], ['nature_rune', 2, 6], ['chaos_rune', 1, 2], ['death_rune', 1, 2], ['herb', 7], ['seed', 18], ['limpwurt_root', 11], ['body_talisman', 2], ['coins', 14, 38],
     ['coins', 10, 52], ['coins', 8, 15], ['coins', 6, 8], ['coins', 2, 88]], tert: [['dragon_longsword', 128], ['dragon_full_helm', 128]] }   // TODO: verify — quest boss signatures
 };
 LOOT.woman = LOOT.man; LOOT.rogue = LOOT.man; LOOT.redgoblin = LOOT.goblin; LOOT.giantskeleton = LOOT.skelwarrior;
+/* clue scrolls, at each monster's own wiki tertiary rate: [tier (0 easy, 1 medium, 2 hard/elite), 1-in-N].
+   Monsters without a row drop none; Skotizo's guaranteed hard clue is the 1-in-1. */
+for (const [k, t, n] of [['chicken', 0, 300], ['cow', 0, 128], ['man', 0, 90], ['goblin', 0, 64], ['barbarian', 0, 75], ['skeleton', 0, 100], ['ghost', 0, 90],
+  ['mugger', 0, 80], ['farmer', 0, 90], ['darkwizard', 0, 50], ['thug', 0, 128], ['dwarf', 0, 100], ['banshee', 0, 128], ['bear', 0, 90], ['grizzly', 0, 90],
+  ['boar', 0, 128], ['hillgiant', 0, 50], ['mossgiant', 0, 45], ['icegiant', 0, 40], ['obor', 0, 50], ['bryophyta', 0, 45],
+  ['guard', 1, 128], ['paladin', 1, 128], ['icewarrior', 1, 128], ['jogre', 1, 129], ['scurrius', 1, 25],
+  ['greaterdemon', 2, 128], ['blackdemon', 2, 128], ['greendragon', 2, 128], ['bluedragon', 2, 128], ['reddragon', 2, 128], ['blackdragon', 2, 128],
+  ['bronzedragon', 2, 128], ['irondragon', 2, 128], ['steeldragon', 2, 64], ['mithrildragon', 2, 350], ['adamantdragon', 2, 320], ['runedragon', 2, 300],
+  ['cyclops', 2, 512], ['cyclops@106', 2, 256], ['spectre', 2, 128], ['druid@129', 2, 128], ['scorpia', 2, 100], ['kbd', 2, 450], ['vorkath', 2, 65],
+  ['sarachnis', 2, 40], ['skotizo', 2, 1], ['kalphitequeen', 2, 100], ['vetion', 2, 100], ['venenatis', 2, 100], ['callisto', 2, 100],
+  ['graardor', 2, 250], ['kril', 2, 250], ['eldric', 2, 25], ['branda', 2, 25]]) LOOT[k].clue = [t, n];
 LOOT.elvarg = Object.assign({}, LOOT.greendragon, { tert: [['dragon_dagger', 128], ['green_dhide_body', 128]] });        // TODO: verify — quest boss signatures
 LOOT.galvek = Object.assign({}, LOOT.steeldragon, { tert: [['dragon_crossbow', 300], ['dragon_platelegs', 300], ['dragon_sq_shield', 300]] });   // TODO: verify
 LOOT.trollking = Object.assign({}, LOOT.troll, { tert: [['dragon_sq_shield', 128], ['dragon_gauntlets', 128]] });        // TODO: verify
+delete LOOT.elvarg.clue; delete LOOT.galvek.clue;           // quest bosses assign no trails; the copies must not inherit their family's row
+for (const t of NPC_TYPES) if (!LOOT[t.k]) throw new Error('NPC type "' + t.k + '" has no LOOT entry');   // no silent fallback loot
 /* shopkeepers never walk, so their rig is flattened into one instanced geometry */
 const npcGeo = (bodyC, headC, w, h) => flatGeo(humanoid({ w, h, body: bodyC, skin: headC }));
 const KEEP_GEO = npcGeo([0.55, 0.42, 0.28], [0.82, 0.66, 0.5], 0.66, 1.55);
@@ -3225,6 +3276,7 @@ function treeKind(y, moist, h, p) {
   const r = (h >>> 13) & 255;
   if (y > 34) return r < 70 && p >= 0.7 ? 4 : 3;
   if (r < 5 && y > 16 && p >= 1.4) return 5;
+  if (r < 22 && y < 14 && moist > 0.12 && p >= 1.2) return 6;   // mahogany keeps to warm, wet, dangerous lowland
   if (y < 4.6 && moist > 0.06) return r < 150 ? 2 : 0;
   if (moist > 0.22) return r < 110 ? 1 : 0;
   return r < 40 ? 1 : 0;
@@ -3241,7 +3293,7 @@ function oreKind(y, h, p) {
   return (r & 1) ? 0 : 1;
 }
 const lvlOk = (k, y) => ORES[k].lv <= 30 || y > 20;
-const TREE_BROAD = [0, 1, 1, 1, 0, 1];
+const TREE_BROAD = [0, 1, 1, 1, 0, 1, 1];
 const tileSlope = (rec, x, z, y) => Math.abs(recH(rec, x + 1, z) - y) + Math.abs(recH(rec, x, z + 1) - y);
 const treeScale = (k, h) => (0.66 + ((h >>> 10) & 255) / 255 * 0.62) * TREES[k].sc;
 const rockScale = h => 0.8 + ((h >>> 17) & 15) / 15 * 0.45;
@@ -3957,8 +4009,9 @@ function bossAt(gx, gz) {
     const hh = hash2(gx * 31 + i, gz * 17 - i, S + 201 + i);
     const x = gx * BOSS_CELL + 40 + (hh % (BOSS_CELL - 80)), z = gz * BOSS_CELL + 40 + ((hh >>> 9) % (BOSS_CELL - 80)), y = heightAt(x, z);
     if (y < 2.5 || y > 60 || nearTown(x, z) || Math.hypot(x - ORIGIN.x, z - ORIGIN.z) < BOSS_MIN) continue;
-    // the same danger gradient the spawn table walks: the eligible window climbs with distance, and the heavies stay the rare end of it
-    const hi = 60 + Math.max(0, powerAt(x, z)) * 260, lo = Math.min(hi * 0.25, 300);
+    // the window hangs off the same ambient curve the spawn table computes for this ground: a boss sits a fixed step above the
+    // local wildlife, and the floor keeps tracking the ceiling so the deep-world roster carries on turning over
+    const tl = SPAWN_MAXLV * Math.tanh(4 * Math.pow(1 + Math.max(0, powerAt(x, z)), 3) / SPAWN_MAXLV), hi = tl * 2.2, lo = hi * 0.25;
     const pool = BOSS_LIST.filter(b => b.lv <= hi && b.lv >= lo);
     if (!pool.length) continue;
     let sum = 0;
@@ -4090,6 +4143,7 @@ function npcTick(n) {
   const near = chebDist(n.tx, n.tz, P.tx, P.tz);
   if (n.target && (near > 12 || P.dead)) { n.target = null; releaseMon(n); }
   // 2007 aggression: the mean ones start it within a few tiles, unless outgrown or overstayed; the deep wilds never get used to you
+  // (deliberate deviation: 2007 forgets you after a flat ~10 minutes anywhere; here tolerance stretches with the ground's power)
   const npw = Math.max(0, n.pw);
   if (!n.target && n.t.agg && !P.dead && near <= (n.t.boss ? 7 : 5) && (n.t.boss || npw >= 1.5 || tickN - P.regionT < 1000 / (1 - npw / 1.5)) &&
       (n.t.boss || combatLevel() < n.t.lv * 2 + 1)) { n.target = P; claimMon(n); }
@@ -4163,9 +4217,9 @@ const SEED_SUB = [['potato_seed', 368, 4], ['onion_seed', 276, 4], ['cabbage_see
   ['strawberry_seed', 23, 2], ['watermelon_seed', 11, 2]], SEED_W = 1008;                       // the general table's allotment band
 const USEED_SUB = [['strawberry_seed', 131], ['marrentill_seed', 125], ['tarromin_seed', 85], ['watermelon_seed', 63], ['harralander_seed', 56], ['ranarr_seed', 39],
   ['toadflax_seed', 27], ['irit_seed', 18], ['avantoe_seed', 12], ['kwuarm_seed', 9], ['snapdragon_seed', 5], ['cadantine_seed', 4], ['lantadyme_seed', 3],
-  ['dwarf_weed_seed', 2], ['torstol_seed', 1]], USEED_W = 1048;                                 // uncommon seed table
+  ['dwarf_weed_seed', 2], ['torstol_seed', 1]], USEED_W = 1048;                                 // uncommon seed table; the 468 empty weight is its hops/flower/bush seeds, which have no counterpart here
 const RSEED_SUB = [['toadflax_seed', 216], ['irit_seed', 148], ['avantoe_seed', 103], ['kwuarm_seed', 69], ['snapdragon_seed', 46], ['cadantine_seed', 32],
-  ['lantadyme_seed', 23], ['dwarf_weed_seed', 14], ['torstol_seed', 9]], RSEED_W = 1090;        // rare seed table
+  ['lantadyme_seed', 23], ['dwarf_weed_seed', 14], ['torstol_seed', 9]], RSEED_W = 1090;        // rare seed table; the 430 empty weight is its belladonna/cactus/snape-grass seeds, absent here
 /* roll a weighted [id, w, ...] table against `budget` (null = the table's own total) */
 function rollTable(table, budget) {
   let r = Math.random() * (budget || table.reduce((s, d) => s + d[1], 0));
@@ -4181,7 +4235,8 @@ function rollLoot(T, drop) {
   if (T.alw) for (const d of T.alw) drop(d[0], randInt(d[1] || 1, d[2] || d[1] || 1));
   if (T.main) for (let r = T.rolls || 1; r > 0; r--) {
     let d = rollTable(T.main, T.den), g = 0;
-    while (d && SUBTABLES[d[0]] && g++ < 3) d = SUBTABLES[d[0]]();
+    while (d && SUBTABLES[d[0]] && g++ < 4) d = SUBTABLES[d[0]]();          // deepest real chain: main -> rdt -> gem -> mega
+    if (d && SUBTABLES[d[0]]) throw new Error('subtable chain too deep: ' + d[0]);
     if (d) drop(d[0], randInt(d[2] || 1, d[3] || d[2] || 1));
   }
   if (T.tert) for (const d of T.tert) if (Math.random() * d[1] < 1) drop(d[0], randInt(d[2] || 1, d[3] || d[2] || 1));
@@ -4193,24 +4248,12 @@ function killNpc(n) {
   npcDead.set(n.key, due);
   if (n.key) netWorld([22, n.key, due]);
   removeNpc(n);
-  const lv = n.t.lv, p = Math.max(0, n.pw || 0), x = n.tx, z = n.tz, q = 1 + Math.min(1, p * 0.15);   // stackable quantities swell with the ground's power, capped at 2x
-  const drop = (id, k) => dropItem(id, ITEMS[id].stack ? Math.max(1, Math.round((k || 1) * q)) : (k || 1), x, z);
-  const T = LOOT[n.t.k + '@' + n.t.lv] || LOOT[n.t.k];      // a rung can carry its own wiki table; otherwise the family shares one
-  if (!(T && T.nb)) drop(n.t.big ? 'big_bones' : 'bones', 1);
+  const p = Math.max(0, n.pw || 0), x = n.tx, z = n.tz, q = 1 + Math.min(1, p * 0.15);   // only coin stacks swell with the ground's power (capped 2x): authored quantities stay wiki-exact
+  const drop = (id, k) => dropItem(id, id === 'coins' ? Math.max(1, Math.round((k || 1) * q)) : (k || 1), x, z);
+  const T = LOOT[n.t.k + '@' + n.t.lv] || LOOT[n.t.k];      // a rung can carry its own wiki table; otherwise the family shares one (a missing table throws at startup)
+  if (!T.nb) drop(n.t.bones || (n.t.big ? 'big_bones' : 'bones'), 1);
   if (n.t.meat) drop(n.t.meat, 1);
-  if (T) rollLoot(T, drop);
-  else {                                                    // thin fallback for anything without an authored table; tier comes from the monster alone
-    if (Math.random() < 0.5) drop('coins', 2 + (Math.random() * lv * 2 | 0));
-    const tier = lv >= 80 ? 6 : lv >= 60 ? 5 : lv >= 40 ? 4 : lv >= 28 ? 3 : lv >= 15 ? 2 : lv >= 8 ? 1 : 0, r = Math.random(), tk2 = TIERS[tier].k;
-    if (r < 0.006) drop(tk2 + '_med_helm', 1);
-    else if (r < 0.010) drop(tk2 + '_scimitar', 1);
-    else if (r < 0.012) drop(tk2 + '_platebody', 1);
-    else if (r < 0.06) drop(['iron_ore', 'coal', 'mithril_ore', 'adamantite_ore'][Math.min(3, tier >> 1)], 1 + (Math.random() * 3 | 0));
-    else if (r < 0.10 && lv > 20) drop(['air_rune', 'fire_rune', 'chaos_rune'][Math.random() * 3 | 0], 5 + (Math.random() * 12 | 0));
-    else if (r < 0.13 && lv > 6) drop(HERBS[Math.min(13, (Math.random() * (4 + tier * 2)) | 0)].grimy, 1);
-    else if (r < 0.16 && lv > 3) drop(CROPS[Math.min(21, (Math.random() * (4 + tier * 3)) | 0)].seed, 1);
-    if (Math.random() * 128 < 1) { const d = rollTable(RARE_DROPS, RARE_W); if (d) { drop(d[0], d[2] || 1); say('Something rare tumbles from the ' + n.name + '!', 'lv'); } }
-  }
+  rollLoot(T, drop);
   for (const f of onKill) f(n, drop);
   say(n.t.boss ? 'You have slain ' + n.name + '!' : 'You defeat the ' + n.name + '.', n.t.boss ? 'lv' : 'good');
   if (P.task && P.task.o === n) P.task = null;
@@ -4520,6 +4563,7 @@ function bury(id) {
 }
 function eat(slotIdx) {
   const it = ITEMS[inv[slotIdx].id];
+  if (it.blight && powerAt(P.tx, P.tz) < 1) return say('The blighted flesh only nourishes you in dangerous lands.', 'bad');   // the wilderness rule, in this world's terms
   if (P.hp >= P.maxhp) return say("You don't need to eat that right now.");
   if (P.foodT > tickN) return;                             // one bite per three ticks, and each bite delays the next swing
   P.foodT = tickN + 3; P.actT += 3;
@@ -6131,7 +6175,8 @@ function packSave() {
   return { v: 1, tx: P.tx, tz: P.tz, hp: P.hp, maxhp: P.maxhp, pray: Math.round(P.pray), maxpray: P.maxpray, energy: Math.round(P.energy), run: P.run, style: P.style,
     prayers: P.prayers, rstyle: P.rstyle, ammoN: P.ammoN, eq: EQ_SLOTS.map(s => eq[s] || null), inv: invp, bank: bank.map(s => [s.id, s.n]),
     look: [P.look.skin, P.look.shirt, P.look.legs, P.look.face], xp: Array.from(xp, v => Math.round(v)), home: [P.home.x, P.home.z],
-    sl: P.slay ? [P.slay.k, P.slay.n, P.slay.m] : 0, farm: Object.keys(P.farm).map(k => [+k, P.farm[k][0], P.farm[k][1]]), clue: P.clue || 0 };
+    sl: P.slay ? [P.slay.k, P.slay.n, P.slay.m] : 0, farm: Object.keys(P.farm).map(k => [+k, P.farm[k][0], P.farm[k][1]]), clue: P.clue || 0,
+    bd: [...npcDead].filter(([k, t]) => k[0] === 'b' && t > tickN) };       // slain boss lairs: the cell key is stable, so the timer survives a reload
 }
 function applySave(b) {
   if (!b || b.v !== 1) return 0;
@@ -6154,6 +6199,7 @@ function applySave(b) {
   P.farm = Object.create(null);
   for (const [k, c, t] of (b.farm || [])) if (CROPS[c] && t > 0) P.farm[k] = [c | 0, t | 0];
   P.clue = b.clue && b.clue.length === 3 ? b.clue.map(v => v | 0) : null;
+  for (const [k, t] of (b.bd || [])) if (typeof k === 'string' && k[0] === 'b' && (t | 0) > tickN) npcDead.set(k, t | 0);
   bst.fill(0);
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
   return b;
@@ -6176,7 +6222,7 @@ function freshCharacter() {
    Writing is disarmed until a read has succeeded: nothing may overwrite a character we could not load. Every send expects an ack. ---- */
 let saveDirty = 0, lastSave = 0, saveTimer = 0, saveArmed = 0, savedOnce = 0, ackPending = 0, ackWarned = 0;
 const NEED_BUILD = 3;                                       // the wire contract this client speaks
-const SPAWN_REV = 5;                                        // bumped with any change to powerAt / spawnTable / pickMonster / tame / TOWNFOLK / LADDERS / bossAt
+const SPAWN_REV = 6;                                        // bumped with any change to powerAt / spawnTable / pickMonster / tame / TOWNFOLK / LADDERS / bossAt / TREES / ruinAt
 let worldSync = 0;                                          // build >= 4: rooms relay 20/21/22
 const wsSend = m => { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(m)); } catch {} } };
 const netWorld = m => { if (worldSync) wsSend(m); };
@@ -7026,7 +7072,7 @@ function ruinAt(gx, gz) {                                   // pure in (cell, S)
     if (y < 2.2 || y > 58 || nearTown(x, z)) continue;
     const sp = spanHeights(x, z, 4, 2, (px, pz, py) => py >= 1.9);
     if (!sp || sp.hi - sp.lo > 2.5) continue;
-    const p = powerAt(x, z), top = p < 0.3 ? 3 : p < 0.7 ? 5 : p < 1.2 ? 7 : p < 1.8 ? 9 : 11;
+    const p = powerAt(x, z), top = p < 0.3 ? 3 : p < 0.7 ? 5 : p < 1.2 ? 7 : p < 1.8 ? 9 : p < 2.6 ? 11 : 12;   // the soul altar keeps to the deepest ground
     R = { r: RC[(h >>> 8) % (top + 1)], x, z, y };
   }
   ruinCache.set(key, R);
@@ -7077,12 +7123,8 @@ function makeTiara(o) {                                     // a plain tiara and
   say('You bind the talisman into the tiara.');
 }
 USE_ON[11] = (o, uit) => uit.id === 'tiara' && invCount(RC[o.k].k + '_talisman') ? ['Altar', o2 => makeTiara(o2)] : null;
-/* talismans fall from 1.5% of kills, weighted toward the monster's level; nature, law, death and blood need a monster of 40, 50, 65, 77 */
-onKill.push((n, drop) => {
-  if (Math.random() >= 0.015) return;
-  const lv = n.t.lv, pool = RC.filter(r => r.i < 8 || lv >= [40, 50, 65, 77][r.i - 8]);
-  drop(rollTable(pool.map(r => [r.k + '_talisman', 1 / (4 + Math.abs(r.lv - lv))]))[0], 1);
-});
+/* talismans fall only where the wiki puts them: the air/mind/body/water/earth/fire rows authored into men, imps, guards,
+   farmers, wizards, skeletons and their kin, and the chaos/nature slots on the shared gem table. No blanket roll. */
 
 /* ---- AGILITY: log balances over narrow water and climbing rocks up short cliffs, pure functions of the tile; a crossing lands you on the far end ---- */
 const AGIL_N = ['Log balance', 'Climbing rocks'];
@@ -7247,7 +7289,7 @@ USE_ON[5] = (o, uit) => SHOP_KINDS[o.k].k === 'craft' && RECIPES.some(r => r.at 
 for (const j of JEWEL) {
   const wool = j.k === 'amulet' ? [['ball_of_wool', 1]] : [], x = { at: 3, tool: j.k + '_mould' };
   recipe('gold_' + j.k, 'crafting', j.lv, j.xp, [['gold_bar', 1]].concat(wool), x);
-  for (const g of GEMS) recipe(g.k + '_' + j.k, 'crafting', j.lvs[g.i], j.xps[g.i], [['gold_bar', 1], [g.k, 1]].concat(wool), x);
+  for (const g of GEMS) if (j.lvs[g.i] !== undefined) recipe(g.k + '_' + j.k, 'crafting', j.lvs[g.i], j.xps[g.i], [['gold_bar', 1], [g.k, 1]].concat(wool), x);   // onyx jewellery stays drop-only: TODO: verify its craft levels
 }
 recipe('tiara', 'crafting', 23, 52.5, [['silver_bar', 1]], { at: 3, tool: 'tiara_mould' });
 /* spinning needs no wheel: a one-input recipe has nothing to be used on, so flax and wool carry a Spin verb */
@@ -7282,6 +7324,13 @@ for (const [id, name, g, c, c2, val] of [['eye_of_newt', 'Eye of newt', 'crop', 
   ['limpwurt_root', 'Limpwurt root', 'crop', '#c04a3a', '#6a2a1a', 15], ['red_spiders_eggs', "Red spiders' eggs", 'crop', '#d83a3a', '#7a1a1a', 8], ['white_berries', 'White berries', 'crop', '#f0f0f0', '#5a7a3a', 10],
   ['snape_grass', 'Snape grass', 'herb', '#6ab08a', '#3a6a4a', 6], ['mort_myre_fungus', 'Mort myre fungus', 'crop', '#9a8a6a', '#5a4a3a', 12], ['wine_of_zamorak', 'Wine of zamorak', 'vial', '#8a1a3a', CORK, 60],
   ['potato_cactus', 'Potato cactus', 'crop', '#6aa05a', '#3a6a2a', 25], ['dragon_scale_dust', 'Dragon scale dust', 'hide', '#6a8ad8', '#2a3a80', 45]]) defStack(id, name, g, c, c2, val);
+defStack('coconut', 'Coconut', 'crop', '#8a6438', '#4a3620', 120, { heal: 2 });        // a herblore fruit in 2007, never eaten; a light snack here by design
+defStack('supercompost', 'Supercompost', 'crop', '#4a3a28', '#2a2018', 90);            // inert trade good: this game's patches take no compost or disease (see FARMING)
+defStack('steel_cannonball', 'Steel cannonball', 'bar', '#4a4a52', '#2a2a30', 50);     // no cannon exists here: a smithable trade good
+defItem({ id: 'onyx_bolt_tips', name: 'Onyx bolt tips', g: 'bolt', c: '#2a2028', c2: '#141018', stack: 1, val: 1400 });
+defItem({ id: 'blighted_anglerfish', name: 'Blighted anglerfish', g: 'cfish', c: '#4a4a5a', c2: '#3a2a3a', stack: 1, val: 140, heal: 22, blight: 1 });
+recipe('steel_cannonball', 'smithing', 35, 25.6, [['steel_bar', 1]], { at: 4, tool: 'hammer', n: 4, msg: 'You pour the molten metal into the mould; four cannonballs clatter out.' });
+recipe('onyx_bolt_tips', 'fletching', 73, 225.6, [['onyx', 1]], { tool: 'chisel', n: 24, msg: 'You carefully chip the onyx into 24 bolt tips.' });
 /* cleaning: a verb on each grimy herb starts its one-input recipe, one leaf a tick */
 for (const h of HERBS) { const r = recipe(h.k, 'herblore', h.lv, h.xp, [[h.grimy, 1]], { tk: 1, msg: 'You clean the dirt from the ' + h.n + ' leaf.' }); ITEMS[h.grimy].opt = ['Clean', () => startMake(r)]; }
 /* effects: a boost counts from the base level and never stacks (re-drinking resets it to the full amount); gameTick walks it back a point a minute */
@@ -7307,6 +7356,7 @@ const POTS = [
   ['super_energy', 'Super energy', 'avantoe', 'mort_myre_fungus', 52, 117.5, '#c8d03a', () => { P.energy = Math.min(100, P.energy + 20); }],
   ['super_strength', 'Super strength', 'kwuarm', 'limpwurt_root', 55, 125, '#e878a8', () => potBoost('strength', 5, .15)],
   ['super_restore', 'Super restore', 'snapdragon', 'red_spiders_eggs', 63, 142.5, '#d83a3a', () => { potRestore(); potPray(8); }],
+  ['sanfew', 'Sanfew serum', 'snapdragon', 'snape_grass', 65, 160, '#8ad0a0', () => { potRestore(); potPray(8); P.psn = 0; }],   // snape grass stands in for the dust and nails of 2007
   ['super_defence', 'Super defence', 'cadantine', 'white_berries', 66, 150, '#3ab04a', () => potBoost('defence', 5, .15)],
   ['antifire', 'Antifire potion', 'lantadyme', 'dragon_scale_dust', 69, 157.5, '#d8903a', () => { P.afire = tickN + 600; }],
   ['ranging', 'Ranging potion', 'dwarf_weed', 'wine_of_zamorak', 72, 162.5, '#6a8a5a', () => potBoost('ranged', 4, .1)],
@@ -7451,7 +7501,8 @@ poolHooks.push(() => { for (const t of traps) { const s = [0.7, 1, 1.25][t.k]; p
 
 /* construction: the sawmill cuts planks for a fee; planks and a hammer raise a campsite (fire pit, workbench, altar) that stands a quarter hour; flatpacks come off the bench */
 const aOrAn = n => (/^[aeiou]/i.test(n) ? 'an ' : 'a ') + n.toLowerCase();
-for (const [id, name, log, gp, c, c2] of [['plank', 'Plank', 'logs', 100, '#d2b074', '#8a6a3a'], ['oak_plank', 'Oak plank', 'oak_logs', 250, '#a8813f', '#6b4e22']]) {
+for (const [id, name, log, gp, c, c2] of [['plank', 'Plank', 'logs', 100, '#d2b074', '#8a6a3a'], ['oak_plank', 'Oak plank', 'oak_logs', 250, '#a8813f', '#6b4e22'],
+  ['mahogany_plank', 'Mahogany plank', 'mahogany_logs', 1500, '#7a3a2a', '#4a1f16']]) {
   defStack(id, name, 'plank', c, c2, gp, { opt: ['Build', () => showMake('Build', BUILDS)] });
   recipe(id, 'construction', 1, 0, [[log, 1], ['coins', gp]], { at: 13, tk: 1, name: name + ' (' + gp + ' gp)', msg: 'The sawmill cuts your logs into ' + aOrAn(name) + '.' });
 }
@@ -7570,9 +7621,12 @@ defItem({ id: 'spade', name: 'Spade', g: 'spade', c: '#75767a', c2: '#4a4b4f', v
 for (const p of ['full_helm', 'platebody', 'platelegs', 'plateskirt', 'kiteshield']) for (const [sfx, c, nm, val] of [['_t', null, ' (t)', 12000], ['_g', '#e8c34a', ' (g)', 30000]]) {
   const b = ITEMS['rune_' + p]; defWear(Object.assign({}, b, { id: b.id + sfx, name: b.name + nm, c: c || b.c, c2: c ? '#9a7414' : '#e8c34a', val }));   // trimmed and gilded rune: the trail's prestige
 }
-const CLUE_LOOT = [['coins', 30, 800, 6000], ['nature_rune', 10, 20, 60], ['law_rune', 8, 10, 40], ['death_rune', 6, 10, 40], ['blood_rune', 3, 5, 20], ['sapphire', 8, 1, 4], ['emerald', 6, 1, 3],
-  ['ruby', 5, 1, 2], ['diamond', 3], ['dragonstone', 1], ['rune_full_helm_t', 2], ['rune_platelegs_t', 2], ['rune_plateskirt_t', 1], ['rune_kiteshield_t', 2], ['rune_platebody_t', 1],
-  ['rune_full_helm_g', 1], ['rune_platelegs_g', 1], ['rune_kiteshield_g', 1], ['rune_platebody_g', 0.5], ['rune_plateskirt_g', 0.5]];
+/* one reward table a tier: staples everywhere, trimmed rune from medium, gilded only out of hard caskets */
+const CLUE_STAPLES = [['coins', 30, 800, 6000], ['nature_rune', 10, 20, 60], ['law_rune', 8, 10, 40], ['death_rune', 6, 10, 40], ['blood_rune', 3, 5, 20], ['sapphire', 8, 1, 4],
+  ['emerald', 6, 1, 3], ['ruby', 5, 1, 2], ['diamond', 3]];
+const CLUE_TRIM = [['rune_full_helm_t', 2], ['rune_platelegs_t', 2], ['rune_plateskirt_t', 1], ['rune_kiteshield_t', 2], ['rune_platebody_t', 1]];
+const CLUE_LOOT = [CLUE_STAPLES, CLUE_STAPLES.concat([['dragonstone', 1]], CLUE_TRIM),
+  CLUE_STAPLES.concat([['dragonstone', 2]], CLUE_TRIM, [['rune_full_helm_g', 1], ['rune_platelegs_g', 1], ['rune_kiteshield_g', 1], ['rune_platebody_g', 0.5], ['rune_plateskirt_g', 0.5]])];
 const holdsClue = () => CLUE_T.some((c, i) => invCount('clue_' + i) || bank.some(b => b.id === 'clue_' + i));
 function clueSpot(i, x, z) {                               // dry, wild ground a tier's walk from (x, z)
   for (let k = 0, T = CLUE_T[i]; k < 40; k++) {
@@ -7581,9 +7635,11 @@ function clueSpot(i, x, z) {                               // dry, wild ground a
   }
   return null;
 }
+/* the drop chance is the monster's own LOOT.clue row ([tier, 1-in-N], wiki rates); this hook owns only the
+   one-trail-at-a-time gate and the dig spot. Monsters without a row drop no clues, as in 2007. */
 onKill.push((n, drop) => {
-  const i = n.t.lv < 40 ? 0 : n.t.lv < 90 ? 1 : 2;
-  if (Math.random() < 1 / 40 && !holdsClue() && (P.clue = clueSpot(i, n.tx, n.tz))) { drop('clue_' + i, 1); markDirty(1); }
+  const T = LOOT[n.t.k + '@' + n.t.lv] || LOOT[n.t.k], c = T && T.clue;
+  if (c && Math.random() * c[1] < 1 && !holdsClue() && (P.clue = clueSpot(c[0], n.tx, n.tz))) { drop('clue_' + c[0], 1); markDirty(1); }
 });
 function readClue(i) {                                     // a scroll without a spot (an old save) is given one from where you stand
   const c = P.clue && P.clue[2] === i ? P.clue : (P.clue = clueSpot(i, P.tx, P.tz));
@@ -7598,9 +7654,12 @@ function dig() {
   invRemove('clue_' + c[2], 1); invAdd('casket_' + c[2], 1); P.clue = null; markDirty(1);
   say('You dig up a casket!', 'lv');
 }
-function openCasket(s, i) {                                // two rolls, three, four by tier; stacks swell with it; a full pack spills to the ground
+function openCasket(s, i) {                                // two rolls, three, four by tier; only stackable spoils swell with it; a full pack spills to the ground
   inv[s] = null; dirty.inv = 1;
-  for (let k = 0; k < 2 + i; k++) { const d = rollTable(CLUE_LOOT), n = randInt(d[2] || 1, d[3] || d[2] || 1) * (1 + i); if (!invAdd(d[0], n)) dropItem(d[0], n, P.tx, P.tz); }
+  for (let k = 0; k < 2 + i; k++) {
+    const d = rollTable(CLUE_LOOT[i]), n = randInt(d[2] || 1, d[3] || d[2] || 1) * (ITEMS[d[0]].stack ? 1 + i : 1);
+    if (!invAdd(d[0], n)) dropItem(d[0], n, P.tx, P.tz);
+  }
   say('You open the casket. Its treasures are yours.', 'lv'); markDirty(1);
 }
 
