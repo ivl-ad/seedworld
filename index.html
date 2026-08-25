@@ -3517,8 +3517,8 @@ function buildStructures(rec, cx, cz) {
   for (const f of structHooks) f(rec, vs, inChunk);
   if (castle) {
     batchInto(rec, B => emitCastle(B, castle)); rec.blk.push(...castle.blk);
-    const k = castle.hall, dx2 = Math.round(k.x + DDX[castle.gate] * (k.w / 2 + 1)), dz2 = Math.round(k.z + DDZ[castle.gate] * (k.d / 2 + 1));
-    rec.objs.push({ t: 23, k: 0, x: dx2, z: dz2, y: castle.y, key: tk(dx2, dz2), n: 'Black door' });   // the castle's black door goes somewhere after all
+    const k = castle.hall, dx2 = Math.round(k.x + DDX[castle.gate] * (k.w / 2)), dz2 = Math.round(k.z + DDZ[castle.gate] * (k.d / 2));
+    rec.objs.push({ t: 23, k: 0, x: dx2, z: dz2, y: castle.y, key: tk(dx2, dz2), n: 'Black door' });   // sits on the slab itself; the walk stops at reach 1, outside the wall
   }
   if (walls.length || citytrees.length || lms.length || furn.length || ges.length) batchInto(rec, W => {
     for (const w of walls) emitWallCell(W, w);
@@ -7969,7 +7969,7 @@ function applyHouse(pid, h) {
       const segs = (mask & bit) ? [[-2.5, 3], [2.5, 3]] : [[0, RS]];
       for (const [off, len] of segs) B.add(BOX, along ? cx + off : wx, fy + 1.25, along ? wz : cz + off, along ? len : 0.35, 2.5, along ? 0.35 : len, 0, C_WALL);
       B.add(BOX, along ? cx : wx, fy + 0.22, along ? wz : cz, along ? RS : 0.42, 0.44, along ? 0.42 : RS, 0, C_BEAM);
-      B.add(BOX, along ? cx : wx, fy + 2.38, along ? wz : cz, along ? RS : 0.4, 0.24, along ? 0.4 : RS, 0, C_BEAM);
+      B.add(BOX, along ? cx : wx, fy + 2.36, along ? wz : cz, along ? RS : 0.4, 0.26, along ? 0.4 : RS, 0, C_BEAM);   // top at 2.49: a hair under the wall top, or the two faces shimmer
       if (mask & bit) B.add(BOX, along ? cx : wx, fy + 2.1, along ? wz : cz, along ? 2.3 : 0.4, 0.35, along ? 0.4 : 2.3, 0, C_BEAM);
     }
     for (const a of [0, RS - 1]) for (const b of [0, RS - 1]) B.add(BOX, x0 + a, fy + 1.3, z0 + b, 0.5, 2.6, 0.5, 0, C_BEAM);
@@ -7994,7 +7994,7 @@ function applyHouse(pid, h) {
   for (const rm of h.rm) {
     const cx = h.x + rm[1] * RS + (RS - 1) / 2, cz = h.z + rm[2] * RS + (RS - 1) / 2;
     RB.add(BOX, cx, fy + 2.56, cz, RS + 1.4, 0.16, RS + 1.4, 0, C_ROOF2);
-    RB.add(PYR, cx, fy + 2.64, cz, RS + 1.5, 2.3, RS + 1.5, 0, C_ROOF4);
+    RB.add(PYR, cx, fy + 2.66, cz, RS + 1.5, 2.3, RS + 1.5, 0, C_ROOF4);   // base floats 0.02 above the eave: coplanar bases flicker
   }
   const roof = RB.mesh();
   rec.meshes = [body, roof].filter(Boolean);
@@ -8322,6 +8322,8 @@ function dunPick(d, h) {
 }
 /* doors: the castle's black door goes down, the standing door below comes back up */
 MK_ART[23] = ['lock', '#0a0a0e', '#b8b0a0', 'Black door'];
+PICK_R[23] = 1.9; PICK_Y[23] = 1.5;                        // the pick tables end at t16: without these the door cannot be clicked at all
+PICK_R[24] = 1.4; PICK_Y[24] = 1.2;
 function enterDun(o) {
   const nv = nearVillage(o.x, o.z);
   if (!nv || nv.v.rank < 3) return say('The door refuses to open.');
@@ -8391,6 +8393,14 @@ tickHooks.push(() => {
   dunSkyOn = on;
   if (on) dunSky(); else applyOpts();
 });
+/* applyOpts predates houses and dungeons: teach it to refresh house roofs (the roofs toggle was leaving them stuck)
+   and to re-assert the dark sky when settings change below ground */
+const applyOpts0 = applyOpts;
+applyOpts = function (r) {
+  applyOpts0(r);
+  for (const rec of housesReg.values()) if (rec.roof) rec.roof.visible = roofShown(rec);
+  if (dunSkyOn) dunSky();
+};
 
 /* ---- MAGIC: blasts, waves and curses are SPELLS rows; the utility spells below are armed as P.uspell (item spells) or fire at once (teleports) ---- */
 P.uspell = null; P.homeT = -1e9;
