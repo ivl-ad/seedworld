@@ -1012,7 +1012,8 @@ export default {
           'CREATE INDEX IF NOT EXISTS idx_players_name ON players (name COLLATE NOCASE)',
           'CREATE INDEX IF NOT EXISTS idx_players_ip ON players (ip_hash, created)',
           'CREATE INDEX IF NOT EXISTS idx_characters_pid ON characters (pid, updated)',
-          'CREATE TABLE IF NOT EXISTS houses (pid TEXT NOT NULL, seed TEXT NOT NULL, x INTEGER, z INTEGER, data TEXT, updated INTEGER, PRIMARY KEY (pid, seed))'
+          'CREATE TABLE IF NOT EXISTS houses (pid TEXT NOT NULL, seed TEXT NOT NULL, x INTEGER, z INTEGER, data TEXT, updated INTEGER, PRIMARY KEY (pid, seed))',
+          'CREATE INDEX IF NOT EXISTS idx_houses_seed ON houses (seed)'   // loadHouses filters by seed; the (pid, seed) PK cannot serve that
         ]) { try { await env.DB.prepare(q).run(); } catch {} }
         return json({ ok: 1, db: 'up', now: Date.now(), build: BUILD }, 200, origin);
       } catch (e) {
