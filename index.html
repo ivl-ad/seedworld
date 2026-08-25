@@ -6254,10 +6254,12 @@ function frame(now) {
   if (markT > 0) { markT -= dt; marker.rotation.y += dt * 2.4; if (markT <= 0) marker.visible = false; }
   ringFrame(dt);
   // the boom collapses fast into a hill and recovers slowly; indoors the roof lifts instead
-  const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.max(P.ry, 0), safe = boomLength(P.rx, cy + 2.2, P.rz, yaw, cp, sp, dist);
+  const dunCam = P.tz > 500000;                             // below ground the boom never collides: it rides above the walls instead
+  const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.max(P.ry, 0), safe = dunCam ? dist : boomLength(P.rx, cy + 2.2, P.rz, yaw, cp, sp, dist);
   camDist += (safe - camDist) * (safe < camDist ? 0.55 : 0.10);
   const d = clamp(camDist, 3.2, dist);
   camera.position.set(P.rx - Math.sin(yaw) * cp * d, cy + 2.2 + sp * d, P.rz - Math.cos(yaw) * cp * d);
+  if (dunCam) camera.position.y = Math.max(camera.position.y, DUN_FLOOR + 16);
   camera.lookAt(P.rx, cy + 2.2, P.rz);
   if (spellT > 0) {
     spellT -= dt;
@@ -7968,11 +7970,11 @@ function applyHouse(pid, h) {
       const along = dz !== 0, wx = cx + dx * ((RS - 1) / 2), wz = cz + dz * ((RS - 1) / 2);
       const segs = (mask & bit) ? [[-2.5, 3], [2.5, 3]] : [[0, RS]];
       for (const [off, len] of segs) B.add(BOX, along ? cx + off : wx, fy + 1.25, along ? wz : cz + off, along ? len : 0.35, 2.5, along ? 0.35 : len, 0, C_WALL);
-      B.add(BOX, along ? cx : wx, fy + 0.22, along ? wz : cz, along ? RS : 0.42, 0.44, along ? 0.42 : RS, 0, C_BEAM);
-      B.add(BOX, along ? cx : wx, fy + 2.36, along ? wz : cz, along ? RS : 0.4, 0.26, along ? 0.4 : RS, 0, C_BEAM);   // top at 2.49: a hair under the wall top, or the two faces shimmer
-      if (mask & bit) B.add(BOX, along ? cx : wx, fy + 2.1, along ? wz : cz, along ? 2.3 : 0.4, 0.35, along ? 0.4 : 2.3, 0, C_BEAM);
+      B.add(BOX, along ? cx : wx, fy + 0.22, along ? wz : cz, along ? RS : 0.58, 0.44, along ? 0.58 : RS, 0, C_BEAM);   // timber sits a clear tenth proud of the plaster, or the faces shimmer edge-on
+      B.add(BOX, along ? cx : wx, fy + 2.36, along ? wz : cz, along ? RS : 0.56, 0.26, along ? 0.56 : RS, 0, C_BEAM);   // and its top stays a hair under the wall top
+      if (mask & bit) B.add(BOX, along ? cx : wx, fy + 2.1, along ? wz : cz, along ? 2.3 : 0.56, 0.35, along ? 0.56 : 2.3, 0, C_BEAM);
     }
-    for (const a of [0, RS - 1]) for (const b of [0, RS - 1]) B.add(BOX, x0 + a, fy + 1.3, z0 + b, 0.5, 2.6, 0.5, 0, C_BEAM);
+    for (const a of [0, RS - 1]) for (const b of [0, RS - 1]) B.add(BOX, x0 + a, fy + 1.3, z0 + b, 0.66, 2.6, 0.66, 0, C_BEAM);
     // furniture: built options render, interactive ones become real objects
     R[5].forEach((hs, hi) => {
       const id = f[hi];
@@ -8171,7 +8173,7 @@ function dunOf(v) {
   if (v.dun) return v.dun;
   const h = hash2(v.x, v.z, S + 700);
   const pw = powerAt(v.x, v.z) * 1.1 + 0.35 + ((h >>> 20) & 63) / 64 * 0.9;   // strictly meaner than the streets above
-  const E = Math.min(78, 30 + ((h >>> 8) & 3) * 7 + Math.round(Math.min(4, pw) * 5));
+  const E = Math.min(72, 40 + ((h >>> 8) & 3) * 8 + Math.round(Math.min(8, pw * 4)));
   const pool = DUN_THEMES.filter(t => pw >= t.min);
   const th = pool[(h >>> 13) % pool.length];
   return v.dun = { v, ox: v.x, oz: v.z + DUN_Z, seed: h, E, pw, th, name: 'The ' + villageName(v).split(' ').pop() + ' ' + th.pl };
@@ -8198,24 +8200,27 @@ function layoutDun(d) {
   const at = (x, z) => (x < 2 || z < 2 || x > W - 3 || z > W - 3) ? 0 : G[z * W + x];
   const set = (x, z, c) => { if (x > 1 && z > 1 && x < W - 2 && z < W - 2) G[z * W + x] = c; };
   const carve = (x0, z0, w, ht) => { for (let z = z0; z < z0 + ht; z++) for (let x = x0; x < x0 + w; x++) set(x, z, 2); };
-  const rooms = [{ x: E, z: 5, big: 0 }];
-  carve(E - 3, 2, 7, 7);                                    // the entry hall hugs the door
-  const nR = 7 + (h0 >>> 3) % 4 + ((E - 30) >> 3);
-  for (let i = 0; i < nR * 3 && rooms.length < nR; i++) {
-    const hh = hash2(i * 13 + 5, i * 7 + 1, h0);
-    const w = 5 + hh % 9, ht = 5 + (hh >>> 4) % 9;
-    const x = 3 + (hh >>> 8) % (W - w - 6), z = 10 + (hh >>> 17) % (W - ht - 13);
+  let rs = h0 | 0;                                          // a private LCG, so every client deals the same cards in the same order
+  const rnd = () => (rs = (Math.imul(rs, 1103515245) + 12345) | 0, (rs >>> 16) / 65536);
+  // 1. halls: a broad entry room by the door, a grand hall far north for the master, and a spread of big chambers
+  const rooms = [{ x: E, z: 5 }];
+  carve(E - 5, 2, 11, 8);
+  const boss = { x: 8 + Math.floor(rnd() * (W - 16)), z: W - 11 };
+  carve(boss.x - 7, boss.z - 7, 15, 15); rooms.push(boss);
+  const nR = 8 + Math.floor(rnd() * 5) + ((E - 40) >> 3);
+  for (let i = 0; i < nR * 3 && rooms.length < nR + 2; i++) {
+    const w = 7 + Math.floor(rnd() * 9), ht = 7 + Math.floor(rnd() * 9);
+    const x = 3 + Math.floor(rnd() * (W - w - 6)), z = 11 + Math.floor(rnd() * (W - ht - 22));
     carve(x, z, w, ht); rooms.push({ x: x + (w >> 1), z: z + (ht >> 1) });
   }
-  const mids = [];
-  const corridor = (a, b, loop) => {                        // an L, sometimes two tiles wide; its elbows remembered for obstacles
-    const wide = hash2(a.x, b.z, h0 + 5) & 1;
-    const seg = (fx, tx2, fz, tz2) => { for (let x = Math.min(fx, tx2); x <= Math.max(fx, tx2); x++) for (let z = Math.min(fz, tz2); z <= Math.max(fz, tz2); z++) { set(x, z, 2); if (wide) set(x + (fz === tz2 ? 0 : 1), z + (fz === tz2 ? 1 : 0), 2); } };
-    seg(a.x, b.x, a.z, a.z); seg(b.x, b.x, a.z, b.z);
-    if (!wide) for (const f of [0.3, 0.5, 0.7]) {           // several candidate pinch-points along both legs
-      mids.push({ x: Math.round(a.x + (b.x - a.x) * f), z: a.z, loop });
-      mids.push({ x: b.x, z: Math.round(a.z + (b.z - a.z) * f), loop });
-    }
+  // 2. corridors: two or three tiles wide, an L between rooms; pinch-points remembered for obstacles
+  const pinches = [];
+  const corridor = (a, b, loop) => {
+    const wide = rnd() < 0.35 ? 3 : 2;
+    const seg = (fx, tx2, fz, tz2, horiz) => { for (let x = Math.min(fx, tx2); x <= Math.max(fx, tx2); x++) for (let z = Math.min(fz, tz2); z <= Math.max(fz, tz2); z++) for (let o = 0; o < wide; o++) set(x + (horiz ? 0 : o), z + (horiz ? o : 0), 2); };
+    seg(a.x, b.x, a.z, a.z, 1); seg(b.x, b.x, a.z, b.z, 0);
+    pinches.push({ x: Math.round((a.x + b.x) / 2), z: a.z, hx: 1, wide, loop });
+    pinches.push({ x: b.x, z: Math.round((a.z + b.z) / 2), hx: 0, wide, loop });
   };
   const done = [rooms[0]], todo = rooms.slice(1);
   while (todo.length) {                                     // nearest-neighbour chain keeps halls local
@@ -8224,31 +8229,62 @@ function layoutDun(d) {
     corridor(done[bi], todo[bj], 0);
     done.push(todo.splice(bj, 1)[0]);
   }
-  for (let i = 0; i < (nR >> 2) + 1; i++) {                 // a few loops so the maze rings
-    const hh = hash2(i * 17, i * 3 + 9, h0 + 9);
-    corridor(rooms[hh % rooms.length], rooms[(hh >>> 7) % rooms.length], 1);
+  for (let i = 0; i < (nR >> 1) + 2; i++) corridor(rooms[Math.floor(rnd() * rooms.length)], rooms[Math.floor(rnd() * rooms.length)], 1);
+  // 3. the labyrinth: a braided maze fills the solid ground between the halls — two-tile walkways on a three-tile pitch
+  const MC = Math.floor((W - 4) / 3), cOpen = new Uint8Array(MC * MC);   // bit 1 E open, bit 2 S open, bit 4 visited
+  const cSolid = (i, j) => { for (let z = 2 + j * 3; z < 5 + j * 3; z++) for (let x = 2 + i * 3; x < 5 + i * 3; x++) if (G[z * W + x]) return 0; return 1; };
+  const stack = [];
+  for (let sj = 0; sj < MC; sj++) for (let si = 0; si < MC; si++) {
+    if (!cSolid(si, sj) || (cOpen[sj * MC + si] & 4)) continue;
+    stack.length = 0; stack.push([si, sj]); cOpen[sj * MC + si] |= 4;   // a fresh island of rock: wander it out
+    while (stack.length) {
+      const [i2, j2] = stack[stack.length - 1], dirs = [];
+      for (const [dx2, dz2] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = i2 + dx2, nj = j2 + dz2;
+        if (ni >= 0 && nj >= 0 && ni < MC && nj < MC && cSolid(ni, nj) && !(cOpen[nj * MC + ni] & 4)) dirs.push([dx2, dz2, ni, nj]);
+      }
+      if (!dirs.length) { stack.pop(); continue; }
+      const [dx2, dz2, ni, nj] = dirs[Math.floor(rnd() * dirs.length)];
+      cOpen[(dz2 > 0 ? j2 : dz2 < 0 ? nj : Math.min(j2, nj)) * MC + (dx2 > 0 ? i2 : dx2 < 0 ? ni : Math.min(i2, ni))] |= (dx2 !== 0 ? 1 : 2);
+      cOpen[nj * MC + ni] |= 4;
+      stack.push([ni, nj]);
+    }
   }
-  let boss = rooms[0];
-  for (const r of rooms) if (Math.hypot(r.x - E, r.z - 5) > Math.hypot(boss.x - E, boss.z - 5)) boss = r;
-  carve(boss.x - 5, boss.z - 5, 11, 11);
-  for (let z = boss.z - 5; z <= boss.z + 5; z++) for (let x = boss.x - 5; x <= boss.x + 5; x++) if (at(x, z) === 2) set(x, z, 8);
+  for (let j = 0; j < MC; j++) for (let i = 0; i < MC; i++) {          // carve the visited cells and their openings
+    if (!(cOpen[j * MC + i] & 4)) continue;
+    carve(2 + i * 3, 2 + j * 3, 2, 2);
+    if (cOpen[j * MC + i] & 1) carve(4 + i * 3, 2 + j * 3, 1, 2);
+    if (cOpen[j * MC + i] & 2) carve(2 + i * 3, 4 + j * 3, 2, 1);
+  }
+  // 4. braid and join: knock through a share of the one-thick walls with floor on both sides, so there is rarely only one way
+  for (let z = 3; z < W - 3; z++) for (let x = 3; x < W - 3; x++) {
+    if (G[z * W + x]) continue;
+    const H = at(x - 1, z) === 2 && at(x + 1, z) === 2, V = at(x, z - 1) === 2 && at(x, z + 1) === 2;
+    if ((H || V) && rnd() < 0.16) set(x, z, 2);
+  }
+  for (let z = boss.z - 7; z <= boss.z + 7; z++) for (let x = boss.x - 7; x <= boss.x + 7; x++) if (at(x, z) === 2) set(x, z, 8);
+  // 5. obstacles: a wall thrown across a trunk corridor with one barred gap — the labyrinth always offers a way round
   d.obs = [];
-  for (const m of mids) {                                   // an obstacle only where the corridor is truly one tile wide
-    if (d.obs.length >= 3 + (E >> 3)) break;
-    const H = at(m.x - 1, m.z) === 2 && at(m.x + 1, m.z) === 2 && !at(m.x, m.z - 1) && !at(m.x, m.z + 1);
-    const V = at(m.x, m.z - 1) === 2 && at(m.x, m.z + 1) === 2 && !at(m.x - 1, m.z) && !at(m.x + 1, m.z);
-    if ((!H && !V) || at(m.x, m.z) !== 2) continue;
-    if (Math.hypot(m.x - E, m.z - 5) < 9) continue;         // never barricade the entry hall
-    if (d.obs.some(o => Math.abs(o.gx - m.x) + Math.abs(o.gz - m.z) < 7)) continue;
-    const kind = m.loop ? 5 : (hash2(m.x, m.z, h0 + 11) & 1) ? 4 : 0;
-    if (!kind) continue;
+  for (const m of pinches) {
+    if (d.obs.length >= 3 + (E >> 4)) break;
+    if (Math.hypot(m.x - E, m.z - 5) < 11 || Math.hypot(m.x - boss.x, m.z - boss.z) < 10) continue;
+    if (d.obs.some(o => Math.abs(o.gx - m.x) + Math.abs(o.gz - m.z) < 10)) continue;
+    if (rnd() > (m.loop ? 0.6 : 0.45)) continue;
+    const ax = m.hx ? 1 : 0, az = m.hx ? 0 : 1;             // corridor axis; the pinch wall runs across it
+    let ok = at(m.x - ax, m.z - az) === 2 && at(m.x + ax, m.z + az) === 2 && at(m.x, m.z) === 2;
+    for (let o = 1; o < m.wide && ok; o++) ok = at(m.x + az * o, m.z + ax * o) === 2;
+    if (!ok) continue;
+    const kind = m.loop ? 5 : 4;
     set(m.x, m.z, kind);
-    d.obs.push({ gx: m.x, gz: m.z, t: kind, hx: H ? 1 : 0 });
+    for (let o = 1; o < m.wide; o++) set(m.x + az * o, m.z + ax * o, 1);
+    d.obs.push({ gx: m.x, gz: m.z, t: kind, hx: ax });
   }
-  for (let i = 0, want = 2 + (E >> 4); i < 60 && want > 0; i++) {   // ore for the brave, against the walls
-    const hh = hash2(i * 29, i * 11 + 2, h0 + 13);
-    const x = 3 + hh % (W - 6), z = 10 + (hh >>> 9) % (W - 13);
-    if (at(x, z) !== 2 || (at(x - 1, z) && at(x + 1, z) && at(x, z - 1) && at(x, z + 1))) continue;
+  // 6. ore in the crannies
+  for (let i = 0, want = 3 + (E >> 4); i < 90 && want > 0; i++) {
+    const x = 3 + Math.floor(rnd() * (W - 6)), z = 11 + Math.floor(rnd() * (W - 17));
+    if (at(x, z) !== 2) continue;
+    const wn = (at(x - 1, z) !== 2) + (at(x + 1, z) !== 2) + (at(x, z - 1) !== 2) + (at(x, z + 1) !== 2);
+    if (wn < 2) continue;
     set(x, z, 6); want--;
   }
   set(E, 3, 7);                                             // the way back out
