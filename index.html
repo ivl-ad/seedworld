@@ -418,7 +418,8 @@
       <p class="hint">Cliffs steeper than one step block you — go around, or open <b>Stuck</b> to climb anything at a crawl. Deep water puts you in a rowboat. Walk through a doorway and the roof lifts off.</p>
     </div>
     <div class="pane" id="pane-cb"><div class="phead">Combat Options</div><div id="styleList"></div>
-      <div class="kv"><i>Weapon</i><b id="cbWep">Unarmed</b><i>Attack speed</i><b id="cbSpd">4</b><i>Max hit</i><b id="cbMax">1</b><i>Combat level</i><b id="cbLvl">3</b></div></div>
+      <div class="kv"><i>Weapon</i><b id="cbWep">Unarmed</b><i>Attack speed</i><b id="cbSpd">4</b><i>Max hit</i><b id="cbMax">1</b><i>Combat level</i><b id="cbLvl">3</b></div>
+      <button id="cbSpec" style="display:none"></button></div>
     <div class="pane" id="pane-mg"><div class="phead">Spellbook</div><div id="spellGrid"></div><p class="hint" id="mgHint">Select a spell, then click a target.</p></div>
     <div class="pane" id="pane-pr"><div class="phead">Prayers <span id="prPts">10/10</span></div><div id="prayList"></div>
       <p class="hint">Bury bones for Prayer experience. Active prayers drain points.</p></div>
@@ -874,7 +875,7 @@ function gainXp(k, amount) {
   if (leveled) {
     say('Congratulations, you just advanced a ' + skName(i) + ' level.', 'lv');
     say('Your ' + skName(i) + ' level is now ' + lvl[i] + '.', 'lv');
-    if (i === SK.hitpoints) { P.maxhp = lvl[i]; P.hp = P.maxhp; }
+    if (i === SK.hitpoints) { P.hp += lvl[i] - P.maxhp; P.maxhp = lvl[i]; }   // a level heals only the point it grants
     if (i === SK.defence) sendEquip();                    // the room rolls against it
     dirty.orb = 1;
     markDirty(1);                                         // a level is never worth losing
@@ -903,21 +904,47 @@ const TIERS = [
   { k: 'dragon', n: 'Dragon', req: 60, tool: 61,  mine: 999, c: '#a02c1e', c2: '#6b1a10', m: 8 }
 ];
 const TIER = Object.create(null); TIERS.forEach((t, i) => { t.i = i; TIER[t.k] = t; });
-/* [key, name, glyph, slot, atk, str, def, extras]; extras: spd, two, reach, stab, tool, gate */
+/* [key, name, glyph, slot, atk, str, def, extras]; extras: spd, two, reach, stab, tool, gate. The a/s/d columns only price the
+   piece and scale the few invented ladders (tools, boots, gauntlets) — real combat numbers come from WV/AV below. */
 const PIECES = [
   ['hatchet', 'hatchet', 'axe', 'weapon', 4, 5, 0, { tool: 'woodcutting' }], ['pickaxe', 'pickaxe', 'pick', 'weapon', 3, 4, 0, { tool: 'mining' }],
-  ['dagger', 'dagger', 'dagger', 'weapon', 5, 4, 0, { spd: 4, stab: 1 }], ['sword', 'sword', 'sword', 'weapon', 7, 6, 1, { stab: 1 }],
+  ['dagger', 'dagger', 'dagger', 'weapon', 5, 4, 0, { spd: 4, stab: 1 }], ['sword', 'sword', 'sword', 'weapon', 7, 6, 1, { spd: 4, stab: 1 }],
   ['scimitar', 'scimitar', 'scim', 'weapon', 9, 8, 0, { spd: 4 }], ['longsword', 'longsword', 'lsword', 'weapon', 10, 8, 1],
-  ['mace', 'mace', 'mace', 'weapon', 6, 8, 1], ['battleaxe', 'battleaxe', 'baxe', 'weapon', 8, 9, 0],
+  ['mace', 'mace', 'mace', 'weapon', 6, 8, 1, { spd: 4 }], ['battleaxe', 'battleaxe', 'baxe', 'weapon', 8, 9, 0, { spd: 6 }],
   ['warhammer', 'warhammer', 'wham', 'weapon', 8, 10, 0, { spd: 6, gate: 'strength' }], ['claws', 'claws', 'claws', 'weapon', 8, 7, 1, { spd: 4 }],
   ['2h_sword', '2h sword', 'sword2h', 'weapon', 12, 13, 0, { spd: 7, two: 1 }], ['halberd', 'halberd', 'halberd', 'weapon', 11, 12, 0, { spd: 7, two: 1, reach: 2, stab: 1 }],
-  ['spear', 'spear', 'spear', 'weapon', 8, 7, 0, { two: 1, stab: 1 }], ['hasta', 'hasta', 'spear', 'weapon', 7, 7, 0, { stab: 1 }],
+  ['spear', 'spear', 'spear', 'weapon', 8, 7, 0, { spd: 4, two: 1, stab: 1 }], ['hasta', 'hasta', 'spear', 'weapon', 7, 7, 0, { spd: 4, stab: 1 }],
   ['med_helm', 'med helm', 'helm', 'head', 0, 0, 4], ['full_helm', 'full helm', 'fhelm', 'head', 0, 0, 6],
   ['platebody', 'platebody', 'body', 'body', 0, 0, 9], ['chainbody', 'chainbody', 'chain', 'body', 0, 0, 7],
   ['platelegs', 'platelegs', 'legs', 'legs', 0, 0, 7], ['plateskirt', 'plateskirt', 'skirt', 'legs', 0, 0, 7],
   ['kiteshield', 'kiteshield', 'shield', 'shield', 0, 0, 8], ['sq_shield', 'sq shield', 'sqshield', 'shield', 0, 0, 6],
   ['defender', 'defender', 'defender', 'shield', 3, 2, 3], ['boots', 'boots', 'boot', 'feet', 0, 0, 2], ['gauntlets', 'gauntlets', 'glove', 'hands', 0, 0, 2]
 ].map(([k, n, g, slot, a, s, d, x]) => Object.assign({ k, n, g, slot, a, s, d }, x));
+/* the wiki's own ladder, indexed by tier (bronze iron steel black mithril adamant rune white dragon).
+   WV: [attack, strength] per weapon class — the single attack scalar is the class's best style's bonus.
+   AV: armour defence — the rounded mean of the wiki's stab/slash/crush. Tools, boots and gauntlets stay formula-scaled. */
+const WV = {
+  dagger: [[4, 5, 8, 10, 11, 15, 25, , 40], [3, 4, 7, 7, 10, 14, 24, , 40]],
+  sword: [[4, 6, 11, 14, 16, 23, 38, , 65], [5, 7, 12, 12, 17, 24, 39, , 63]],
+  scimitar: [[7, 10, 15, 19, 21, 29, 45, , 67], [6, 9, 14, 14, 20, 28, 44, , 66]],
+  longsword: [[5, 8, 14, 18, 20, 29, 47, , 69], [7, 10, 16, 16, 22, 31, 49, , 71]],
+  mace: [[6, 9, 13, 16, 18, 25, 39, , 60], [5, 7, 11, 13, 16, 23, 36, , 55]],
+  battleaxe: [[6, 8, 16, 20, 22, 31, 48, , 70], [9, 13, 20, 24, 29, 41, 64, , 85]],
+  warhammer: [[10, 11, 18, 22, 25, 35, 53, , 95], [8, 11, 18, 22, 27, 39, 62, , 85]],
+  claws: [[4, 6, 11, 14, 16, 23, 38, , 57], [5, 7, 12, 14, 17, 24, 39, , 56]],
+  '2h_sword': [[9, 13, 21, 27, 30, 43, 69, , 92], [10, 14, 22, 26, 31, 44, 70, , 93]],
+  halberd: [[8, 12, 19, 25, 28, 41, 67, , 95], [8, 12, 20, 20, 29, 42, 68, , 89]],
+  spear: [[5, 8, 12, 15, 17, 24, 36, , 55], [6, 10, 12, 16, 18, 28, 42, , 60]],
+  hasta: [[5, 8, 12, , 17, 24, 36, , 55], [6, 10, 12, , 18, 28, 42, , 60]],
+  defender: [[3, 5, 7, 9, 10, 13, 20, , 25], [0, 0, 1, 2, 3, 4, 5, , 6]]
+};
+const AV = {
+  med_helm: [3, 4, 7, 9, 10, 14, 22, 9, 33], full_helm: [4, 6, 9, 12, 13, 19, 30, 12, 45],
+  platebody: [13, 18, 29, 37, 43, 61, 78, 37, 104], chainbody: [10, 15, 24, 31, 34, 49, 71, 31, 91],
+  platelegs: [7, 10, 16, 20, 22, 31, 49, 20, 66], plateskirt: [7, 10, 16, 20, 22, 31, 49, 20, 66],
+  kiteshield: [6, 9, 14, 18, 20, 29, 46, 18, 58], sq_shield: [5, 8, 12, 15, 17, 24, 38, 15, 50],
+  defender: [2, 4, 6, 8, 9, 12, 19, , 24]
+};
 
 const ITEMS = Object.create(null);
 const defItem = o => ITEMS[o.id] = o;
@@ -925,12 +952,14 @@ const defItem = o => ITEMS[o.id] = o;
 const defWear = o => defItem(Object.assign({ equip: 1, atk: 0, str: 0, def: 0, req: {} }, o));
 
 for (const t of TIERS) for (const p of PIECES) {
-  if (t.k === 'black' && p.k === 'pickaxe') continue;         // no black pickaxe, as in 2007
-  if (t.armourOnly && p.slot === 'weapon') continue;
+  if (t.k === 'black' && (p.k === 'pickaxe' || p.k === 'hasta')) continue;   // neither exists in 2007
+  if (t.armourOnly && (p.slot === 'weapon' || p.k === 'defender')) continue;
   if (t.k === 'bronze' && p.k === 'boots') continue;           // boots start at iron
+  const w = WV[p.k], av = AV[p.k];
   defItem({
     id: t.k + '_' + p.k, name: t.n + ' ' + p.n, g: p.g, c: t.c, c2: t.c2, slot: p.slot, tier: t.i, spd: p.spd || 5, equip: 1,
-    two: p.two || 0, reach: p.reach || 0, stab: p.stab || 0, atk: p.a * t.m, str: p.s * t.m, def: p.d * t.m, tool: p.tool || null,
+    two: p.two || 0, reach: p.reach || 0, stab: p.stab || 0, tool: p.tool || null,
+    atk: w ? w[0][t.i] || 0 : p.a * t.m, str: w ? w[1][t.i] || 0 : p.s * t.m, def: av ? av[t.i] || 0 : p.d * t.m,
     req: p.tool ? { [p.tool]: t.tool } : p.slot === 'weapon' ? { [p.gate || 'attack']: t.req } : { defence: t.req },
     val: Math.round((p.a + p.s + p.d * 1.6 + 6) * t.m * t.m * 1.2)           // price climbs with the square of the tier
   });
@@ -941,20 +970,20 @@ const BOWS = [
   { k: 'willow_', n: 'Willow ', lv: 20, ra: 20, c: '#6f8f3a', c2: '#465a24' }, { k: 'maple_', n: 'Maple ', lv: 30, ra: 29, c: '#a8632a', c2: '#6b3e1a' },
   { k: 'yew_', n: 'Yew ', lv: 40, ra: 41, c: '#2f5a3c', c2: '#1c3824' }, { k: 'magic_', n: 'Magic ', lv: 50, ra: 55, c: '#6f6fc8', c2: '#43439b' }
 ];
-const BOWFORM = [{ k: 'shortbow', n: 'shortbow', spd: 3, rng: 7, m: 1.00 }, { k: 'longbow', n: 'longbow', spd: 5, rng: 9, m: 1.35 }];
+const BOWFORM = [{ k: 'shortbow', n: 'shortbow', spd: 4, rng: 7, m: 1.00 }, { k: 'longbow', n: 'longbow', spd: 6, rng: 9, m: 1.35 }];
 for (const b of BOWS) for (const f of BOWFORM) defWear({
   id: b.k + f.k, name: b.n ? b.n + f.n : cap(f.n), g: 'bow', c: b.c, c2: b.c2, slot: 'weapon', bow: 1, two: 1, spd: f.spd, rng: f.rng,
   rat: Math.round(b.ra * f.m), req: { ranged: b.lv }, val: Math.round(30 + b.ra * b.ra * 0.55 * f.m)
 });
-/* crossbows: one hand, bolts only */
-const XBOWS = [['bronze', 12, 1], ['iron', 18, 1], ['steel', 26, 5], ['mithril', 36, 20], ['adamant', 46, 30], ['rune', 61, 40], ['dragon', 78, 60]]
+/* crossbows: one hand, bolts only; the 2007 levels and the slow six-tick cadence */
+const XBOWS = [['bronze', 12, 1], ['iron', 18, 26], ['steel', 26, 31], ['mithril', 36, 36], ['adamant', 46, 46], ['rune', 61, 61], ['dragon', 78, 64]]
   .map(([k, ra, lv]) => ({ k, ra, lv }));
 for (const b of XBOWS) { const t = TIER[b.k]; defWear({ id: b.k + '_crossbow', name: t.n + ' crossbow', g: 'cbow', c: t.c, c2: t.c2, slot: 'weapon', bow: 1,
-  ammoT: 'bolt', spd: 5, rng: 7, rat: b.ra, req: { ranged: b.lv }, val: Math.round(40 + b.ra * b.ra * 0.5) }); }
+  ammoT: 'bolt', spd: 6, rng: 7, rat: b.ra, req: { ranged: b.lv }, val: Math.round(40 + b.ra * b.ra * 0.5) }); }
 /* ammunition carries the strength and stacks */
 const ARROWS = [['bronze', 1, 7], ['iron', 1, 10], ['steel', 5, 16], ['mithril', 20, 22], ['adamant', 30, 31], ['rune', 40, 49],
   ['amethyst', 61, 55, 'Amethyst', '#9a6fc4', '#5f4380'], ['dragon', 75, 62]].map(([k, lv, rs, n, c, c2]) => ({ k, lv, rs, n, c, c2 }));
-const BOLTS = [['bronze', 1, 8], ['iron', 1, 12], ['steel', 5, 19], ['mithril', 20, 26], ['adamant', 30, 37], ['rune', 40, 55], ['dragon', 60, 71]]
+const BOLTS = [['bronze', 1, 10], ['iron', 26, 46], ['steel', 31, 64], ['mithril', 36, 82], ['adamant', 46, 100], ['rune', 61, 115], ['dragon', 64, 122]]
   .map(([k, lv, rs]) => ({ k, lv, rs }));
 const defAmmo = (a, suffix, g, aT, pm) => { const t = TIER[a.k]; defWear({ id: a.k + suffix, name: (a.n || t.n) + (aT ? ' bolts' : ' arrow'), g,
   c: a.c || t.c, c2: a.c2 || t.c2, slot: 'ammo', stack: 1, ammo: 1, aT, rst: a.rs, rat: Math.round(a.rs * 0.45), req: { ranged: a.lv }, val: Math.max(1, Math.round(a.rs * pm)) }); };
@@ -1020,21 +1049,22 @@ const BARS = [
 });
 /* bars per piece, the level offset from the metal's smelting level, pieces per go */
 const SMITH = [['dagger', 1, 0], ['hatchet', 1, 1], ['mace', 1, 2], ['med_helm', 1, 3], ['sword', 1, 4], ['nails', 1, 4, 15], ['dart_tips', 1, 4, 10], ['scimitar', 2, 5], ['spear', 1, 5], ['longsword', 2, 6], ['knife', 1, 7, 5],
-  ['pickaxe', 2, 6], ['full_helm', 2, 7], ['sq_shield', 2, 8], ['warhammer', 3, 9], ['battleaxe', 3, 10], ['chainbody', 3, 11], ['kiteshield', 3, 12], ['claws', 2, 13], ['2h_sword', 3, 14],
-  ['plateskirt', 3, 16], ['platelegs', 3, 16], ['platebody', 5, 18], ['arrowtips', 1, 4, 15], ['bolts_u', 1, 2, 10]].map(([p, bars, off, n]) => ({ p, bars, off, n: n || 1 }));
+  ['full_helm', 2, 7], ['sq_shield', 2, 8], ['warhammer', 3, 9], ['battleaxe', 3, 10], ['chainbody', 3, 11], ['kiteshield', 3, 12], ['claws', 2, 13], ['2h_sword', 3, 14],
+  ['plateskirt', 3, 16], ['platelegs', 3, 16], ['platebody', 5, 18], ['arrowtips', 1, 5, 15], ['bolts_u', 1, 3, 10]].map(([p, bars, off, n]) => ({ p, bars, off, n: n || 1 }));   // no smithable pickaxes in 2007
 for (const b of BARS) if (TIER[b.t]) defItem({ id: b.t + '_nails', name: TIER[b.t].n + ' nails', g: 'needle', c: TIER[b.t].c, c2: TIER[b.t].c2, stack: 1, val: 1 + TIER[b.t].i * 2 });
-/* fish, by level: key, name, level, xp, cooking xp, cooking level, deep (0 = net/rod, 1 = harpoon), colour, heal. A spot gives the best fish your level allows */
+/* fish, by level: key, name, level, xp, cooking xp, cooking level, deep (0 = net/rod, 1 = harpoon), colour, heal, stop-burning
+   level on a range (100 = never stops: shark and up burn even at 99). A spot gives the best fish your level allows */
 const FISH = [
-  ['shrimps', 'Shrimps', 1, 10, 30, 1, 0, '#c98a6a', 3], ['sardine', 'Sardine', 5, 20, 40, 1, 0, '#9ab0c0', 4], ['herring', 'Herring', 10, 30, 50, 5, 0, '#8aa0b8', 5],
-  ['anchovies', 'Anchovies', 15, 40, 30, 1, 0, '#7a8a9a', 1], ['trout', 'Trout', 20, 50, 70, 15, 0, '#9aa6b0', 7], ['pike', 'Pike', 25, 60, 80, 20, 0, '#7a9a6a', 8],
-  ['salmon', 'Salmon', 30, 70, 90, 25, 0, '#d1795f', 9], ['tuna', 'Tuna', 35, 80, 100, 30, 1, '#5a7aa0', 10], ['lobster', 'Lobster', 40, 90, 120, 40, 1, '#b83a2a', 12],
-  ['bass', 'Bass', 46, 100, 130, 43, 1, '#6a8a7a', 13], ['swordfish', 'Swordfish', 50, 100, 140, 45, 1, '#7f8fa0', 14], ['monkfish', 'Monkfish', 62, 120, 150, 62, 0, '#b8a888', 16],
-  ['shark', 'Shark', 76, 110, 210, 80, 1, '#5b6b7a', 20], ['anglerfish', 'Anglerfish', 82, 120, 230, 84, 1, '#4a4a5a', 22], ['dark_crab', 'Dark crab', 85, 130, 215, 90, 1, '#3a2a2a', 22]
-].map(([k, n, lv, xp, cook, cookLv, deep, c, heal], i) => {
+  ['shrimps', 'Shrimps', 1, 10, 30, 1, 0, '#c98a6a', 3, 34], ['sardine', 'Sardine', 5, 20, 40, 1, 0, '#9ab0c0', 4, 38], ['herring', 'Herring', 10, 30, 50, 5, 0, '#8aa0b8', 5, 41],
+  ['anchovies', 'Anchovies', 15, 40, 30, 1, 0, '#7a8a9a', 1, 34], ['trout', 'Trout', 20, 50, 70, 15, 0, '#9aa6b0', 7, 49], ['pike', 'Pike', 25, 60, 80, 20, 0, '#7a9a6a', 8, 54],
+  ['salmon', 'Salmon', 30, 70, 90, 25, 0, '#d1795f', 9, 58], ['tuna', 'Tuna', 35, 80, 100, 30, 1, '#5a7aa0', 10, 63], ['lobster', 'Lobster', 40, 90, 120, 40, 1, '#b83a2a', 12, 74],
+  ['bass', 'Bass', 46, 100, 130, 43, 1, '#6a8a7a', 13, 79], ['swordfish', 'Swordfish', 50, 100, 140, 45, 1, '#7f8fa0', 14, 80], ['monkfish', 'Monkfish', 62, 120, 150, 62, 0, '#b8a888', 16, 90],
+  ['shark', 'Shark', 76, 110, 210, 80, 1, '#5b6b7a', 20, 100], ['anglerfish', 'Anglerfish', 82, 120, 230, 84, 1, '#4a4a5a', 22, 100], ['dark_crab', 'Dark crab', 85, 130, 215, 90, 1, '#3a2a2a', 22, 100]
+].map(([k, n, lv, xp, cook, cookLv, deep, c, heal, stop], i) => {
   defItem({ id: 'raw_' + k, name: 'Raw ' + n.toLowerCase(), g: 'fish', c, c2: '#5b5b5b', stack: 1, val: 15 + i * 40, raw: k });
   defItem({ id: k, name: n, g: 'cfish', c, c2: '#8a5a2a', stack: 1, val: 25 + i * 60, heal });
   defItem({ id: 'burnt_' + k, name: 'Burnt ' + n.toLowerCase(), g: 'cfish', c: '#2a2320', c2: '#151210', stack: 1, val: 0 });
-  return { k, n, lv, xp, cook, cookLv, deep, c, i, raw: 'raw_' + k, done: k };
+  return { k, n, lv, xp, cook, cookLv, deep, c, i, stop, raw: 'raw_' + k, done: k };
 });
 /* meat: what cows and chickens leave behind; COOK is everything a fire or range takes */
 const COOK = FISH.concat([['meat', 'beef', '#b83a3a'], ['chicken', 'chicken', '#e8c8a8']].map(([k, src, c]) => {
@@ -1057,7 +1087,7 @@ defWear({ id: 'avas_accumulator', name: "Ava's accumulator", g: 'cape', c: '#8a8
 defWear({ id: 'team_cape', name: 'Team cape', g: 'cape', c: '#b03a3a', c2: '#6b2020', slot: 'cape', val: 50 });
 for (const [k, c, c2, b, val] of [['magic', '#4a72d0', '#2a4485', { mag: 10 }, 350], ['defence', '#c04a4a', '#7a2a2a', { def: 7 }, 700],
   ['strength', '#3f9a4a', '#25622c', { str: 10 }, 1400], ['power', '#8a4ad0', '#552a85', { atk: 6, str: 6, def: 6, mag: 6 }, 2800],
-  ['glory', '#e0448a', '#8f2455', { atk: 10, str: 8, def: 10, mag: 10 }, 11000]])
+  ['glory', '#e0448a', '#8f2455', { atk: 10, str: 6, def: 3, mag: 10 }, 11000]])
   defWear(Object.assign({ id: 'amulet_of_' + k, name: 'Amulet of ' + k, g: 'amulet', c, c2, slot: 'neck', val }, b));
 /* rings carry behaviours, not stats */
 for (const [k, c, c2, val] of [['recoil', '#4a72d0', '#2a4485', 1200], ['life', '#d0d4dc', '#8a8f98', 5000], ['wealth', '#e0b436', '#9a7414', 9000]])
@@ -1141,8 +1171,10 @@ const mkOk = r => lvl[SK[r.sk]] >= r.lv && hasAll(r.need) && (!r.tool || invCoun
 const mkWhy = r => lvl[SK[r.sk]] < r.lv ? skName(SK[r.sk]) + ' ' + r.lv : r.tool && !invCount(r.tool) ? 'a ' + ITEMS[r.tool].name.toLowerCase()
   : r.need.map(([id, n]) => n + ' ' + ITEMS[id].name.toLowerCase()).join(', ');
 const mkName = r => r.name || ITEMS[r.id].name + (r.n > 1 ? ' x' + r.n : '');
-for (const b of BARS) recipe(b.id, 'smithing', b.lv, b.xp, b.need, { at: 3 });
-for (const b of BARS) for (const s of SMITH) if (ITEMS[b.t + '_' + s.p]) recipe(b.t + '_' + s.p, 'smithing', Math.min(MAXL, b.lv + s.off), b.xp * s.bars * 2, [[b.id, s.bars]], { at: 4, tool: 'hammer', n: s.n });
+for (const b of BARS) recipe(b.id, 'smithing', b.lv, b.xp, b.need,
+  b.t === 'iron' ? { at: 3, fn: () => Math.random() < 0.5 ? [['iron_bar', 1]] : (say('The ore is too impure and you fail to refine it.', 'bad'), null) } : { at: 3 });   // iron smelts at 50%, as ever
+const SMITH_XP = { bronze: 12.5, iron: 25, steel: 37.5, mithril: 50, adamant: 62.5, rune: 75 };   // the 2007 xp per bar at the anvil
+for (const b of BARS) for (const s of SMITH) if (ITEMS[b.t + '_' + s.p]) recipe(b.t + '_' + s.p, 'smithing', Math.min(MAXL, b.lv + s.off), (SMITH_XP[b.t] || b.xp * 2) * s.bars, [[b.id, s.bars]], { at: 4, tool: 'hammer', n: s.n });
 
 /* ---- 6. SHOPS: stock is a function of (kind, settlement tier), derived every time the door opens ---- */
 const SHOP_KINDS = [
@@ -1269,6 +1301,25 @@ const RSTYLES = [
   { n: 'Rapid', d: 'Trains Ranged, faster', g: 'bow', xp: ['ranged'], acc: 0, str: 0, spd: -1 },
   { n: 'Longrange', d: 'Trains Ranged and Defence', g: 'shield', xp: ['ranged', 'defence'], acc: 0, str: 0, rng: 2, def: 3 }
 ];
+/* ---- 7b. SPECIAL ATTACKS: energy runs 0-100 and returns 10 points every 50 ticks, the 2007 pace. cost in %; n hits; acc and dmg
+   multiply the roll; claws runs its own cascade; drainDef cuts the target's current Defence (warhammer, stacking); stun parks the
+   target's swing timer (spear); fx fires instantly from the button (battleaxe); rng marks ranged specs. The dragon 2h's modifier is
+   unstated on the wiki so it rolls plain, and area effects land single-target here. ---- */
+const SPEC = {
+  dragon_dagger: { cost: 25, n: 2, acc: 1.15, dmg: 1.15 },
+  dragon_longsword: { cost: 25, dmg: 1.25 },
+  dragon_mace: { cost: 25, acc: 1.25, dmg: 1.5 },
+  dragon_warhammer: { cost: 50, dmg: 1.5, drainDef: 0.7 },
+  dragon_scimitar: { cost: 55, acc: 1.25 },                 // its prayer-cut is PvP-only in 2007 and not modelled
+  dragon_spear: { cost: 25, stun: 8, dmg: 0 },
+  dragon_halberd: { cost: 30, dmg: 1.1, big2: 1 },
+  dragon_2h_sword: { cost: 60 },
+  dragon_claws: { cost: 50, claws: 1 },
+  dragon_battleaxe: { cost: 100, fx: () => { let d = 0; for (const k of ['attack', 'defence', 'ranged', 'magic']) { const t = Math.floor(lvl[SK[k]] * 0.1); bst[SK[k]] = Math.max(-99, bst[SK[k]] - t); d += t; }
+    bst[SK.strength] = Math.min(99, bst[SK.strength] + 10 + Math.floor(d / 4)); dirty.sk = 1; say('You feel the power of the dragon battleaxe surge through you!', 'lv'); } },
+  dragon_crossbow: { cost: 60, rng: 1, dmg: 1.2 },
+  magic_shortbow: { cost: 55, rng: 1, n: 2, acc: 1.43 }
+};
 const SPELLS = [
   ['wind_strike', 'Wind Strike', 1, 5.5, 2, 0xd8e4ee, [['air_rune', 1], ['mind_rune', 1]]],
   ['water_strike', 'Water Strike', 5, 7.5, 4, 0x4f8fd0, [['water_rune', 1], ['air_rune', 1], ['mind_rune', 1]]],
@@ -1291,20 +1342,21 @@ const SPELLS = [
   ['weaken', 'Weaken', 11, 20.5, 0, 0x9a7ad0, [['body_rune', 1], ['earth_rune', 2], ['water_rune', 3]], 'str'],
   ['curse', 'Curse', 19, 29, 0, 0x9a7ad0, [['body_rune', 1], ['earth_rune', 3], ['water_rune', 2]], 'def']
 ].map(([k, n, lv, xp, max, tint, need, drain], i) => ({ k, n, lv, xp, max, tint, need, drain, i }));
-/* prayers drain points per tick while lit */
+/* prayers drain points per tick while lit, at the 2007 rates: 0.6 / (seconds per point) — the 36s/18s/12s/6s/3s/2s/1.5s ladder */
 const PRAYERS = [
-  ['thick_skin', 'Thick Skin', 1, 0.02, { def: 1.05 }, 'shield'], ['burst_str', 'Burst of Str', 4, 0.02, { str: 1.05 }, 'fist'], ['clarity', 'Clarity', 7, 0.02, { atk: 1.05 }, 'sword'],
-  ['rock_skin', 'Rock Skin', 10, 0.04, { def: 1.10 }, 'shield'], ['superhuman', 'Superhuman', 13, 0.04, { str: 1.10 }, 'fist'], ['improved_refl', 'Improved Refl.', 16, 0.04, { atk: 1.10 }, 'sword'],
-  ['steel_skin', 'Steel Skin', 28, 0.08, { def: 1.15 }, 'shield'], ['ultimate_str', 'Ultimate Str', 31, 0.08, { str: 1.15 }, 'fist'],
+  ['thick_skin', 'Thick Skin', 1, 0.0167, { def: 1.05 }, 'shield'], ['burst_str', 'Burst of Str', 4, 0.0167, { str: 1.05 }, 'fist'], ['clarity', 'Clarity', 7, 0.0167, { atk: 1.05 }, 'sword'],
+  ['rock_skin', 'Rock Skin', 10, 0.1, { def: 1.10 }, 'shield'], ['superhuman', 'Superhuman', 13, 0.1, { str: 1.10 }, 'fist'], ['improved_refl', 'Improved Refl.', 16, 0.1, { atk: 1.10 }, 'sword'],
+  ['steel_skin', 'Steel Skin', 28, 0.2, { def: 1.15 }, 'shield'], ['ultimate_str', 'Ultimate Str', 31, 0.2, { str: 1.15 }, 'fist'],
   // appended, never inserted: the bit is the row's index in the save. The effect object: atk/str/def/rng/mag multiply; prot names the monster style turned
-  // aside (0 on the other overheads, so they share its slot); heal, restore, preserve, item, retri and redeem are flags; a seventh column is a Defence requirement
-  ['rapid_heal', 'Rapid Heal', 22, 0.01, { heal: 1 }, 'heart'], ['prot_magic', 'Protect Magic', 37, 0.08, { prot: 'g' }, 'rune'], ['prot_missiles', 'Protect Missiles', 40, 0.08, { prot: 'r' }, 'arrow'],
-  ['prot_melee', 'Protect Melee', 43, 0.08, { prot: 'm' }, 'sword'], ['eagle_eye', 'Eagle Eye', 44, 0.08, { rng: 1.15 }, 'bow'], ['mystic_might', 'Mystic Might', 45, 0.08, { mag: 1.15 }, 'staff'],
-  ['sharp_eye', 'Sharp Eye', 8, 0.02, { rng: 1.05 }, 'arrow'], ['mystic_will', 'Mystic Will', 9, 0.02, { mag: 1.05 }, 'rune'], ['rapid_restore', 'Rapid Restore', 19, 0.007, { restore: 1 }, 'leaf'],
-  ['prot_item', 'Protect Item', 25, 0.013, { item: 1 }, 'ring'], ['hawk_eye', 'Hawk Eye', 26, 0.04, { rng: 1.10 }, 'arrow'], ['mystic_lore', 'Mystic Lore', 27, 0.04, { mag: 1.10 }, 'rune'],
-  ['incredible_refl', 'Incredible Refl.', 34, 0.08, { atk: 1.15 }, 'sword'], ['retribution', 'Retribution', 46, 0.02, { retri: 1, prot: 0 }, 'skull'], ['redemption', 'Redemption', 49, 0.04, { redeem: 1, prot: 0 }, 'heart'],
-  ['preserve', 'Preserve', 55, 0.013, { preserve: 1 }, 'vial'], ['chivalry', 'Chivalry', 60, 0.16, { def: 1.20, str: 1.18, atk: 1.15 }, 'fhelm', 65],
-  ['piety', 'Piety', 70, 0.16, { def: 1.25, str: 1.23, atk: 1.20 }, 'star', 70], ['rigour', 'Rigour', 74, 0.16, { rng: 1.23, def: 1.25 }, 'bow', 70], ['augury', 'Augury', 77, 0.16, { mag: 1.25, def: 1.25 }, 'staff', 70]
+  // aside (0 on the other overheads, so they share its slot); heal, restore, preserve, item, retri, redeem and smite are flags; a seventh column is a Defence requirement
+  ['rapid_heal', 'Rapid Heal', 22, 0.0333, { heal: 1 }, 'heart'], ['prot_magic', 'Protect Magic', 37, 0.2, { prot: 'g' }, 'rune'], ['prot_missiles', 'Protect Missiles', 40, 0.2, { prot: 'r' }, 'arrow'],
+  ['prot_melee', 'Protect Melee', 43, 0.2, { prot: 'm' }, 'sword'], ['eagle_eye', 'Eagle Eye', 44, 0.2, { rng: 1.15 }, 'bow'], ['mystic_might', 'Mystic Might', 45, 0.2, { mag: 1.15 }, 'staff'],
+  ['sharp_eye', 'Sharp Eye', 8, 0.0167, { rng: 1.05 }, 'arrow'], ['mystic_will', 'Mystic Will', 9, 0.0167, { mag: 1.05 }, 'rune'], ['rapid_restore', 'Rapid Restore', 19, 0.0167, { restore: 1 }, 'leaf'],
+  ['prot_item', 'Protect Item', 25, 0.0333, { item: 1 }, 'ring'], ['hawk_eye', 'Hawk Eye', 26, 0.1, { rng: 1.10 }, 'arrow'], ['mystic_lore', 'Mystic Lore', 27, 0.1, { mag: 1.10 }, 'rune'],
+  ['incredible_refl', 'Incredible Refl.', 34, 0.2, { atk: 1.15 }, 'sword'], ['retribution', 'Retribution', 46, 0.05, { retri: 1, prot: 0 }, 'skull'], ['redemption', 'Redemption', 49, 0.1, { redeem: 1, prot: 0 }, 'heart'],
+  ['preserve', 'Preserve', 55, 0.0333, { preserve: 1 }, 'vial'], ['chivalry', 'Chivalry', 60, 0.2, { def: 1.20, str: 1.18, atk: 1.15 }, 'fhelm', 65],
+  ['piety', 'Piety', 70, 0.4, { def: 1.25, str: 1.23, atk: 1.20 }, 'star', 70], ['rigour', 'Rigour', 74, 0.4, { rng: 1.23, def: 1.25 }, 'bow', 70], ['augury', 'Augury', 77, 0.4, { mag: 1.25, def: 1.25 }, 'staff', 70],
+  ['smite', 'Smite', 52, 0.3, { smite: 1, prot: 0 }, 'star']
 ].map(([k, n, lv, drain, fx, g, dl], i) => Object.assign({ k, n, lv, drain, g, dl: dl || 0, fx: Object.keys(fx), bit: 1 << i }, fx));
 const prayerMul = f => { let m = 1; for (const p of PRAYERS) if ((P.prayers & p.bit) && p[f]) m *= p[f]; return m; };
 const prayHas = (f, v) => PRAYERS.some(p => (P.prayers & p.bit) && (v === undefined ? p[f] : p[f] === v));
@@ -2023,7 +2075,8 @@ function ghostGeo(o) {
 /* Stats follow the wiki (lv/hp/atk/str/def per monster). db: defence bonus on the player-gear scale; abon: attack bonus; sbon: strength
    bonus (feeds the shared max-hit formula); max: max-hit override, only where the wiki max differs from the formula; mspd: tiles per
    tick; flee: livestock, never a slayer task; at: attack styles (m/r/g); agg: retaliates from range. Loot lives in LOOT, keyed by k.
-   db and abon are single scalars: OSRS rolls per-style stab/slash/crush defence, so the player's style choice is intentionally inert here.
+   db and abon are single MELEE/RANGED scalars (stab/slash/crush stay folded, so the player's melee style choice is intentionally inert);
+   magic is split out: casts roll mag against mdb and the defender's Magic, so robes and magic levels matter as in 2007.
    build(body) returns the rig; body is the row's primary colour. */
 const H = (w, h, x) => b => humanoid(Object.assign({ w, h, body: b }, x));
 const Q = (w, h, len, x) => b => quadruped(Object.assign({ w, h, len, body: b }, x));
@@ -2173,12 +2226,25 @@ for (const [k, n, bk, lv, hp, atk, str, def, db, abon, sbon, max, fmax, at, rng,
   NPC_TYPES.push({ k, n, boss: 1, big: 1, agg: 1, fire: base.fire || 0, lv, hp, atk, str, def, db, abon, sbon, max, fmax, at, rng, spd, mspd, sz: base.sz * scale, scale,
     bolt: bolt || base.bolt, arrow: arrow || base.arrow, tint: tint || null, body: base.body, build: base.build });
 }
+/* Magic level and magic defence bonus per the wiki, for the rows where they are not 1/0: casters attack with mag, and
+   every monster defends spells with it (a Magic-1 brute is easy to splash-proof hit; a +700 titan shrugs casts off). */
+const MAGIC_STATS = { wizard: [10, 0], darkwizard: [22, 0], druid: [25, 0], zamorakmonk: [25, 0], spectre: [105, 0], revenant: [104, 0], jungledemon: [170, -10],
+  greendragon: [68, 30], bluedragon: [1, 60], reddragon: [1, 60], blackdragon: [100, 60], bronzedragon: [100, 30], irondragon: [100, 30], steeldragon: [100, 30],
+  mithrildragon: [168, 30], adamantdragon: [186, 30], runedragon: [196, 30], babygreendragon: [1, 40], babybluedragon: [1, 40],
+  lesserdemon: [1, -10], greaterdemon: [1, -10], blackdemon: [1, -10], troll: [1, 200], blackknight: [1, -11], whiteknight: [1, -11], guard: [1, -4],
+  paladin: [1, -10], hero: [1, -10], earthwarrior: [1, 10], icewarrior: [1, 10], chaosdwarf: [1, 10], ghost: [1, -5], kalphiteworker: [1, 10], kalphitesoldier: [1, 50],
+  elvarg: [70, 30], obor: [1, 20], bryophyta: [90, 0], evilchicken: [200, 0], scurrius: [50, 10], scorpia: [1, 44], eldric: [100, 700], branda: [100, 700],
+  kbd: [240, 80], sarachnis: [150, 150], skotizo: [280, 80], kalphitequeen: [150, 100], vorkath: [150, 240], vetion: [300, 250], venenatis: [300, 300],
+  callisto: [140, 0], galvek: [160, 0], graardor: [80, 298], kril: [200, 80] };
 NPC_TYPES.forEach((t, i) => {
   if (t.db === undefined) throw new Error('NPC type "' + t.k + '" has no db');
   if (t.abon === undefined) t.abon = Math.round(t.lv * 0.35);
   if (t.sbon === undefined) t.sbon = 0;
   if (t.max === undefined) t.max = null;
   if (t.mspd === undefined) t.mspd = 1;
+  const m = MAGIC_STATS[t.k];
+  t.mag = m ? m[0] : 1; t.mdb = m ? m[1] : 0;
+  t.psn = { poisonspider: 6, kalphitesoldier: 4, scorpia: 20 }[t.k] || 0;   // wiki starting poison damage
   t.i = i;
 });
 const NPC_BY = Object.create(null); NPC_TYPES.forEach(t => NPC_BY[t.k] = t);
@@ -3629,7 +3695,7 @@ scene.add(player);
 const P = {
   tx: 0, tz: 0, px: 0, pz: 0, rx: 0, ry: 0, rz: 0, face: 0, faceT: 0, span: 1,
   path: [], goal: null, task: null, actT: 0, acting: 0, actSpan: 2, walkPhase: 0, bobPhase: 0, swingPhase: 0,
-  run: 1, energy: 100, hp: 10, maxhp: 10, style: 0, rstyle: 1, ammoN: 0, pose: 0, spell: null, prayers: 0, pray: 10, maxpray: 10,
+  run: 1, energy: 100, hp: 10, maxhp: 10, style: 0, rstyle: 1, ammoN: 0, pose: 0, spell: null, prayers: 0, pray: 10, maxpray: 10, foodT: 0, spec: 100, specArm: 0, psn: 0, psnN: 0, psnT: 0, psnImm: 0,
   afloat: 0, moved: 0, dead: 0, stuckT: 0, stun: 0, afire: 0, clue: null, slay: null, farm: Object.create(null), look: { skin: 0, shirt: 0, legs: 0, face: 0 }, home: { x: 0, z: 0 }, regionK: '', regionT: 0,
   turn: player, rig: avatar, boat, oarL, oarR
 };
@@ -3756,7 +3822,7 @@ function walkTick() {
     else if (!wet && P.afloat) { say('You step ashore.'); P.afloat = 0; }
     if (P.afloat) gainXp('sailing', 1.1 * took);
     else if ((P.agx = (P.agx || 0) + took * (P.run && P.energy > 0 ? 0.1 : 0.05)) >= 2) { gainXp('agility', P.agx); P.agx = 0; }   // (dev) the road trains agility, paid in lumps
-    if (!P.afloat && P.run && P.energy > 0 && took > 1) { P.energy = Math.max(0, P.energy - 0.7 * (1 - lvl[SK.agility] * 0.004)); dirty.orb = 1; }
+    if (!P.afloat && P.run && P.energy > 0 && took) { P.energy = Math.max(0, P.energy - 0.6 * (1 - lvl[SK.agility] / 300)); dirty.orb = 1; }   // drain: 60 x (1 - agility/300) units a running tick, at the unladen weight
     if (crawl && !P.afloat) { P.span = 5; P.stuckT = 0; }
   }
   if (!P.path.length) chainGoal();
@@ -4037,8 +4103,6 @@ function npcTick(n) {
       n.mv = Math.min(n.mv, 1);
     } else if (--n.cd <= 0) {
       n.cd = n.t.spd; n.mv = 0;
-      // monster effective level is level + 9; max hit comes from the shared 2007 formula off its strength and strength bonus
-      const c = hitChance(n.t.atk * (n.atkDr ? 0.95 : 1) + 9, n.t.abon, defLevel() + 8, bonus('def')), mx = n.t.max !== null ? n.t.max : maxFrom(n.t.str * (n.strDr ? 0.95 : 1) + 1, n.t.sbon);
       let st;
       if (phase) {
         st = phase;
@@ -4050,11 +4114,17 @@ function npcTick(n) {
       } else st = npcStyle(n, near);
       n.atkT = 1; n.atkStyle = st; n.netAct = st === 'm' ? 1 : st === 'r' ? 2 : 3;
       if (st !== 'm') npcBolt(n, st);
+      // monster effective level is level + 9; max hit comes from the shared 2007 formula off its strength and strength bonus.
+      // a cast rolls the monster's Magic against 0.7 x your Magic + 0.3 x your Defence and your magic gear; all else rolls your Defence
+      const cast = st === 'g' && !n.t.fire, mx = n.t.max !== null ? n.t.max : maxFrom(n.t.str * (n.strDr ? 0.95 : 1) + 1, n.t.sbon);
+      const c = hitChance((cast && n.t.mag > 1 ? n.t.mag : n.t.atk) * (n.atkDr ? 0.95 : 1) + 9, n.t.abon,
+        cast ? Math.floor(0.7 * eff('magic') + 0.3 * defLevel()) + 8 : defLevel() + 8, cast ? bonus('mag') : bonus('def'));
       // dragonfire ignores armour: a shield or an antifire draught each count one (prayer a half); two is immunity, one leaves a max of 10.
       // unprotected it hits up to 50 as in 2007 (fmax overrides where the wiki differs, e.g. the KBD)
       const fire = st === 'g' && n.t.fire, pr = fire && (eq.shield === 'anti_dragon_shield') + (P.afire > tickN) + (prayHas('prot', 'g') ? 0.5 : 0);
       const dealt = fire ? roll(1, pr >= 2 ? 0 : pr ? 10 : (n.t.fmax || 50)) : prayHas('prot', st) ? 0 : roll(c, mx);
       if (fire && pr < 2) say(pr ? 'Your protection absorbs most of the dragonfire.' : 'You are horribly burnt by the dragonfire!', 'bad');
+      if (dealt > 0 && n.t.psn && !P.psn && tickN > P.psnImm && Math.random() < 0.25) { P.psn = n.t.psn; P.psnN = 0; P.psnT = tickN + 30; say('You have been poisoned!', 'bad'); }
       hurtPlayer(dealt);
       if (dealt > 0 && eq.ring === 'ring_of_recoil' && !n.dead && !P.dead) {   // a ring of recoil bites back a tenth
         const rec = Math.max(1, Math.ceil(dealt * 0.1));
@@ -4170,7 +4240,7 @@ function hurtPlayer(dmg, byPlayer) {
 function retaliate(attacker) {
   if (!OPT.retaliate || P.dead || !attacker) return;
   if (P.task && (P.task.k === 'attack' || P.task.k === 'ui' || P.task.k === 'take')) return;
-  P.task = { k: 'attack', o: attacker }; P.actT = 0;
+  P.task = { k: 'attack', o: attacker };                   // the swing timer carries across retargets, as in 2007
 }
 function die(byPlayer) {
   P.dead = 1; P.task = null; P.path.length = 0;
@@ -4196,7 +4266,7 @@ function die(byPlayer) {
     let sx = P.home.x, sz = P.home.z;
     if (v) { const s = safeSpotIn(v); sx = s.x; sz = s.z; }
     teleport(sx, sz, 200);
-    P.hp = P.maxhp = lvl[SK.hitpoints]; P.dead = 0; P.energy = 100; pvpOn = 0; dirty.orb = 1;
+    P.hp = P.maxhp = lvl[SK.hitpoints]; P.dead = 0; P.energy = 100; P.psn = 0; P.spec = 100; pvpOn = 0; dirty.orb = 1;
     const where = v ? villageName(v) : 'where you started';
     say('You wake up in ' + where + '.');
     markDirty(1);
@@ -4246,7 +4316,8 @@ function respawnTick() {
 function startTask(o, kind) {
   if (P.afloat && kind !== 'fish' && kind !== 'attack') { say("You can't do that from a boat.", 'bad'); return; }
   P.goal = null;
-  P.task = { k: kind, o }; P.actT = 0;
+  P.task = { k: kind, o };
+  if (kind !== 'attack') P.actT = 0;                       // the swing timer carries across retargets, as in 2007
 }
 const fail = msg => { say(msg, 'bad'); P.task = null; };
 const needLv = (sk, lv) => { if (lvl[SK[sk]] < lv) { fail('You need ' + skName(SK[sk]) + ' level ' + lv + ' for this.'); return 1; } return 0; };
@@ -4257,11 +4328,15 @@ function swing(o) {
   P.pose = sp ? 2 : rng ? 1 : stabbing() ? 4 : 0;
   if (--P.actT > 0) return -1;
   P.actT = P.actSpan;
-  const [dl, db] = o.npc ? [o.t.def * (o.defDr ? 0.95 : 1) + 9, o.t.db] : remoteDef(o);
+  const [dl, db] = o.npc ? [o.t.def * (o.defDr ? 0.95 : 1) * (o.specDr || 1) + 9, o.t.db] : remoteDef(o);
   let dmg, xps = null;
   if (rng) {
-    const st = RSTYLES[P.rstyle];
-    dmg = roll(hitChance(Math.floor(eff('ranged') * prayerMul('rng')) + st.acc + 8, bonus('rat'), dl, db), rangedMax());
+    const st = RSTYLES[P.rstyle], spc = P.specArm && SPEC[eq.weapon] && SPEC[eq.weapon].rng ? SPEC[eq.weapon] : null;
+    const ch = hitChance((Math.floor(eff('ranged') * prayerMul('rng')) + st.acc + 8) * (spc && spc.acc || 1), bonus('rat'), dl, db);
+    const M = Math.floor(rangedMax() * (spc && spc.dmg || 1));
+    if (spc) { P.specArm = 0; P.spec = Math.max(0, P.spec - spc.cost); drawStyles(); }
+    dmg = 0;
+    for (let h = 0, hn = spc && spc.n || 1; h < hn; h++) { dmg += roll(ch, M); if (h && P.ammoN > 0) spendArrow(); }
     shootArrow(P, o, dmg, ammoTint());
     wsSend([19, o.tx, o.tz, ammoTint()]);
     spendArrow();
@@ -4270,12 +4345,29 @@ function swing(o) {
     if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return -1; }
     spendRunes(sp);
     if (sp.drain) { dmg = 0; o[sp.drain + 'Dr'] = 1; castFx(o, sp, null); say('Your spell weakens the ' + o.name + '.'); gainXp('magic', sp.xp); P.spell = null; }   // a curse lands once, then the staff comes down
-    else { dmg = roll(hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), dl, db), sp.max + Math.floor(bonus('mag') / 8)); castFx(o, sp, dmg); gainXp('magic', sp.xp + dmg * 2); }
+    else {
+      // gear buys accuracy only, never damage; a monster defends a spell with its Magic level and magic defence bonus
+      const [ml, mb] = o.npc ? [o.t.mag * (o.defDr ? 0.95 : 1) + 9, o.t.mdb] : [dl, db];
+      dmg = roll(hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), ml, mb), sp.max); castFx(o, sp, dmg); gainXp('magic', sp.xp + dmg * 2);
+    }
     wsSend([18, sp.i, o.tx, o.tz]);                       // observers cannot see a bolt they were never told about
     drawSpells();
   } else {
-    const st = STYLES[P.style];
-    dmg = roll(hitChance(Math.floor(eff('attack') * prayerMul('atk')) + st.acc + 8, bonus('atk'), dl, db), maxHit());
+    const st = STYLES[P.style], spc = P.specArm && SPEC[eq.weapon] && !SPEC[eq.weapon].rng ? SPEC[eq.weapon] : null;
+    const aEff = (Math.floor(eff('attack') * prayerMul('atk')) + st.acc + 8) * (spc && spc.acc || 1);
+    if (spc) {
+      P.specArm = 0; P.spec = Math.max(0, P.spec - spc.cost);
+      const M = Math.floor(maxHit() * (spc.dmg !== undefined ? spc.dmg : 1)), ch = hitChance(aEff, bonus('atk'), dl, db);
+      dmg = 0;
+      if (spc.claws) {                                       // slice and dice: the first hit that lands sets the cascade
+        if (Math.random() < ch) { const h1 = randInt(Math.max(1, M >> 1), Math.max(1, M - 1)); dmg = h1 + (h1 >> 1) + (h1 >> 2) + ((h1 >> 2) + 1); }
+        else if (Math.random() < 2 / 3) dmg = 2;
+      } else for (let h = 0, hn = spc.n || 1; h < hn; h++) dmg += roll(ch, M);
+      if (spc.big2 && o.npc && o.t.big) dmg += roll(hitChance(aEff * 0.75, bonus('atk'), dl, db), M);   // the halberd sweeps large prey a second time
+      if (spc.drainDef && dmg > 0 && o.npc) o.specDr = (o.specDr || 1) * spc.drainDef;
+      if (spc.stun && o.npc) { o.cd = Math.max(o.cd, spc.stun); say('You shove the ' + o.name + ' back!'); }
+      drawStyles();
+    } else dmg = roll(hitChance(aEff, bonus('atk'), dl, db), maxHit());
     hitsplat(o.rx, o.ry + 1.5, o.rz, dmg);
     xps = st.xp;
   }
@@ -4326,7 +4418,7 @@ function taskTick() {
       // each client owns its own hitpoints: we roll with our stats and send it; town ground ends a fight mid-chase
       if (inSafe(P.tx, P.tz) || inSafe(o.tx, o.tz)) return fail('The town watch does not allow fighting here.');
       const dmg = swing(o);
-      if (dmg >= 0) wsSend([11, o.pid, dmg]);
+      if (dmg >= 0) wsSend([11, o.pid, dmg, prayHas('smite') ? 1 : 0]);   // the extra element is ignored by older builds
       return;
     }
     if (o.owner && o.owner !== PID) return fail('Someone else is fighting that.');
@@ -4382,7 +4474,9 @@ function taskTick() {
     if (!raw) { say('You have nothing left to cook.'); P.task = null; return; }
     if (lvl[SK.cooking] < raw.cookLv) return fail('You need Cooking level ' + raw.cookLv + ' to cook that.');
     invRemove(raw.raw, 1);
-    if (Math.random() < clamp(0.55 - (lvl[SK.cooking] - raw.cookLv) * 0.022 - (o.t === 6 ? 0.06 : 0), 0, 0.55)) {   // a range burns less than a fire
+    // each food has its own stop-burning level (a fire runs four levels behind a range); the risk slides down to it from ~55%
+    const stop = (raw.stop || raw.cookLv + 34) + (o.t === 6 ? 0 : 4);
+    if (Math.random() < (lvl[SK.cooking] >= stop ? 0 : clamp(0.55 * (stop - lvl[SK.cooking]) / Math.max(1, stop - raw.cookLv), 0, 0.55))) {
       invAdd('burnt_' + raw.k, 1); say('You accidentally burn the ' + raw.n.toLowerCase() + '.', 'bad');
     } else { invAdd(raw.done, 1); say('You cook the ' + raw.n.toLowerCase() + '.'); gainXp('cooking', raw.cook); }
   }
@@ -4427,6 +4521,8 @@ function bury(id) {
 function eat(slotIdx) {
   const it = ITEMS[inv[slotIdx].id];
   if (P.hp >= P.maxhp) return say("You don't need to eat that right now.");
+  if (P.foodT > tickN) return;                             // one bite per three ticks, and each bite delays the next swing
+  P.foodT = tickN + 3; P.actT += 3;
   invRemove(inv[slotIdx].id, 1);
   P.hp = Math.min(P.maxhp, P.hp + it.heal);
   dirty.orb = 1;
@@ -4871,7 +4967,16 @@ function drawStyles() {
   styleList.innerHTML = list.map((s, i) => liRow('data-s="' + i + '"', cur === i, 0, drawIcon(s.g, '#c9a24a', '#efe4c4'), s.n, '', '<u>' + s.d + '</u>')).join('');
   el('cbWep').textContent = (bow || weaponIt() || { name: 'Unarmed' }).name;
   el('cbSpd').textContent = atkSpeed() + ' ticks'; el('cbMax').textContent = maxHit(); el('cbLvl').textContent = combatLevel();
+  const sw = SPEC[eq.weapon], b = el('cbSpec');
+  b.style.display = sw ? '' : 'none';
+  if (sw) { b.textContent = (P.specArm ? 'Special armed — ' : 'Special attack (' + sw.cost + '%) — ') + Math.floor(P.spec) + '%'; b.classList.toggle('on', !!P.specArm); }
 }
+on(el('cbSpec'), 'click', () => {
+  const sw = SPEC[eq.weapon]; if (!sw) return;
+  if (sw.fx) { if (P.spec >= sw.cost) { P.spec -= sw.cost; sw.fx(); drawStyles(); } return; }   // instant specs fire from the button
+  if (!P.specArm && P.spec < sw.cost) return say('Not enough special attack energy.', 'bad');
+  P.specArm = P.specArm ? 0 : 1; drawStyles();
+});
 on(styleList, 'click', e => {
   const d = e.target.closest('[data-s]'); if (!d) return;
   const i = +d.dataset.s;
@@ -5713,14 +5818,20 @@ function gameTick() {
     const up = tickN % (prayHas('restore') ? 50 : 100) === 0, down = tickN % (prayHas('preserve') ? 150 : 100) === 0;
     for (let i = 0; i < NSK; i++) if (bst[i] < 0 ? up : bst[i] > 0 && down) { bst[i] -= Math.sign(bst[i]); dirty.sk = 1; }
   }
-  if ((!P.moved || !P.run) && P.energy < 100) { P.energy = Math.min(100, P.energy + 0.9 * (1 + lvl[SK.agility] / 60)); dirty.orb = 1; }
-  if ((tickN & (prayHas('heal') ? 7 : 15)) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }
+  if ((!P.moved || !P.run) && P.energy < 100) { P.energy = Math.min(100, P.energy + (15 + Math.floor(lvl[SK.agility] / 10)) / 100); dirty.orb = 1; }   // restore: (15 + agility/10) units a tick
+  if (tickN % (prayHas('heal') ? 50 : 100) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }   // one point a minute, twice as fast under Rapid Heal
   if (P.prayers) {
     let drain = 0;
     for (const p of PRAYERS) if (P.prayers & p.bit) drain += p.drain;
     P.pray -= drain;
     if (P.pray <= 0) { P.pray = 0; P.prayers = 0; say('You have run out of prayer points.', 'bad'); drawPrayers(); }
     dirty.orb = 1;
+  }
+  if (P.spec < 100 && tickN % 50 === 0) { P.spec = Math.min(100, P.spec + 10); if (SPEC[eq.weapon]) drawStyles(); }   // 10% back each 30 seconds
+  if (P.psn > 0 && tickN >= P.psnT && !P.dead) {             // poison bites every 30 ticks; the wound shallows one point per five bites
+    P.psnT = tickN + 30;
+    hurtPlayer(P.psn);
+    if (++P.psnN % 5 === 0 && --P.psn <= 0) { P.psn = 0; say('The poison has worn off.', 'good'); }
   }
   for (let i = drops.length - 1; i >= 0; i--) if (--drops[i].life <= 0) drops.splice(i, 1);
   for (let i = fires.length - 1; i >= 0; i--) if (--fires[i].life <= 0) fires.splice(i, 1);
@@ -6192,6 +6303,7 @@ function onNet(m) {
       const R = ensureRemote(m[1]), dmg = clamp(m[2] | 0, 0, 60);
       if (P.dead || inSafe(P.tx, P.tz)) break;
       if (!pvpOn) { pvpOn = 1; say('You are under attack!', 'bad'); }
+      if (m[3] && dmg > 0 && P.pray > 0) { P.pray = Math.max(0, P.pray - Math.floor(dmg / 4)); say('You feel your prayer being smitten!', 'bad'); dirty.orb = 1; }
       hurtPlayer(dmg, 1); retaliate(R);
       break;
     }
@@ -7050,7 +7162,7 @@ TASKS.pick = (t, o) => {
     gainXp('thieving', p.xp);
     say('You pick the ' + o.name.toLowerCase() + "'s pocket.");
   } else {
-    P.task = null; P.stun = 8;
+    P.task = null; P.stun = 9;
     hurtPlayer(1 + Math.floor(p.lv / 25));
     say(o.name + ": What do you think you're doing?"); say("You've been stunned!", 'bad');
   }
@@ -7186,6 +7298,7 @@ function drink(i) {
 /* [key, name, herb, secondary, level, xp, colour, effect]; ranarr shares one unfinished potion between defence and prayer */
 const POTS = [
   ['attack', 'Attack potion', 'guam', 'eye_of_newt', 3, 25, '#4aa0d8', () => potBoost('attack', 3, .1)],
+  ['antipoison', 'Antipoison', 'marrentill', 'unicorn_horn', 5, 37.5, '#3a9a5a', () => { P.psn = 0; P.psnImm = tickN + 150; say('The poison leaves your body.'); }],   // horn stands in for its ground dust
   ['strength', 'Strength potion', 'tarromin', 'limpwurt_root', 12, 50, '#d03a6a', () => potBoost('strength', 3, .1)],
   ['restore', 'Restore potion', 'harralander', 'red_spiders_eggs', 22, 62.5, '#d86a5a', potRestore],
   ['defence', 'Defence potion', 'ranarr', 'white_berries', 30, 75, '#2a8a6a', () => potBoost('defence', 3, .1)],
