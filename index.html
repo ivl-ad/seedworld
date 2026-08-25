@@ -367,7 +367,8 @@
   <h1>World state on disk</h1>
   <p class="bigbytes"><b>4</b><span>BYTES &nbsp;/&nbsp; THE SEED</span></p>
   <dl class="ledger"><dt>Terrain streamed</dt><dd class="zero">0 B</dd><dt>Tiles generated</dt><dd id="tilecount">0</dd>
-    <dt>&nbsp;&nbsp;…if baked @5 B/tile</dt><dd id="baked">—</dd><dt>Shelter</dt><dd id="inside">outdoors</dd></dl>
+    <dt>&nbsp;&nbsp;…if baked @5 B/tile</dt><dd id="baked">—</dd><dt>Shelter</dt><dd id="inside">outdoors</dd>
+    <dt>Gold minted</dt><dd id="gpMade">0</dd><dt>Gold destroyed</dt><dd id="gpSunk">0</dd></dl>
 </section>
 <div id="mm">
   <canvas id="minimap" width="120" height="120"></canvas>
@@ -1030,12 +1031,13 @@ const TREES = [
   defItem({ id: log, name: k === 'tree' ? 'Logs' : cap(k) + ' logs', g: 'log', c: '#8a6438', c2: '#5b4123', stack: 1, fire, fireLv: lv, val: 8 + i * 30 });
   return { k, n, lv, xp, fire, rs, tint, sc, log, i };
 });
-/* rocks: the ore colour is the vein tint and the icon colour */
+/* rocks: the ore colour is the vein tint and the icon colour. Prices are authored so the chain climbs:
+   tin matches copper, coal sits under iron, and the value of everything downstream derives from these. */
 const ORES = [
-  ['copper', 'Copper rock', 1, 17, 12, '#b2632a', '#7a3f18', 'copper_ore'], ['tin', 'Tin rock', 1, 17, 12, '#9aa0a8', '#65696f', 'tin_ore'],
-  ['iron', 'Iron rock', 15, 35, 16, '#8a5238', '#5b3423', 'iron_ore'], ['coal', 'Coal rock', 30, 50, 30, '#33333a', '#17171b', 'coal', 'Coal'],
-  ['mithril', 'Mithril rock', 55, 80, 90, '#5c63b8', '#373d84', 'mithril_ore'], ['adamantite', 'Adamantite rock', 70, 95, 140, '#4e7d52', '#2d5232', 'adamantite_ore'],
-  ['runite', 'Runite rock', 85, 125, 250, '#3ab6c4', '#1f7d89', 'runite_ore'],
+  ['copper', 'Copper rock', 1, 17, 12, '#b2632a', '#7a3f18', 'copper_ore', , 10], ['tin', 'Tin rock', 1, 17, 12, '#9aa0a8', '#65696f', 'tin_ore', , 10],
+  ['iron', 'Iron rock', 15, 35, 16, '#8a5238', '#5b3423', 'iron_ore', , 60], ['coal', 'Coal rock', 30, 50, 30, '#33333a', '#17171b', 'coal', 'Coal', 45],
+  ['mithril', 'Mithril rock', 55, 80, 90, '#5c63b8', '#373d84', 'mithril_ore', , 190], ['adamantite', 'Adamantite rock', 70, 95, 140, '#4e7d52', '#2d5232', 'adamantite_ore', , 330],
+  ['runite', 'Runite rock', 85, 125, 250, '#3ab6c4', '#1f7d89', 'runite_ore', , 560],
   // appended: oreKind's thresholds index this table
   ['silver', 'Silver rock', 20, 40, 100, '#c8ccd4', '#80848c', 'silver_ore', 'Silver ore', 60], ['gold', 'Gold rock', 40, 65, 100, '#e0b436', '#9a7414', 'gold_ore', 'Gold ore', 150],
   ['essence', 'Rune essence', 1, 5, 0, '#d8d8e8', '#8a8a9a', 'rune_essence', 'Rune essence', 4]
@@ -1043,17 +1045,28 @@ const ORES = [
   defItem({ id: ore, name: name || cap(k) + ' ore', g: 'ore', c, c2, stack: 1, val: val || 10 + i * 45 });
   return { k, n, lv, xp, rs, tint: k === 'coal' ? 0x2b2b30 : parseInt(c.slice(1), 16), ore, i };
 });
-/* smelting: the 2007 ladder, coal-hungry at the top */
+/* smelting: the 2007 ladder, coal-hungry at the top. A bar is worth its ores plus a fifteenth — smelting adds value now
+   instead of destroying a third of it. */
 const BARS = [
   ['bronze', 1, 6, [['copper_ore', 1], ['tin_ore', 1]]], ['iron', 15, 12, [['iron_ore', 1]]], ['steel', 30, 17, [['iron_ore', 1], ['coal', 2]]],
   ['mithril', 50, 30, [['mithril_ore', 1], ['coal', 4]]], ['adamant', 70, 37, [['adamantite_ore', 1], ['coal', 6]]], ['rune', 85, 50, [['runite_ore', 1], ['coal', 8]]],
-  ['silver', 20, 13.7, [['silver_ore', 1]], { n: 'Silver', c: '#c8ccd4', c2: '#80848c', i: 0.4 }], ['gold', 40, 22.5, [['gold_ore', 1]], { n: 'Gold', c: '#e0b436', c2: '#9a7414', i: 1.2 }]
+  ['silver', 20, 13.7, [['silver_ore', 1]], { n: 'Silver', c: '#c8ccd4', c2: '#80848c' }], ['gold', 40, 22.5, [['gold_ore', 1]], { n: 'Gold', c: '#e0b436', c2: '#9a7414' }]
 ].map(([t, lv, xp, need, T]) => {
   T = T || TIER[t];
   const id = t + '_bar';
-  defItem({ id, name: T.n + ' bar', g: 'bar', c: T.c, c2: T.c2, stack: 1, val: 40 + Math.round(T.i * 120) });
+  defItem({ id, name: T.n + ' bar', g: 'bar', c: T.c, c2: T.c2, stack: 1, val: Math.round(need.reduce((s, [o, n2]) => s + ITEMS[o].val * n2, 0) * 1.15) });
   return { id, n: T.n + ' bar', lv, xp, need, t };
 });
+/* the armoury re-priced off the metal chain: a piece is worth its bars plus two thirds again, so high alchemy (0.6x)
+   roughly refunds the metal from steel up — the classic smith-and-alch loop — while the shop spread (buy 1.15x,
+   sell 0.42x) keeps buy-to-alch and smith-to-shop-sell both losing. Black, white and dragon keep their prestige pricing. */
+const PBARS = { hatchet: 1, pickaxe: 2, dagger: 1, sword: 1, scimitar: 2, longsword: 2, mace: 1, battleaxe: 3, warhammer: 3, claws: 2, '2h_sword': 3, halberd: 3,
+  spear: 1, hasta: 1, med_helm: 1, full_helm: 2, platebody: 5, chainbody: 3, platelegs: 3, plateskirt: 3, kiteshield: 3, sq_shield: 2, defender: 2, boots: 1, gauntlets: 1 };
+for (const b of BARS) {
+  const t = TIER[b.t]; if (!t) continue;
+  const bv = ITEMS[b.id].val;
+  for (const p in PBARS) { const it = ITEMS[t.k + '_' + p]; if (it) it.val = Math.round(PBARS[p] * bv * 1.67); }
+}
 /* bars per piece, the level offset from the metal's smelting level, pieces per go */
 const SMITH = [['dagger', 1, 0], ['hatchet', 1, 1], ['mace', 1, 2], ['med_helm', 1, 3], ['sword', 1, 4], ['nails', 1, 4, 15], ['dart_tips', 1, 4, 10], ['scimitar', 2, 5], ['spear', 1, 5], ['longsword', 2, 6], ['knife', 1, 7, 5],
   ['full_helm', 2, 7], ['sq_shield', 2, 8], ['warhammer', 3, 9], ['battleaxe', 3, 10], ['chainbody', 3, 11], ['kiteshield', 3, 12], ['claws', 2, 13], ['2h_sword', 3, 14],
@@ -1797,6 +1810,20 @@ function fxMesh(geo, order, color) {
 }
 const marker = fxMesh(MARK_GEO, 6, 0xffe14a);
 let markT = 0;
+/* the death marker: a skull over where you fell, standing until the pile itself would have faded */
+const _dmc = document.createElement('canvas'); _dmc.width = _dmc.height = 32;
+{ const g = _dmc.getContext('2d'); g.lineJoin = 'round'; g.lineWidth = 1; (GLYPH.skull || GLYPH.log)(g, '#f4ead0', '#1a1a1a'); }
+const deathMark = new THREE.Group();
+{
+  const post = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.1, 6), basicMat({ color: 0x1a1a1a }));
+  post.position.y = 0.55;
+  const tex = new THREE.CanvasTexture(_dmc); tex.magFilter = THREE.NearestFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, fog: false }));   // r128 fogs sprites at any range
+  sp.scale.setScalar(2.2); sp.position.y = 2.4; sp.renderOrder = 6;
+  deathMark.add(post, sp);
+}
+deathMark.visible = false; scene.add(deathMark);
+let deathSpot = null;
 /* a ring around whatever you just clicked: red for a fight, cyan otherwise; it follows a target that walks */
 const RING_GEO = merge([bakeW(new THREE.RingGeometry(0.62, 0.92, 24).rotateX(-PI / 2))]);
 const ring = fxMesh(RING_GEO, 6, 0x4ad8ff);
@@ -2181,7 +2208,7 @@ const NPC_TYPES = [
   { k: 'jackal', n: 'Jackal', lv: 21, agg: 1, hp: 27, atk: 17, str: 18, def: 15, db: 0, abon: 0, spd: 4, mspd: 1.5, sz: 0.85, body: [0.62, 0.5, 0.32], build: Q(0.6, 0.85, 1.3, { head: [0.54, 0.43, 0.27], leg: [0.48, 0.38, 0.24], tail: [0.58, 0.46, 0.3], snout: 1 }) },
   { k: 'unicorn', n: 'Unicorn', lv: 15, hp: 19, atk: 11, str: 13, def: 13, db: 0, abon: 0, spd: 4, mspd: 1.2, sz: 1.2, body: [0.94, 0.93, 0.92], build: Q(0.8, 1.5, 1.6, { head: [0.96, 0.95, 0.94], leg: [0.9, 0.89, 0.88], tail: [0.86, 0.84, 0.9], horns: 1 }) },
   { k: 'wilddog', n: 'Wild dog', lv: 63, agg: 1, hp: 62, atk: 53, str: 54, def: 54, db: 0, abon: 0, spd: 4, mspd: 1.5, sz: 0.85, body: [0.44, 0.36, 0.28], build: Q(0.6, 0.9, 1.3, { head: [0.38, 0.31, 0.24], leg: [0.34, 0.28, 0.22], tail: [0.4, 0.33, 0.26], snout: 1 }) },
-  { k: 'boar', n: 'Boar', lv: 5, agg: 1, hp: 8, atk: 5, str: 4, def: 3, db: 0, abon: 0, spd: 4, mspd: 1.2, sz: 1.1, body: [0.32, 0.26, 0.22], build: Q(1.0, 1.15, 1.5, { head: [0.28, 0.23, 0.19], leg: [0.24, 0.2, 0.16], snout: 1, horns: 1 }) },
+  { k: 'boar', n: 'Boar', lv: 5, agg: 1, hp: 8, atk: 5, str: 4, def: 3, db: 0, abon: 0, spd: 4, mspd: 1.2, sz: 1.1, body: [0.32, 0.26, 0.22], meat: 'raw_beef', build: Q(1.0, 1.15, 1.5, { head: [0.28, 0.23, 0.19], leg: [0.24, 0.2, 0.16], snout: 1, horns: 1 }) },   // beef stands in for its 2007 boar meat
   { k: 'whitewolf', n: 'White wolf', lv: 25, agg: 1, hp: 34, atk: 20, str: 16, def: 22, db: 0, abon: 0, spd: 4, mspd: 1.5, sz: 1.0, body: [0.84, 0.86, 0.88], build: Q(0.72, 1.05, 1.55, { head: [0.76, 0.78, 0.82], leg: [0.7, 0.72, 0.76], tail: [0.88, 0.9, 0.92], snout: 1 }) },
   { k: 'grizzly', n: 'Grizzly bear', lv: 21, agg: 1, hp: 27, atk: 17, str: 18, def: 15, db: 0, abon: 0, spd: 4, mspd: 1.1, sz: 1.3, body: [0.36, 0.24, 0.15], build: Q(1.15, 1.5, 1.95, { head: [0.42, 0.29, 0.18], leg: [0.28, 0.19, 0.12], snout: 1 }) },
   { k: 'bigwolf', n: 'Big wolf', lv: 73, agg: 1, hp: 74, atk: 60, str: 61, def: 62, db: 0, abon: 0, spd: 4, mspd: 1.5, sz: 1.25, body: [0.28, 0.28, 0.32], build: Q(0.95, 1.35, 2.0, { head: [0.22, 0.22, 0.26], leg: [0.2, 0.2, 0.24], tail: [0.32, 0.32, 0.36], snout: 1 }) },
@@ -2327,10 +2354,15 @@ function npcByName(s) {                                  // "goblin@13"
    kalphite potato cactus, ghoul/shade fungus, Monk of Zamorak wine. Quest bosses with no OSRS table wear their family's
    table with signature pieces at placeholder rates - TODO: verify (elvarg, galvek, trollking, bktitan, evilchicken, slashbash). */
 const LOOT = {
+  /* Where a row leaves 2007 (many of these monsters drop nothing there), the table is a deliberate game-economy
+     addition: this world's slayer masters assign them and its wilds sic them on travellers, so their kills must pay.
+     Shapes and sizes borrow from same-band wiki tables; each such entry says so. */
   chicken: { den: 128, main: [['feather', 64, 5], ['feather', 32, 15]] },
   cow: { alw: [['cowhide', 1]] },
-  duck: { nb: 1 }, sheep: { alw: [['wool', 1]] }, camel: {}, ram: {}, pig: {}, rat: {}, goat: {},
-  spider: { tert: [['red_spiders_eggs', 2]] }, smallspider: {}, smallscorpion: {}, scorpion: {},
+  duck: { nb: 1 }, sheep: { alw: [['wool', 1]] }, camel: {}, ram: {}, pig: {}, rat: {},
+  goat: { den: 128, main: [['coins', 25, 12], ['water_rune', 4, 6], ['seed', 12], ['herb', 4]] },   // game-economy: bones-only in 2007
+  spider: { tert: [['red_spiders_eggs', 2]] }, smallspider: {}, smallscorpion: {},
+  scorpion: { den: 128, main: [['coins', 20, 18], ['copper_ore', 4], ['iron_ore', 4], ['coal', 3], ['herb', 5], ['gem', 3]] },   // game-economy: a mine-dweller pays in ore
   goblin: { den: 128, main: [['bronze_sq_shield', 3], ['body_rune', 5, 7], ['water_rune', 6, 6], ['earth_rune', 3, 4], ['bronze_bolts', 3, 8], ['hammer', 15], ['air_talisman', 1],
     ['coins', 28, 5], ['coins', 3, 9], ['coins', 3, 15], ['coins', 2, 20], ['coins', 1, 1], ['gem', 1]] },
   imp: { nb: 1, den: 128, main: [['bronze_bolts', 8, 1], ['wizard_hat', 8], ['raw_chicken', 5], ['bread', 1], ['cooked_meat', 1], ['hammer', 8], ['tinderbox', 5], ['shears', 4],
@@ -2351,11 +2383,17 @@ const LOOT = {
   skeleton: { den: 128, main: [['iron_med_helm', 6], ['iron_sword', 4], ['iron_hatchet', 2], ['iron_scimitar', 1], ['air_rune', 3, 12, 15], ['water_rune', 3, 9], ['chaos_rune', 3, 5],
     ['iron_arrow', 2, 12], ['law_rune', 2, 2], ['cosmic_rune', 1, 2], ['bronze_bar', 5], ['coins', 24, 10], ['coins', 25, 5], ['coins', 8, 25], ['coins', 4, 45], ['coins', 3, 65],
     ['coins', 2, 1], ['herb', 20], ['gem', 2]] },
-  ghost: { nb: 1 }, ghoul: { tert: [['mort_myre_fungus', 3]] },
+  // game-economy: ghosts and ghouls drop nothing (or bones alone) in 2007; a thin spectral purse keeps their tasks worth taking
+  ghost: { nb: 1, den: 128, main: [['air_rune', 6, 5], ['mind_rune', 5, 7], ['chaos_rune', 3, 3], ['death_rune', 1, 2], ['coins', 30, 15], ['coins', 10, 45], ['herb', 6], ['gem', 1]] },
+  ghoul: { den: 128, main: [['coins', 26, 40], ['air_rune', 4, 10], ['earth_rune', 4, 10], ['herb', 10], ['seed', 8], ['gem', 2]], tert: [['mort_myre_fungus', 3]] },
   guard: { den: 128, main: [['iron_bolts', 10, 2, 12], ['steel_arrow', 4, 1], ['bronze_arrow', 3, 1], ['air_rune', 2, 6], ['earth_rune', 2, 3], ['fire_rune', 2, 2], ['blood_rune', 1, 1],
     ['chaos_rune', 1, 1], ['nature_rune', 1, 1], ['steel_arrow', 1, 5], ['bronze_arrow', 2, 2], ['coins', 19, 1], ['coins', 16, 7], ['coins', 9, 12], ['coins', 8, 4], ['coins', 4, 25],
     ['coins', 4, 17], ['coins', 2, 30], ['iron_dagger', 6], ['body_talisman', 3], ['iron_ore', 1], ['seed', 18]] },
-  wolf: {}, whitewolf: {}, bigwolf: {}, jackal: {}, wilddog: {}, boar: {},
+  // game-economy: every canid leaves a pelt (2007 gives wolf bones alone); the deep-band dog also carries a traveller's purse
+  wolf: { alw: [['fur', 1]] }, whitewolf: { alw: [['fur', 1]] }, bigwolf: { alw: [['fur', 2]], den: 128, main: [['coins', 26, 60], ['herb', 10], ['useed', 8], ['gem', 3]] },
+  jackal: { alw: [['fur', 1]] },
+  wilddog: { alw: [['fur', 1]], den: 128, main: [['coins', 30, 55], ['nature_rune', 4, 6], ['herb', 10], ['useed', 10], ['gem', 3]] },
+  boar: {},
   bear: { alw: [['fur', 1]] }, grizzly: { alw: [['fur', 1]] },
   hobgoblin: { den: 128, main: [['limpwurt_root', 22], ['iron_sword', 3], ['steel_dagger', 3], ['steel_longsword', 1], ['law_rune', 3, 2], ['water_rune', 2, 2], ['fire_rune', 2, 7],
     ['body_rune', 2, 6], ['chaos_rune', 2, 3], ['nature_rune', 2, 4], ['cosmic_rune', 1, 2], ['herb', 7], ['seed', 18], ['coins', 16, 15], ['coins', 12, 28], ['coins', 12, 5],
@@ -2399,7 +2437,7 @@ const LOOT = {
     ['coins', 10, 220], ['coins', 7, 11], ['coins', 1, 460], ['gem', 5]] },
   blackdemon: { nb: 1, den: 128, main: [['black_sword', 4], ['steel_battleaxe', 3], ['black_hatchet', 2], ['mithril_kiteshield', 1], ['rune_med_helm', 1], ['rune_chainbody', 1],
     ['air_rune', 8, 50], ['chaos_rune', 7, 10], ['blood_rune', 4, 7], ['fire_rune', 1, 37], ['law_rune', 1, 3], ['herb', 23], ['lobster', 3], ['adamant_bar', 2], ['coins', 40, 132],
-    ['coins', 7, 30], ['coins', 6, 44], ['coins', 6, 220], ['coins', 1, 460], ['rdt', 1], ['gem', 5]] },
+    ['coins', 7, 30], ['coins', 6, 44], ['coins', 6, 220], ['coins', 1, 460], ['dragon_sword', 1], ['rdt', 1], ['gem', 5]] },   // the sword fills the empty slot: game bridge
   jungledemon: { nb: 1 },
   thug: { den: 128, main: [['iron_med_helm', 4], ['iron_battleaxe', 2], ['steel_hatchet', 1], ['nature_rune', 13, 2], ['chaos_rune', 4, 2], ['cosmic_rune', 1, 2], ['law_rune', 1, 2],
     ['death_rune', 1, 2], ['iron_ore', 4], ['iron_bar', 3], ['coal', 2], ['coins', 23, 8], ['coins', 12, 15], ['coins', 2, 30], ['coins', 1, 20], ['herb', 24]] },
@@ -2424,7 +2462,9 @@ const LOOT = {
     ['mithril_arrow', 5, 3], ['adamant_arrow', 2, 2], ['death_rune', 3, 2], ['blood_rune', 1, 2], ['coins', 39, 15], ['herb', 10], ['useed', 18], ['gem', 3]] },
   paladin: { den: 128, main: [['steel_sword', 2], ['steel_longsword', 1], ['steel_full_helm', 1], ['water_rune', 13, 30], ['blood_rune', 1, 1], ['iron_bar', 9], ['steel_bar', 1],
     ['mithril_bar', 1], ['coins', 40, 48], ['coins', 19, 15], ['coins', 16, 2], ['coins', 10, 8], ['coins', 2, 120], ['herb', 8], ['gem', 2]] },
-  hero: {},
+  // game-economy: a slain hero spills the purse he pickpockets for — bones-only in 2007, but he is a level-69 slayer target here
+  hero: { den: 128, main: [['coins', 40, 200, 300], ['death_rune', 6, 2], ['law_rune', 4, 2], ['chaos_rune', 5, 8], ['uncut_ruby', 3], ['uncut_diamond', 1],
+    ['gold_ore', 3], ['herb', 12], ['gem', 4], ['rdt', 1]] },
   cyclops: { den: 105, main: [['bronze_defender', 2], ['iron_defender', 2], ['steel_defender', 2], ['black_defender', 2], ['mithril_defender', 2], ['adamant_defender', 2],
     ['rune_defender', 2], ['black_knife', 16, 4, 13], ['steel_chainbody', 2], ['iron_2h_sword', 2], ['iron_chainbody', 2], ['steel_dagger', 2], ['steel_mace', 2], ['steel_sword', 2],
     ['steel_battleaxe', 2], ['steel_2h_sword', 2], ['steel_longsword', 2], ['steel_med_helm', 2], ['black_2h_sword', 1], ['mithril_dagger', 1], ['mithril_longsword', 1],
@@ -2443,17 +2483,18 @@ const LOOT = {
     ['coins', 1, 30], ['water_talisman', 2], ['fire_talisman', 2]] },
   banshee: { nb: 1, den: 128, main: [['iron_mace', 2], ['iron_dagger', 2], ['iron_kiteshield', 1], ['air_rune', 3, 3], ['cosmic_rune', 3, 2], ['chaos_rune', 2, 3], ['fire_rune', 1, 7],
     ['chaos_rune', 1, 7], ['coins', 10, 13], ['coins', 8, 26], ['coins', 8, 35], ['pure_essence', 22, 13], ['iron_ore', 1], ['eye_of_newt', 1], ['herb', 34], ['gem', 2]],
-    tert: [['mystic_robe_bottom', 512]] },
+    taskTert: [['mystic_robe_bottom', 512]] },   // on-task only: the slayer's own spoils
   druid: { den: 128, main: [['earth_rune', 4, 27], ['water_rune', 2, 9], ['earth_rune', 2, 9], ['fire_rune', 2, 9], ['chaos_rune', 2, 3], ['law_rune', 1, 2], ['coins', 10, 2],
     ['coins', 4, 4], ['coins', 3, 1], ['coins', 3, 15], ['coins', 1, 20], ['iron_dagger', 6], ['limpwurt_root', 3], ['herb', 26]] },
   'druid@13': { den: 128, main: [['law_rune', 7, 2], ['mithril_bolts', 4, 2, 12], ['air_rune', 3, 36], ['body_rune', 2, 9], ['earth_rune', 2, 9], ['mind_rune', 2, 12],
     ['nature_rune', 1, 3], ['coins', 5, 3], ['coins', 5, 8], ['coins', 3, 29], ['coins', 1, 35], ['vial_of_water', 10], ['bronze_longsword', 1], ['snape_grass', 1], ['herb', 47], ['gem', 1]] },
   'druid@129': { den: 129, main: [['mithril_bolts', 6, 8, 28], ['law_rune', 7, 6], ['air_rune', 5, 56], ['body_rune', 5, 19], ['chaos_rune', 5, 7], ['earth_rune', 5, 19],
     ['mind_rune', 5, 22], ['nature_rune', 1, 12], ['coins', 7, 80], ['coins', 6, 250], ['vial_of_water', 10, 4], ['steel_longsword', 5], ['snape_grass', 1, 4], ['herb', 55], ['rdt', 1]] },
-  shade: { nb: 1, tert: [['mort_myre_fungus', 3]] },
+  shade: { nb: 1, den: 128, main: [['chaos_rune', 4, 5], ['death_rune', 3, 2], ['blood_rune', 1, 2], ['coins', 28, 48], ['herb', 8], ['gem', 2]],
+    tert: [['mort_myre_fungus', 3]] },                       // game-economy: its remains hold a little grave-wealth
   zamorakmonk: { tert: [['wine_of_zamorak', 2]] },
   spectre: { nb: 1, den: 128, main: [['steel_hatchet', 3], ['mithril_kiteshield', 1], ['lava_battlestaff', 1], ['adamant_platelegs', 1], ['rune_full_helm', 1], ['coins', 1, 460],
-    ['herb', 78], ['rseed', 19], ['gem', 5]], tert: [['mystic_robe_bottom', 512]] },
+    ['herb', 78], ['rseed', 19], ['gem', 5]], taskTert: [['mystic_robe_bottom', 512]] },   // on-task only
   revenant: { den: 1000, main: [['coins', 65, 1, 276], ['coal', 56, 30, 60], ['adamant_bar', 56, 4, 6], ['battlestaff', 47, 4], ['law_rune', 47, 20, 45], ['death_rune', 47, 30, 60],
     ['blood_rune', 47, 50, 100], ['runite_ore', 38, 2, 4], ['black_dragonhide', 38, 4], ['yew_logs', 38, 20, 40], ['rune_bar', 28, 2, 3], ['rune_full_helm', 19, 2],
     ['rune_platebody', 19, 2], ['rune_platelegs', 19, 2], ['rune_kiteshield', 19, 2], ['rune_warhammer', 19, 2], ['magic_logs', 19, 8, 16]] },   // knight-tier rates for the family
@@ -2469,8 +2510,11 @@ const LOOT = {
   'kalphitesoldier@141': { den: 128, main: [['mithril_sword', 4], ['steel_battleaxe', 3], ['mithril_hatchet', 2], ['adamant_dagger', 2], ['mithril_kiteshield', 1], ['rune_med_helm', 1],
     ['rune_chainbody', 1], ['air_rune', 8, 50], ['chaos_rune', 7, 10], ['blood_rune', 4, 7], ['fire_rune', 1, 37], ['law_rune', 1, 3], ['herb', 23], ['lobster', 3], ['coins', 40, 132],
     ['coins', 7, 30], ['coins', 6, 44], ['coins', 6, 220], ['coins', 1, 460], ['rdt', 1], ['gem', 5]] },
-  redspider: { tert: [['red_spiders_eggs', 2]] }, shadowspider: {}, poisonspider: {},
-  babygreendragon: {}, babybluedragon: {},
+  redspider: { tert: [['red_spiders_eggs', 2]] },
+  // game-economy: the 52-64 spiders drop nothing in 2007; here they pay in the herb/seed subtables their band expects
+  shadowspider: { den: 128, main: [['coins', 24, 44], ['nature_rune', 4, 4], ['law_rune', 2, 2], ['herb', 12], ['useed', 8], ['gem', 3]] },
+  poisonspider: { den: 128, main: [['coins', 28, 55], ['chaos_rune', 5, 8], ['death_rune', 3, 3], ['herb', 12], ['useed', 10], ['gem', 3]] },
+  babygreendragon: { den: 128, main: [['coins', 22, 35], ['air_rune', 3, 15], ['water_rune', 3, 15], ['herb', 6], ['gem', 3]] },   // game-economy: a whelp's pocket lining
   greendragon: { alw: [['green_dragonhide', 1]], den: 128, main: [['steel_platelegs', 4], ['steel_battleaxe', 3], ['mithril_hatchet', 3], ['mithril_spear', 2], ['mithril_kiteshield', 1],
     ['adamant_full_helm', 1], ['rune_dagger', 1], ['water_rune', 8, 75], ['fire_rune', 1, 37], ['nature_rune', 5, 15], ['law_rune', 3, 3], ['herb', 15], ['coins', 29, 44],
     ['coins', 25, 132], ['coins', 10, 200], ['coins', 5, 11], ['coins', 1, 440], ['bass', 3], ['adamantite_ore', 3], ['gem', 5]] },
@@ -2494,20 +2538,20 @@ const LOOT = {
     ['blood_rune', 3, 15], ['death_rune', 1, 25], ['coins', 40, 196], ['coins', 10, 330], ['coins', 1, 690], ['adamant_bar', 3], ['swordfish', 2, 2], ['swordfish', 1], ['rdt', 1], ['gem', 4]],
     tert: [['dragon_platelegs', 2048], ['dragon_plateskirt', 2048]] },
   irondragon: { alw: [['iron_bar', 5]], den: 128, main: [['rune_dart', 7, 9], ['adamant_2h_sword', 4], ['adamant_hatchet', 3], ['adamant_battleaxe', 3], ['rune_knife', 3, 5],
-    ['adamant_sq_shield', 1], ['rune_med_helm', 1], ['rune_battleaxe', 1], ['rune_javelin', 20, 4], ['blood_rune', 19, 15], ['adamant_bolts', 6, 2, 12], ['coins', 20, 270],
+    ['adamant_sq_shield', 1], ['rune_med_helm', 1], ['rune_battleaxe', 1], ['rune_javelin', 20, 4], ['blood_rune', 19, 15], ['adamant_bolts', 6, 2, 12], ['diamond_bolts_e', 3, 8, 15], ['coins', 20, 270],
     ['coins', 10, 550], ['coins', 1, 990], ['adamant_bar', 3, 2], ['rdt', 2], ['gem', 3]], tert: [['dragon_platelegs', 1024], ['dragon_plateskirt', 1024]] },
   steeldragon: { alw: [['steel_bar', 5]], den: 128, main: [['rune_dart', 7, 12], ['rune_mace', 4], ['adamant_kiteshield', 2], ['rune_knife', 3, 7], ['rune_hatchet', 2],
-    ['rune_full_helm', 1], ['blood_rune', 19, 20], ['rune_javelin', 20, 7], ['rune_bolts', 6, 2, 12], ['coins', 17, 470], ['dragon_javelin', 5, 12], ['rune_bar', 3], ['rdt', 4],
+    ['rune_full_helm', 1], ['blood_rune', 19, 20], ['rune_javelin', 20, 7], ['rune_bolts', 6, 2, 12], ['diamond_bolts_e', 3, 8, 15], ['coins', 17, 470], ['dragon_javelin', 5, 12], ['rune_bar', 3], ['rdt', 4],
     ['gem', 4]], tert: [['dragon_platelegs', 512], ['dragon_plateskirt', 512]] },
   mithrildragon: { alw: [['mithril_bar', 3]], den: 128, main: [['rune_battleaxe', 8], ['rune_dart', 7, 14], ['rune_battleaxe', 4], ['rune_knife', 3, 8], ['rune_mace', 3],
     ['rune_spear', 2], ['rune_full_helm', 1], ['blood_rune', 19, 27], ['rune_javelin', 14, 8], ['rune_bolts', 6, 10, 21], ['rune_arrow', 3, 8], ['shark', 6], ['shark', 2, 6],
-    ['coins', 17, 600], ['dragon_javelin', 7, 15], ['rune_bar', 3, 2], ['rdt', 1], ['gem', 4]], tert: [['dragon_full_helm', 32768]] },
+    ['coins', 17, 600], ['dragon_javelin', 7, 15], ['rune_bar', 3, 2], ['dragon_hatchet', 1], ['rdt', 1], ['gem', 4]], tert: [['dragon_full_helm', 32768]] },
   adamantdragon: { alw: [['adamant_bar', 2]], den: 110, main: [['adamant_platebody', 9], ['rune_mace', 7], ['rune_scimitar', 7], ['dragon_med_helm', 1], ['dragon_platelegs', 1],
     ['dragon_plateskirt', 1], ['adamant_arrow', 8, 30, 40], ['chaos_rune', 7, 60, 120], ['death_rune', 7, 30, 60], ['herb', 8], ['adamant_javelin', 8, 40, 50],
-    ['adamant_bolts_u', 11, 20, 40], ['diamond', 7, 1, 3], ['dragon_javelin', 7, 20, 30], ['adamantite_ore', 6, 8, 20], ['adamant_bar', 4, 5, 35], ['dragon_bolts_u', 1, 15, 20], ['rdt', 1]] },
+    ['adamant_bolts_u', 11, 20, 40], ['diamond', 7, 1, 3], ['dragon_javelin', 7, 20, 30], ['adamantite_ore', 6, 8, 20], ['adamant_bar', 4, 5, 35], ['dragon_bolts_u', 1, 15, 20], ['dragon_thrownaxe', 1, 3, 7], ['rdt', 1]] },
   runedragon: { alw: [['rune_bar', 1]], den: 127, main: [['rune_platebody', 9], ['rune_longsword', 8], ['rune_mace', 7], ['rune_scimitar', 7], ['rune_warhammer', 7],
     ['rune_platelegs', 6], ['dragon_platelegs', 1], ['dragon_plateskirt', 1], ['dragon_med_helm', 1], ['rune_arrow', 8, 30, 40], ['chaos_rune', 7, 75, 150], ['death_rune', 7, 50, 100],
-    ['herb', 8], ['rune_bolts_u', 11, 20, 30], ['rune_javelin', 10, 20, 30], ['dragonstone', 7], ['runite_ore', 6, 2, 5], ['dragon_javelin', 5, 30, 40], ['dragon_bolts_u', 1, 20, 40], ['rdt', 1]] },
+    ['herb', 8], ['rune_bolts_u', 11, 20, 30], ['rune_javelin', 10, 20, 30], ['dragonstone', 7], ['runite_ore', 6, 2, 5], ['dragon_javelin', 5, 30, 40], ['dragon_bolts_u', 1, 20, 40], ['dragon_knife', 1, 2, 5], ['rdt', 1]] },
   // ---- bosses ----
   obor: { den: 135, main: [['iron_full_helm', 5], ['iron_dagger', 4], ['iron_kiteshield', 3], ['steel_longsword', 2], ['iron_arrow', 6, 3], ['fire_rune', 3, 15], ['water_rune', 3, 7],
     ['law_rune', 3, 2], ['steel_arrow', 2, 10], ['mind_rune', 2, 3], ['cosmic_rune', 2, 2], ['nature_rune', 2, 6], ['chaos_rune', 1, 2], ['death_rune', 1, 2], ['herb', 7], ['seed', 18],
@@ -2540,7 +2584,7 @@ const LOOT = {
     ['dragon_bones', 40, 10, 15], ['gem', 8]], tert: [['dragon_med_helm', 192], ['dragon_battleaxe', 384]] },   // the cudgel slot
   skotizo: { nb: 1, den: 100, main: [['rune_platebody', 7, 3], ['rune_platelegs', 7, 3], ['rune_plateskirt', 7, 3], ['death_rune', 7, 500], ['blood_rune', 7, 450],
     ['adamantite_ore', 7, 75], ['grimy_snapdragon', 7, 20], ['grimy_torstol', 7, 20], ['raw_anglerfish', 7, 60], ['rune_bar', 7, 20], ['battlestaff', 7, 25]],
-    tert: [['uncut_dragonstone', 111, 10]] },
+    tert: [['uncut_dragonstone', 111, 10], ['uncut_onyx', 1000]] },
   kalphitequeen: { den: 126, main: [['battlestaff', 5, 10], ['rune_chainbody', 4], ['red_dhide_body', 4], ['rune_knife', 4, 25], ['lava_battlestaff', 2], ['death_rune', 6, 150],
     ['blood_rune', 6, 100], ['mithril_arrow', 5, 500], ['rune_arrow', 3, 250], ['grimy_toadflax', 2, 25], ['grimy_ranarr', 2, 25], ['grimy_snapdragon', 2, 25], ['grimy_torstol', 2, 25],
     ['torstol_seed', 4, 2], ['watermelon_seed', 3, 25], ['magic_seed', 3, 2], ['rune_bar', 5, 3], ['gold_ore', 4, 250], ['magic_logs', 4, 60], ['uncut_emerald', 3, 25],
@@ -2586,17 +2630,17 @@ const LOOT = {
     ['sanfew_4', 5, 20], ['dark_crab', 5, 50], ['law_rune', 3, 60]],
     tert: [['dragon_2h_sword', 256], ['dragon_pickaxe', 256], ['ring_of_wealth', 512]] },
   graardor: { den: 127, main: [['coins', 32, 19500, 20000], ['rune_longsword', 8], ['rune_2h_sword', 8], ['rune_platebody', 8], ['rune_pickaxe', 6], ['grimy_snapdragon', 8, 3],
-    ['nature_rune', 8, 65, 70]], tert: [['dragon_warhammer', 381], ['dragon_chainbody', 381], ['dragon_boots', 381]] },   // the Bandos chestplate/tassets/boots slots
+    ['nature_rune', 8, 65, 70]], tert: [['dragon_warhammer', 381], ['dragon_chainbody', 381], ['dragon_boots', 381], ['dragon_platebody', 508]] },   // the Bandos armour slots; the platebody sits on the hilt-slot rate as this game's bridge
   kril: { nb: 1, den: 127, main: [['coins', 37, 19500, 20000], ['adamant_arrow', 8, 295, 300], ['rune_scimitar', 8], ['adamant_platebody', 8], ['rune_platelegs', 7],
     ['dragon_dagger', 2], ['death_rune', 8, 120, 125], ['blood_rune', 8, 80, 85], ['grimy_lantadyme', 8, 10]],
-    tert: [['steam_battlestaff', 127], ['dragon_spear', 127], ['master_wand', 508]] },   // steam bstaff / zamorakian spear / staff of the dead slots
+    tert: [['steam_battlestaff', 127], ['dragon_spear', 127], ['master_wand', 508], ['dragon_mace', 128]] },   // steam bstaff / zamorakian spear / staff of the dead slots; the mace is this game's bridge
   evilchicken: { alw: [['raw_chicken', 1], ['feather', 90, 242]], tert: [['dragon_spear', 128], ['amulet_of_glory', 128]] },   // TODO: verify — random-event boss, no OSRS table
   slashbash: { nb: 1, alw: [['big_bones', 5]], tert: [['dragon_spear', 128], ['dragon_hasta', 128]] },   // TODO: verify — two zogre and three ourg bones stand in as big bones
   bktitan: { den: 128, main: [['iron_full_helm', 5], ['iron_dagger', 4], ['iron_kiteshield', 3], ['steel_longsword', 2], ['iron_arrow', 6, 3], ['fire_rune', 3, 15], ['water_rune', 3, 7],
     ['law_rune', 3, 2], ['nature_rune', 2, 6], ['chaos_rune', 1, 2], ['death_rune', 1, 2], ['herb', 7], ['seed', 18], ['limpwurt_root', 11], ['body_talisman', 2], ['coins', 14, 38],
     ['coins', 10, 52], ['coins', 8, 15], ['coins', 6, 8], ['coins', 2, 88]], tert: [['dragon_longsword', 128], ['dragon_full_helm', 128]] }   // TODO: verify — quest boss signatures
 };
-LOOT.woman = LOOT.man; LOOT.rogue = LOOT.man; LOOT.redgoblin = LOOT.goblin; LOOT.giantskeleton = LOOT.skelwarrior;
+LOOT.woman = LOOT.man; LOOT.rogue = LOOT.man; LOOT.redgoblin = LOOT.goblin; LOOT.giantskeleton = LOOT.skelwarrior; LOOT.babybluedragon = LOOT.babygreendragon;
 /* clue scrolls, at each monster's own wiki tertiary rate: [tier (0 easy, 1 medium, 2 hard/elite), 1-in-N].
    Monsters without a row drop none; Skotizo's guaranteed hard clue is the 1-in-1. */
 for (const [k, t, n] of [['chicken', 0, 300], ['cow', 0, 128], ['man', 0, 90], ['goblin', 0, 64], ['barbarian', 0, 75], ['skeleton', 0, 100], ['ghost', 0, 90],
@@ -3673,6 +3717,7 @@ function pickObject(ray) {
 
 /* ---- 19. INVENTORY + EQUIPMENT: 28 slots; raw materials stack ---- */
 const INV_N = 28, inv = new Array(INV_N).fill(null);
+let gpMade = 0, gpSunk = 0;                               // the session's faucets and sinks, for the world-state ledger
 const EQ_SLOTS = ['head', 'body', 'legs', 'weapon', 'shield', 'ammo', 'hands', 'feet', 'cape', 'neck', 'ring'];   // append-only: saves are positional
 const eq = {}; for (const s of EQ_SLOTS) eq[s] = null;
 const dirty = { inv: 1, eq: 1, sk: 1, orb: 1 };
@@ -3878,7 +3923,8 @@ const roll = (chance, max) => Math.random() < chance ? Math.floor(Math.random() 
 /* ---- 21. WALKING THE TICK ---- */
 function stepsThisTick(E) {
   E = E || P;
-  return Math.max(1, Math.round((E.afloat ? 2 : (!E.run || E.energy <= 0) ? 1 : 2) * OPT.runMul));
+  const boat = 2 + (E === P && lvl[SK.sailing] >= 50 ? 1 : 0);   // a practised sailor rows a third again as fast
+  return Math.max(1, Math.round((E.afloat ? boat : (!E.run || E.energy <= 0) ? 1 : 2) * OPT.runMul));
 }
 function inSafe(x, z) { const n = nearVillage(x, z); return !!(n && n.d < n.v.r * 1.05); }
 let pvpAck = 0, pvpHold = 0;
@@ -4294,11 +4340,13 @@ function killNpc(n) {
   if (n.key) netWorld([22, n.key, due]);
   removeNpc(n);
   const p = Math.max(0, n.pw || 0), x = n.tx, z = n.tz, q = 1 + Math.min(1, p * 0.15);   // only coin stacks swell with the ground's power (capped 2x): authored quantities stay wiki-exact
-  const drop = (id, k) => dropItem(id, id === 'coins' ? Math.max(1, Math.round((k || 1) * q)) : (k || 1), x, z);
+  const drop = (id, k) => { const nq = id === 'coins' ? Math.max(1, Math.round((k || 1) * q)) : (k || 1); if (id === 'coins') gpMade += nq; dropItem(id, nq, x, z); };
   const T = LOOT[n.t.k + '@' + n.t.lv] || LOOT[n.t.k];      // a rung can carry its own wiki table; otherwise the family shares one (a missing table throws at startup)
   if (!T.nb) drop(n.t.bones || (n.t.big ? 'big_bones' : 'bones'), 1);
   if (n.t.meat) drop(n.t.meat, 1);
   rollLoot(T, drop);
+  if (T.taskTert && P.slay && (n.t.base || n.t).k === P.slay.k)
+    for (const d of T.taskTert) if (Math.random() * d[1] < 1) drop(d[0], randInt(d[2] || 1, d[3] || d[2] || 1));   // the slayer's own spoils fall on-task only
   for (const f of onKill) f(n, drop);
   say(n.t.boss ? 'You have slain ' + n.name + '!' : 'You defeat the ' + n.name + '.', n.t.boss ? 'lv' : 'good');
   if (P.task && P.task.o === n) P.task = null;
@@ -4333,6 +4381,10 @@ function retaliate(attacker) {
 function die(byPlayer) {
   P.dead = 1; P.task = null; P.path.length = 0;
   say('Oh dear, you are dead!', 'bad');
+  deathSpot = { x: P.tx, z: P.tz, t: tickN };               // the skull stands where you fell, on every map, for the pile's quarter hour
+  deathMark.position.set(P.tx, Math.max(walkY(P.tx, P.tz), 0), P.tz);
+  deathMark.visible = true; wmDirty = 1;
+  say('A skull marks where you fell.', 'lv');
   // everything carried or worn, dearest first: three items stay with you, the rest lies where you fell for a quarter hour (a player's kill goes out over the wire)
   const all = [], spill = [], dx = P.tx, dz = P.tz;
   for (const sl of EQ_SLOTS) if (eq[sl]) { all.push({ id: eq[sl], n: sl === 'ammo' ? P.ammoN : 1 }); eq[sl] = null; }
@@ -4604,9 +4656,9 @@ function startMake(r, o) {
 }
 /* one go at a recipe: inputs out, outputs in (refunded if the pack is full), xp unless the go was ruined */
 function craft(r) {
-  for (const [id, n] of r.need) invRemove(id, n);
+  for (const [id, n] of r.need) { invRemove(id, n); if (id === 'coins') gpSunk += n; }
   const out = r.fn ? r.fn(r) : [[r.id, r.n]];
-  if (out) for (const [id, n] of out) if (!invAdd(id, n)) { for (const [id2, n2] of r.need) invAdd(id2, n2); fail(FULL); return 0; }
+  if (out) for (const [id, n] of out) if (!invAdd(id, n)) { for (const [id2, n2] of r.need) { invAdd(id2, n2); if (id2 === 'coins') gpSunk -= n2; } fail(FULL); return 0; }
   if (out) { if (r.xp) gainXp(r.sk, r.xp); say(r.msg || 'You make ' + (out[0][1] > 1 ? out[0][1] + ' ' : 'a ') + ITEMS[out[0][0]].name.toLowerCase() + '.'); }
   return 1;
 }
@@ -4854,13 +4906,14 @@ function shopBuy(id) {
   if (coins() < price) return say("You don't have enough coins.", 'bad');
   if (!it.stack && !invFree()) return say(FULL, 'bad');
   invRemove('coins', price); invAdd(id, 1);
+  gpSunk += price;
   say('You buy a ' + it.name.toLowerCase() + ' for ' + price + ' coins.');
   markDirty(1); drawShop();
 }
 function shopSell(slotIdx) {
   const s = inv[slotIdx]; if (!s || s.id === 'coins') return;
   const it = ITEMS[s.id], price = sellPrice(it);
-  invRemove(s.id, 1); invAdd('coins', price);
+  invRemove(s.id, 1); invAdd('coins', price); gpMade += price;
   say('You sell a ' + it.name.toLowerCase() + ' for ' + price + ' coins.');
   markDirty(1); drawShop();
 }
@@ -5463,6 +5516,12 @@ function mapMarks() {
   for (const f of fires) dot(f.x, f.z, '#ff9b21', 2);
   for (const nn of npcs) dot(nn.tx, nn.tz, '#ffe14a', 3);
   if (marker.visible) dot(marker.position.x, marker.position.z, '#ffe14a', 3);
+  if (deathSpot) {                                          // the skull rides the minimap too, counter-rotated to stay upright
+    const px2 = (deathSpot.x - P.rx) * k, pz2 = (deathSpot.z - P.rz) * k;
+    if (px2 * px2 + pz2 * pz2 <= (C - 4) * (C - 4)) {
+      mctx.save(); mctx.translate(px2, pz2); mctx.rotate(-(yaw + PI)); mctx.drawImage(_dmc, -6, -6, 12, 12); mctx.restore();
+    }
+  }
   mctx.restore();
   mctx.fillStyle = 'rgba(255,255,255,.20)';
   mctx.beginPath(); mctx.moveTo(C, C); mctx.lineTo(C - 7, C - 17); mctx.lineTo(C + 7, C - 17); mctx.closePath(); mctx.fill();
@@ -5706,7 +5765,7 @@ const MK_ART = { bank: ['coins', '#ffd94a', '#9a7414', 'Bank'], ge: ['coins', '#
   3: ['flame', '#ff8c2a', '#ffd9a0', 'Furnace'], 4: ['hammer', '#d8dbe2', '#8a8f98', 'Anvil'], 6: ['cfish', '#ffb04a', '#7a4a20', 'Cooking range'], altar: ['star', '#fff2b0', '#c9a24a', 'Altar'],
   11: ['rune', '#e8e8ff', '#6a6a9a', 'Rune altar'], 12: ['skull', '#e8e0c8', '#5a5348', 'Slayer master'], 13: ['log', '#d8b070', '#6a4a26', 'Sawmill'], 14: ['coins', '#d8b04a', '#7a5a1a', 'Market stall'],
   15: ['leaf', '#7ad04a', '#2f6a28', 'Farming patch'], 16: ['boot', '#9ad0e8', '#3a6a8a', 'Agility obstacle'] };
-const WM_KEY = [MK_ART.bank, MK_ART.ge, MK_ART.barber, MK_ART[3], MK_ART[4], MK_ART[6], MK_ART.altar, MK_ART[11], MK_ART[12], MK_ART[13], MK_ART[15]].concat(SHOP_KINDS.map(s => [s.g, s.c, '#f0e6c8', s.n]));
+const WM_KEY = [MK_ART.bank, MK_ART.ge, MK_ART.barber, MK_ART[3], MK_ART[4], MK_ART[6], MK_ART.altar, MK_ART[11], MK_ART[12], MK_ART[13], MK_ART[15]].concat(SHOP_KINDS.map(s => [s.g, s.c, '#f0e6c8', s.n]), [['skull', '#f4ead0', '#1a1a1a', 'Where you fell']]);
 (function buildKey() {
   const key = el('wmKey');
   const row = (cv, label) => { const d = document.createElement('div'); d.appendChild(cv); d.appendChild(document.createTextNode(label)); key.appendChild(d); };
@@ -5771,6 +5830,7 @@ function wmDraw() {
         const R = ruinAt(a, b); if (R) ico(MK_ART[11], R.x, R.z);
       }
   }
+  if (deathSpot) wmIcon('skull', '#f4ead0', '#1a1a1a', px(deathSpot.x), pz(deathSpot.z), 10);   // where you fell, at any zoom
   const sx = px(P.rx), sy = pz(P.rz);                         // you, and only you
   if (sx > -10 && sy > -10 && sx < W + 10 && sy < H + 10) {
     wmCtx.beginPath(); wmCtx.arc(sx, sy, 5, 0, TAU); wmCtx.fillStyle = '#fff'; wmCtx.fill(); wmCtx.lineWidth = 2; wmCtx.strokeStyle = '#000'; wmCtx.stroke();
@@ -5916,6 +5976,7 @@ el('pvpTag').querySelector('img').src = drawIcon('skull', '#ff5a3a', '#ffd9c9');
 /* ---- 33. THE GAME TICK: everything with consequences, ten times per six seconds; frames only interpolate ---- */
 function gameTick() {
   tickN++;
+  if (deathSpot && tickN - deathSpot.t > 1500) { deathSpot = null; deathMark.visible = false; wmDirty = 1; }
   if (P.dead) return;
   walkTick(); taskTick(); updateHeldTool();
   for (let i = npcs.length - 1; i >= 0; i--) npcTick(npcs[i]);
@@ -6050,6 +6111,7 @@ function hud() {
   el('tilecount').textContent = fmt(tilesGenerated);
   const b = tilesGenerated * 5;
   el('baked').textContent = b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : (b / 1e3).toFixed(0) + ' KB';
+  el('gpMade').textContent = fmt(gpMade); el('gpSunk').textContent = fmt(gpSunk);
   el('tris').textContent = fmt(renderer.info.render.triangles);
   el('calls').textContent = renderer.info.render.calls;
   const bear = ((Math.atan2(Math.sin(yaw), -Math.cos(yaw)) % TAU) + TAU) % TAU;
@@ -6119,6 +6181,8 @@ function frame(now) {
     if (!(o.t >= 3) || o.noMark || marks >= 16 || Math.abs(o.x - P.rx) > 42 || Math.abs(o.z - P.rz) > 42) continue;
     if (labelAt(o, 'mk', o.x, o.y + MARK_H[o.t], o.z, markHtml(o), 'plate mk')) { marks++; o.mk.el._obj = o; }
   }
+  if (deathSpot && Math.abs(deathSpot.x - P.rx) < 72 && Math.abs(deathSpot.z - P.rz) < 72)
+    labelAt(deathSpot, 'mk', deathSpot.x, deathMark.position.y + 3.2, deathSpot.z, DEATH_HTML, 'plate mk boss');
   animate(P, avatar.parts, dt);
   updateRemotes(dt, alpha);
   labelsEnd();
@@ -6623,6 +6687,7 @@ function labelAt(owner, key, x, y, z, text, cls) {         // one projected labe
   return true;
 }
 const MARK_H = [0, 0, 0, 4.6, 2.9, 3.4, 3.1, 3.4, 3.0, 3.4, 3.6, 3.2, 3.4, 3.0, 3.4, 1.5, 2.0];   // float height by object type
+const DEATH_HTML = '<img src="' + _dmc.toDataURL() + '" alt=""> Your death';
 const _markCache = new Map();
 function markHtml(o) {
   const key = o.t === 5 ? 't5.' + o.k : 't' + o.t;
@@ -7291,6 +7356,7 @@ TASKS.pick = (t, o) => {
   if (Math.random() < pickChance(eff('thieving'), p.lv)) {
     const [id, n] = lootOf(p.loot);
     if (!invAdd(id, n)) return fail(FULL);
+    if (id === 'coins') gpMade += n;
     gainXp('thieving', p.xp);
     say('You pick the ' + o.name.toLowerCase() + "'s pocket.");
   } else {
@@ -7421,6 +7487,9 @@ defItem({ id: 'onyx_bolt_tips', name: 'Onyx bolt tips', g: 'bolt', c: '#2a2028',
 defItem({ id: 'blighted_anglerfish', name: 'Blighted anglerfish', g: 'cfish', c: '#4a4a5a', c2: '#3a2a3a', stack: 1, val: 140, heal: 22, blight: 1 });
 recipe('steel_cannonball', 'smithing', 35, 25.6, [['steel_bar', 1]], { at: 4, tool: 'hammer', n: 4, msg: 'You pour the molten metal into the mould; four cannonballs clatter out.' });
 recipe('onyx_bolt_tips', 'fletching', 73, 225.6, [['onyx', 1]], { tool: 'chisel', n: 24, msg: 'You carefully chip the onyx into 24 bolt tips.' });
+/* onyx bolts: the tips finally attach to something — runite bolts, fletching 73, +120, as in 2007 */
+defWear({ id: 'onyx_bolts', name: 'Onyx bolts', g: 'bolt', c: '#2a2028', c2: '#8a98a8', slot: 'ammo', stack: 1, ammo: 1, aT: 'bolt', rst: 120, rat: 54, req: { ranged: 61 }, val: 1800 });
+recipe('onyx_bolts', 'fletching', 73, 94, [['rune_bolts', 10], ['onyx_bolt_tips', 10]], { n: 10, tk: 1, msg: 'You attach onyx tips to 10 runite bolts.' });
 /* cleaning: a verb on each grimy herb starts its one-input recipe, one leaf a tick */
 for (const h of HERBS) { const r = recipe(h.k, 'herblore', h.lv, h.xp, [[h.grimy, 1]], { tk: 1, msg: 'You clean the dirt from the ' + h.n + ' leaf.' }); ITEMS[h.grimy].opt = ['Clean', () => startMake(r)]; }
 /* effects: a boost counts from the base level and never stacks (re-drinking resets it to the full amount); gameTick walks it back a point a minute */
@@ -7440,6 +7509,7 @@ const POTS = [
   ['antipoison', 'Antipoison', 'marrentill', 'unicorn_horn', 5, 37.5, '#3a9a5a', () => { P.psn = 0; P.psnImm = tickN + 150; say('The poison leaves your body.'); }],   // horn stands in for its ground dust
   ['strength', 'Strength potion', 'tarromin', 'limpwurt_root', 12, 50, '#d03a6a', () => potBoost('strength', 3, .1)],
   ['restore', 'Restore potion', 'harralander', 'red_spiders_eggs', 22, 62.5, '#d86a5a', potRestore],
+  ['energy', 'Energy potion', 'harralander', 'eye_of_newt', 26, 67.5, '#c8b03a', () => { P.energy = Math.min(100, P.energy + 10); }],   // newt eye stands in for chocolate dust
   ['defence', 'Defence potion', 'ranarr', 'white_berries', 30, 75, '#2a8a6a', () => potBoost('defence', 3, .1)],
   ['prayer', 'Prayer potion', 'ranarr', 'snape_grass', 38, 87.5, '#3ad0d0', () => potPray(7)],
   ['super_attack', 'Super attack', 'irit', 'eye_of_newt', 45, 100, '#2a5ad8', () => potBoost('attack', 5, .15)],
@@ -7629,6 +7699,8 @@ tickHooks.push(() => { for (let i = builds.length - 1; i >= 0; i--) if (--builds
 P.uspell = null; P.homeT = -1e9;
 defWear({ id: 'ring_of_dueling', name: 'Ring of dueling', g: 'ring', c: '#3aa05a', c2: '#9a7414', slot: 'ring', val: 1800, opt: ['Rub', villageTp] });
 RING_NOTES.ring_of_dueling = ' Rub it to be carried to the nearest settlement.';
+ITEMS.amulet_of_glory.opt = ['Rub', cityTp];               // the glory carries you to the nearest city, its 2007 role
+RING_NOTES.amulet_of_glory = ' Rub it to be carried to the nearest city.';
 /* teleports: every one ends what you were doing and lands you on a street tile */
 function tpTo(x, z, where) { closeOverlays(); teleport(x, z, 400); say('You teleport ' + where + '.'); return 1; }
 const tpV = (v, what) => { if (!v) return say('There is no ' + what + ' near enough to reach.', 'bad'); const s = safeSpotIn(v); return tpTo(s.x, s.z, 'to ' + villageName(v)); };
@@ -7647,7 +7719,8 @@ function alch(i, m) {
   if (s.id === 'coins') return say('Coins are already made of gold.', 'bad');
   if (!it.val) return say('You cannot alchemise that.', 'bad');
   if (s.n > 1 && !invCount('coins') && !invFree()) return say(FULL, 'bad');
-  invRemove(s.id, 1); invAdd('coins', Math.max(1, Math.round(it.val * m)));
+  const got = Math.max(1, Math.round(it.val * m));
+  invRemove(s.id, 1); invAdd('coins', got); gpMade += got;
   return 1;
 }
 function superheat(i) {
@@ -7717,6 +7790,19 @@ const CLUE_STAPLES = [['coins', 30, 800, 6000], ['nature_rune', 10, 20, 60], ['l
 const CLUE_TRIM = [['rune_full_helm_t', 2], ['rune_platelegs_t', 2], ['rune_plateskirt_t', 1], ['rune_kiteshield_t', 2], ['rune_platebody_t', 1]];
 const CLUE_LOOT = [CLUE_STAPLES, CLUE_STAPLES.concat([['dragonstone', 1]], CLUE_TRIM),
   CLUE_STAPLES.concat([['dragonstone', 2]], CLUE_TRIM, [['rune_full_helm_g', 1], ['rune_platelegs_g', 1], ['rune_kiteshield_g', 1], ['rune_platebody_g', 0.5], ['rune_plateskirt_g', 0.5]])];
+/* fail fast on any loot, pickpocket, casket or shop id that does not resolve: a typo in a table would otherwise
+   crash mid-session at kill time (dropItem reads ITEMS[id].name), and a shop typo would silently never stock.
+   Runs here because it must see the whole larder — food, potions and clue items are defined late. */
+(() => {
+  const bad = [], chk = (id, where) => { if (!ITEMS[id] && !SUBTABLES[id]) bad.push(where + ':' + id); };
+  for (const k in LOOT) { const T = LOOT[k]; for (const d of (T.alw || []).concat(T.main || [], T.tert || [], T.taskTert || [])) chk(d[0], k); if (T.main) { const w = T.main.reduce((a, d) => a + d[1], 0); if (w > (T.den || w)) bad.push('overweight:' + k); } }
+  for (const [tbl, n] of [[RARE_DROPS, 'rdt'], [MEGA_DROPS, 'mega'], [GEM_DROPS, 'gem'], [HERB_SUB, 'herb'], [SEED_SUB, 'seed'], [USEED_SUB, 'useed'], [RSEED_SUB, 'rseed']])
+    for (const d of tbl) chk(d[0], n);
+  for (const t of CLUE_LOOT) for (const d of t) chk(d[0], 'casket');
+  for (const t of NPC_TYPES) if (t.pick) for (const d of t.pick.loot) chk(d[0], 'pick:' + t.k);
+  for (const s of SHOP_KINDS) for (const id of (s.base || [])) chk(id, 'shop:' + s.k);
+  if (bad.length) throw new Error('unresolvable loot ids: ' + bad.join(', '));
+})();
 const holdsClue = () => CLUE_T.some((c, i) => invCount('clue_' + i) || bank.some(b => b.id === 'clue_' + i));
 function clueSpot(i, x, z) {                               // dry, wild ground a tier's walk from (x, z)
   for (let k = 0, T = CLUE_T[i]; k < 40; k++) {
@@ -7736,6 +7822,7 @@ function readClue(i) {                                     // a scroll without a
   if (!c) return say('The ink has run; you cannot make the scroll out here.');
   const dx = c[0] - P.tx, dz = c[1] - P.tz;
   say('The scroll reads: "Dig at ' + c[0] + ', ' + c[1] + '" — about ' + Math.round(Math.hypot(dx, dz)) + ' tiles ' + COMPASS[Math.round(Math.atan2(dx, -dz) / (PI / 4)) & 7].split(' ')[0] + ' of here.', 'lv');
+  if (!invCount('spade') && !bank.some(b => b.id === 'spade')) say('You will need a spade to dig it up — any General Store sells one.', 'lv');
 }
 function dig() {
   const c = P.clue;
@@ -7748,6 +7835,7 @@ function openCasket(s, i) {                                // two rolls, three, 
   inv[s] = null; dirty.inv = 1;
   for (let k = 0; k < 2 + i; k++) {
     const d = rollTable(CLUE_LOOT[i]), n = randInt(d[2] || 1, d[3] || d[2] || 1) * (ITEMS[d[0]].stack ? 1 + i : 1);
+    if (d[0] === 'coins') gpMade += n;
     if (!invAdd(d[0], n)) dropItem(d[0], n, P.tx, P.tz);
   }
   say('You open the casket. Its treasures are yours.', 'lv'); markDirty(1);
