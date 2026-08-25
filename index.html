@@ -1190,10 +1190,11 @@ for (const [id, name, g, val, x] of [['needle', 'Needle', 'needle', 1], ['thread
    fn(r) → [[id, n]] actually made or null for a ruined go (no xp), name, msg. Items used on each other or on a fixture find their rows by id. */
 const RECIPES = [];
 const recipe = (id, sk, lv, xp, need, x) => { const r = Object.assign({ id, sk, lv, xp, need, n: 1 }, x); RECIPES.push(r); return r; };
-const usesItem = (r, id) => r.tool === id || r.need.some(n => n[0] === id);
-const mkOk = r => lvl[SK[r.sk]] >= r.lv && hasAll(r.need) && (!r.tool || invCount(r.tool) > 0);
-const mkWhy = r => lvl[SK[r.sk]] < r.lv ? skName(SK[r.sk]) + ' ' + r.lv : r.tool && !invCount(r.tool) ? 'a ' + ITEMS[r.tool].name.toLowerCase()
-  : r.need.map(([id, n]) => n + ' ' + ITEMS[id].name.toLowerCase()).join(', ');
+const rTools = r => r.tool ? [].concat(r.tool) : [];       // a recipe may ask for several tools (hammer and saw)
+const usesItem = (r, id) => rTools(r).includes(id) || r.need.some(n => n[0] === id);
+const mkOk = r => lvl[SK[r.sk]] >= r.lv && hasAll(r.need) && rTools(r).every(t => invCount(t) > 0);
+const mkWhy = r => { const t = rTools(r).find(t2 => !invCount(t2)); return lvl[SK[r.sk]] < r.lv ? skName(SK[r.sk]) + ' ' + r.lv : t ? 'a ' + ITEMS[t].name.toLowerCase()
+  : r.need.map(([id, n]) => n + ' ' + ITEMS[id].name.toLowerCase()).join(', '); };
 const mkName = r => r.name || ITEMS[r.id].name + (r.n > 1 ? ' x' + r.n : '');
 for (const b of BARS) recipe(b.id, 'smithing', b.lv, b.xp, b.need,
   b.t === 'iron' ? { at: 3, fn: () => Math.random() < 0.5 ? [['iron_bar', 1]] : (say('The ore is too impure and you fail to refine it.', 'bad'), null) } : { at: 3 });   // iron smelts at 50%, as ever
@@ -4587,7 +4588,7 @@ function taskTick() {
     }
     const id = inv[bi].id;
     invRemove(id, 1);
-    gainXp('prayer', ITEMS[id].bury * 2);   // the gilded-altar double, as close as this world has
+    gainXp('prayer', ITEMS[id].bury * (o && o.pm ? o.pm() : 2));   // village altars double; a house chapel pays its wiki multiplier, burners counted
     P.maxpray = lvl[SK.prayer]; P.pray = Math.min(P.maxpray, P.pray + 2); dirty.orb = 1;
     say('You offer the bones at the altar.');
   } else if (GATHER[t.k]) {
@@ -5516,6 +5517,7 @@ function mapMarks() {
   for (const f of fires) dot(f.x, f.z, '#ff9b21', 2);
   for (const nn of npcs) dot(nn.tx, nn.tz, '#ffe14a', 3);
   if (marker.visible) dot(marker.position.x, marker.position.z, '#ffe14a', 3);
+  if (P.hs) dot(P.hs.x + 4, P.hs.z + 4, '#e8d9b0', 4);      // your house
   if (deathSpot) {                                          // the skull rides the minimap too, counter-rotated to stay upright
     const px2 = (deathSpot.x - P.rx) * k, pz2 = (deathSpot.z - P.rz) * k;
     if (px2 * px2 + pz2 * pz2 <= (C - 4) * (C - 4)) {
@@ -5765,7 +5767,7 @@ const MK_ART = { bank: ['coins', '#ffd94a', '#9a7414', 'Bank'], ge: ['coins', '#
   3: ['flame', '#ff8c2a', '#ffd9a0', 'Furnace'], 4: ['hammer', '#d8dbe2', '#8a8f98', 'Anvil'], 6: ['cfish', '#ffb04a', '#7a4a20', 'Cooking range'], altar: ['star', '#fff2b0', '#c9a24a', 'Altar'],
   11: ['rune', '#e8e8ff', '#6a6a9a', 'Rune altar'], 12: ['skull', '#e8e0c8', '#5a5348', 'Slayer master'], 13: ['log', '#d8b070', '#6a4a26', 'Sawmill'], 14: ['coins', '#d8b04a', '#7a5a1a', 'Market stall'],
   15: ['leaf', '#7ad04a', '#2f6a28', 'Farming patch'], 16: ['boot', '#9ad0e8', '#3a6a8a', 'Agility obstacle'] };
-const WM_KEY = [MK_ART.bank, MK_ART.ge, MK_ART.barber, MK_ART[3], MK_ART[4], MK_ART[6], MK_ART.altar, MK_ART[11], MK_ART[12], MK_ART[13], MK_ART[15]].concat(SHOP_KINDS.map(s => [s.g, s.c, '#f0e6c8', s.n]), [['skull', '#f4ead0', '#1a1a1a', 'Where you fell']]);
+const WM_KEY = [MK_ART.bank, MK_ART.ge, MK_ART.barber, MK_ART[3], MK_ART[4], MK_ART[6], MK_ART.altar, MK_ART[11], MK_ART[12], MK_ART[13], MK_ART[15]].concat(SHOP_KINDS.map(s => [s.g, s.c, '#f0e6c8', s.n]), [['house', '#e8d9b0', '#6b4e22', 'Your house'], ['skull', '#f4ead0', '#1a1a1a', 'Where you fell']]);
 (function buildKey() {
   const key = el('wmKey');
   const row = (cv, label) => { const d = document.createElement('div'); d.appendChild(cv); d.appendChild(document.createTextNode(label)); key.appendChild(d); };
@@ -5830,6 +5832,7 @@ function wmDraw() {
         const R = ruinAt(a, b); if (R) ico(MK_ART[11], R.x, R.z);
       }
   }
+  if (P.hs) wmIcon('house', '#e8d9b0', '#6b4e22', px(P.hs.x + 4), pz(P.hs.z + 4), 9);          // your house, at any zoom
   if (deathSpot) wmIcon('skull', '#f4ead0', '#1a1a1a', px(deathSpot.x), pz(deathSpot.z), 10);   // where you fell, at any zoom
   const sx = px(P.rx), sy = pz(P.rz);                         // you, and only you
   if (sx > -10 && sy > -10 && sx < W + 10 && sy < H + 10) {
@@ -5905,6 +5908,8 @@ function loadSeed(str) {
   chunks.clear(); pending.length = 0; tilesGenerated = 0;
   blocked.clear(); depleted.clear(); objIndex.clear(); floorMap.clear();
   drops.length = 0; fires.length = 0; npcDead.clear(); indoors = null; mhCache.clear(); popQueue.length = 0;
+  for (const pid of [...housesReg.keys()]) clearHouse(pid);  // houses belong to a world; the next save and snapshot restock them
+  hghosts.length = 0; litMap.clear(); bmOn = 0; moveSel = null;
   for (const n of npcs) scene.remove(n.mesh);
   npcs.length = 0;
   closeOverlays();
@@ -6303,7 +6308,8 @@ function packSave() {
     prayers: P.prayers, rstyle: P.rstyle, ammoN: P.ammoN, eq: EQ_SLOTS.map(s => eq[s] || null), inv: invp, bank: bank.map(s => [s.id, s.n]),
     look: [P.look.skin, P.look.shirt, P.look.legs, P.look.face], xp: Array.from(xp, v => Math.round(v)), home: [P.home.x, P.home.z],
     sl: P.slay ? [P.slay.k, P.slay.n, P.slay.m] : 0, farm: Object.keys(P.farm).map(k => [+k, P.farm[k][0], P.farm[k][1]]), clue: P.clue || 0,
-    bd: [...npcDead].filter(([k, t]) => k[0] === 'b' && t > tickN) };       // slain boss lairs: the cell key is stable, so the timer survives a reload
+    bd: [...npcDead].filter(([k, t]) => k[0] === 'b' && t > tickN),         // slain boss lairs: the cell key is stable, so the timer survives a reload
+    hs: P.hs || 0 };
 }
 function applySave(b) {
   if (!b || b.v !== 1) return 0;
@@ -6327,6 +6333,9 @@ function applySave(b) {
   for (const [k, c, t] of (b.farm || [])) if (CROPS[c] && t > 0) P.farm[k] = [c | 0, t | 0];
   P.clue = b.clue && b.clue.length === 3 ? b.clue.map(v => v | 0) : null;
   for (const [k, t] of (b.bd || [])) if (typeof k === 'string' && k[0] === 'b' && (t | 0) > tickN) npcDead.set(k, t | 0);
+  P.hs = b.hs && Array.isArray(b.hs.rm) && b.hs.rm.length ? b.hs : null;
+  applyHouse(hMe(), P.hs);
+  if (P.hs && !OFFLINE && srvBuild >= 6) wsSend([23, P.hs]);   // the room may hold a staler copy of this house
   bst.fill(0);
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
   return b;
@@ -6338,6 +6347,7 @@ function freshCharacter() {
   for (const s of EQ_SLOTS) eq[s] = null;
   P.maxhp = P.hp = lvl[SK.hitpoints]; P.maxpray = P.pray = lvl[SK.prayer];
   P.energy = 100; P.run = 1; P.style = 0; P.prayers = 0; P.spell = null; P.slay = null; P.clue = null; P.farm = Object.create(null); bst.fill(0);
+  P.hs = null;                                              // loadSeed already tore any standing house down
   for (const [id, n] of [['bronze_hatchet', 1], ['bronze_pickaxe', 1], ['tinderbox', 1], ['hammer', 1], ['small_net', 1], ['coins', 120]]) invAdd(id, n);
   eq.weapon = 'bronze_sword';
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
@@ -6475,6 +6485,14 @@ function onNet(m) {
         trouble('Seedworld is being updated. You can play, but your progress will not be kept until it finishes.',
                 'server build ' + (build || 'pre-versioning') + ' < client ' + NEED_BUILD + ' — deploy src/worker.js (npx wrangler deploy)');
       }
+      if (build >= 6 && P.hs) wsSend([23, P.hs]);           // show the room this character's house
+      break;
+    }
+    case 23: {                                              // a house stands (or falls) somewhere in this world
+      const pid = String(m[1] || '');
+      if (!pid || pid === PID) break;
+      const h = m[2];
+      applyHouse(pid, h && Array.isArray(h.rm) && h.rm.length <= 12 ? h : null);
       break;
     }
     case 7:                                                 // the server could not store it: stop writing into a hole
@@ -7694,6 +7712,381 @@ const POOL_BENCH = Pool(merge([shade(shift(box(2.0, 0.14, 1.0), 0.9), C_FLOOR), 
 POOLS.push(POOL_RING, POOL_ALTAR, POOL_BENCH);
 poolHooks.push(() => { for (const f of fires) if (f.pit) poolPut(POOL_RING, f.x, f.y, f.z, 0, 1); for (const b of builds) poolPut(b.t === 8 ? POOL_ALTAR : POOL_BENCH, b.x, b.y, b.z, 0, 1); });
 tickHooks.push(() => { for (let i = builds.length - 1; i >= 0; i--) if (--builds[i].life <= 0) builds.splice(i, 1)[0].dead = 1; });
+
+/* ---- CONSTRUCTION II: THE PLAYER HOUSE ----
+   One house per character, claimed on any flat open ground with a deed (1000 gp, the estate agent's price).
+   A 3x3 room grid, one floor — the level-1 OSRS house extent. Rooms and furniture are wiki rows verbatim;
+   anything needing teak, clay, glass, clockwork or rope is left out (no source here) and noted inline.
+   Nails are steel in every recipe (the guide tier; any-nail substitution skipped). No garden room — the
+   world outside the door is the garden — and no portals of any kind, by design. */
+GLYPH.house = (g, c, d) => { poly(g, [16, 3, 29, 14, 3, 14], d, K); fr(g, c, 7, 14, 18, 13); fr(g, d, 13, 19, 6, 8); };
+defItem({ id: 'saw', name: 'Saw', g: 'knife', c: '#a8a8ac', c2: '#6b4e22', val: 13 });
+defItem({ id: 'house_deed', name: 'House deed', g: 'house', c: '#e8d9b0', c2: '#6b4e22', val: 1000, opt: ['Claim land', () => claimHouse()] });
+SHOP_KINDS[0].base.push('saw', 'house_deed');
+/* building supplies, sold at the sawmill at the stonemason's book prices */
+for (const [id, name, gp, gl, c, c2] of [['bolt_of_cloth', 'Bolt of cloth', 650, 'wool', '#d8cba0', '#8a7a50'], ['limestone_brick', 'Limestone brick', 26, 'bar', '#c2bba6', '#807a66'],
+  ['gold_leaf', 'Gold leaf', 130000, 'leaf', '#f2c94c', '#8a6a14'], ['marble_block', 'Marble block', 325000, 'bar', '#e0dedb', '#8a8880'], ['magic_stone', 'Magic stone', 975000, 'gem', '#4ad8d0', '#1a6a66']]) {
+  defStack(id, name, gl, c, c2, gp);
+  recipe(id, 'construction', 1, 0, [['coins', gp]], { at: 13, tk: 1, name: name + ' (' + gp + ' gp)', msg: 'You buy ' + aOrAn(name) + '.' });
+}
+const RS = 8, HGRID = 1;                                   // room size in tiles; grid runs -1..1 (nine rooms, the level-1 extent)
+const hMe = () => PID || 'me';
+/* wood tints for the shape builders */
+const HW = { p: [0.82, 0.69, 0.45], o: [0.66, 0.51, 0.25], m: [0.48, 0.23, 0.16], g: [0.95, 0.78, 0.25], mb: [0.88, 0.87, 0.83], ls: [0.76, 0.73, 0.65], st: [0.52, 0.53, 0.56], cl: [0.74, 0.71, 0.61] };
+const ro2 = (dx, dz, r) => { const c = Math.cos(r), s = Math.sin(r); return [dx * c - dz * s, dx * s + dz * c]; };
+const hAdd = (B, geo, x, y, z, dx, dz, sx, sy, sz, r, col) => { const [ax, az] = ro2(dx, dz, r); B.add(geo, x + ax, y, z + az, sx, sy, sz, r, col); };
+/* furniture on screen: one small builder per shape, tinted by tier */
+const FSHAPE = {
+  chair(B, x, y, z, r, c) { B.add(BOX, x, y + 0.34, z, 0.62, 0.14, 0.62, r, c); hAdd(B, BOX, x, y + 0.62, z, 0, -0.26, 0.62, 0.7, 0.1, r, c); B.add(BOX, x, y + 0.14, z, 0.5, 0.28, 0.5, r, C_DARK); },
+  bench(B, x, y, z, r, c) { B.add(BOX, x, y + 0.3, z, 1.7, 0.12, 0.5, r, c); B.add(BOX, x, y + 0.12, z, 1.5, 0.24, 0.34, r, C_DARK); },
+  table(B, x, y, z, r, c) { B.add(BOX, x, y + 0.62, z, 1.3, 0.1, 0.9, r, c); for (const a of [-1, 1]) for (const b of [-1, 1]) { hAdd(B, BOX, x, y + 0.3, z, a * 0.5, b * 0.3, 0.14, 0.6, 0.14, r, c); } },
+  bigtable(B, x, y, z, r, c) { B.add(BOX, x, y + 0.66, z, 2.6, 0.12, 1.2, r, c); for (const a of [-1, 1]) { hAdd(B, BOX, x, y + 0.3, z, a * 1.05, 0, 0.2, 0.6, 0.9, r, c); } },
+  bookcase(B, x, y, z, r, c) { B.add(BOX, x, y + 0.85, z, 1.2, 1.7, 0.4, r, c); hAdd(B, BOX, x, y + 0.85, z, 0, 0.06, 1.0, 1.4, 0.34, r, C_CLOTH); },
+  larder(B, x, y, z, r, c) { B.add(BOX, x, y + 0.8, z, 1.3, 1.6, 0.8, r, c); B.add(BOX, x, y + 1.66, z, 1.44, 0.12, 0.94, r, C_DARK); hAdd(B, BOX, x, y + 0.7, z, 0, 0.34, 0.1, 0.9, 0.14, r, C_DARK); },
+  shelves(B, x, y, z, r, c) { B.add(BOX, x, y + 0.6, z, 1.1, 1.2, 0.45, r, c); hAdd(B, BOX, x, y + 1.0, z, 0, 0.1, 1.0, 0.1, 0.3, r, C_CLOTH); },
+  stove(B, x, y, z, r, c) { B.add(BOX, x, y + 0.42, z, 1.2, 0.84, 0.8, r, HW.st); B.add(BOX, x, y + 0.9, z, 1.3, 0.1, 0.9, r, C_DARK); hAdd(B, CYL8, x, y + 1.5, z, 0, -0.2, 0.24, 1.2, 0.24, r, C_DARK); hAdd(B, BOX, x, y + 0.5, z, 0, 0.36, 0.5, 0.3, 0.1, r, [1, 0.55, 0.15]); if (c !== HW.st) B.add(BOX, x, y + 0.96, z, 0.9, 0.06, 0.6, r, c); },
+  sink(B, x, y, z, r, c) { B.add(BOX, x, y + 0.4, z, 1.0, 0.8, 0.7, r, c); B.add(BOX, x, y + 0.84, z, 0.8, 0.1, 0.5, r, [0.55, 0.68, 0.75]); },
+  barrel(B, x, y, z, r, c) { B.add(TRUNK, x, y + 0.4, z, 0.7, 0.8, 0.7, r, c); B.add(CYL8, x, y + 0.82, z, 0.6, 0.05, 0.6, r, C_DARK); },
+  bed(B, x, y, z, r, c) { B.add(BOX, x, y + 0.25, z, 1.1, 0.5, 1.9, r, c); B.add(BOX, x, y + 0.56, z, 1.0, 0.14, 1.8, r, C_CLOTH); hAdd(B, BOX, x, y + 0.68, z, 0, -0.65, 0.7, 0.12, 0.4, r, [0.95, 0.93, 0.86]); hAdd(B, BOX, x, y + 0.6, z, 0, -0.95, 1.14, 0.8, 0.1, r, c); },
+  wardrobe(B, x, y, z, r, c) { B.add(BOX, x, y + 0.95, z, 1.3, 1.9, 0.6, r, c); hAdd(B, BOX, x, y + 0.95, z, 0, 0.31, 0.06, 1.7, 0.04, r, C_DARK); },
+  rug(B, x, y, z, r, c) { B.add(BOX, x, y + 0.03, z, 2.4, 0.05, 1.7, r, c); B.add(BOX, x, y + 0.055, z, 1.9, 0.05, 1.2, r, C_CLOTH); },
+  fireplace(B, x, y, z, r, c) { for (const a of [-1, 1]) hAdd(B, BOX, x, y + 0.55, z, a * 0.55, 0, 0.3, 1.1, 0.55, r, c); hAdd(B, BOX, x, y + 1.2, z, 0, 0, 1.5, 0.22, 0.55, r, c); hAdd(B, BOX, x, y + 0.3, z, 0, 0.05, 0.8, 0.6, 0.3, r, C_DARK); hAdd(B, BOX, x, y + 0.18, z, 0, 0.1, 0.5, 0.16, 0.2, r, [1, 0.55, 0.15]); },
+  decor(B, x, y, z, r, c) { B.add(BOX, x, y + 1.5, z, 0.9, 0.7, 0.12, r, c); B.add(BOX, x, y + 1.5, z, 0.6, 0.4, 0.16, r, C_CLOTH); },
+  lectern(B, x, y, z, r, c) { B.add(BOX, x, y + 0.5, z, 0.3, 1.0, 0.3, r, c); B.add(BOX, x, y + 1.05, z, 0.8, 0.1, 0.6, r, c); hAdd(B, BOX, x, y + 1.14, z, 0, 0.05, 0.6, 0.06, 0.4, r, [0.95, 0.93, 0.86]); },
+  globe(B, x, y, z, r, c) { B.add(TRUNK, x, y + 0.4, z, 0.24, 0.8, 0.24, r, HW.o); B.add(BLOB, x, y + 1.1, z, 0.7, 0.7, 0.7, r, c); },
+  chart(B, x, y, z, r, c) { B.add(BOX, x, y + 1.6, z, 1.1, 0.9, 0.08, r, [0.9, 0.87, 0.78]); B.add(BOX, x, y + 1.6, z, 1.2, 1.0, 0.05, r, c); },
+  altar(B, x, y, z, r, c) { B.add(BOX, x, y + 0.45, z, 1.6, 0.9, 0.9, r, c); B.add(BOX, x, y + 0.96, z, 1.8, 0.12, 1.1, r, c === HW.g ? HW.g : C_STONE2); hAdd(B, CYL8, x, y + 1.27, z, 0.5, 0, 0.06, 0.5, 0.06, r, [0.95, 0.9, 0.7]); hAdd(B, CONE8, x, y + 1.62, z, 0.5, 0, 0.1, 0.22, 0.1, r, [1, 0.8, 0.3]); },
+  burner(B, x, y, z, r, c, lit) { B.add(CYL8, x, y + 0.5, z, 0.2, 1.0, 0.2, r, c); B.add(CONE8, x, y + 1.1, z, 0.5, -0.3, 0.5, r, c); if (lit) B.add(CONE8, x, y + 1.25, z, 0.24, 0.5, 0.24, r, [1, 0.62, 0.12]); },
+  statue(B, x, y, z, r, c) { B.add(BOX, x, y + 0.25, z, 0.9, 0.5, 0.9, r, c); B.add(SPIRE, x, y + 1.3, z, 0.55, 1.6, 0.55, r, c); },
+  organ(B, x, y, z, r, c) { B.add(BOX, x, y + 0.5, z, 1.4, 1.0, 0.7, r, c); for (let i = -1; i <= 1; i++) hAdd(B, CYL8, x, y + 1.4 + (i === 0 ? 0.3 : 0), z, i * 0.4, 0.1, 0.2, 1.0 + (i === 0 ? 0.6 : 0), 0.2, r, HW.st); },
+  chimes(B, x, y, z, r, c) { for (const a of [-1, 1]) hAdd(B, BOX, x, y + 0.8, z, a * 0.5, 0, 0.1, 1.6, 0.1, r, c); B.add(BOX, x, y + 1.55, z, 1.2, 0.1, 0.1, r, c); for (let i = -1; i <= 1; i++) hAdd(B, CYL8, x, y + 1.1, z, i * 0.3, 0, 0.06, 0.7, 0.06, r, HW.st); },
+  bench2(B, x, y, z, r, c) { B.add(BOX, x, y + 0.45, z, 2.0, 0.14, 1.0, r, c); hAdd(B, BOX, x, y + 1.0, z, 0.6, 0, 0.5, 0.2, 0.3, r, C_STONE2); for (const a of [-1, 1]) for (const b of [-1, 1]) hAdd(B, BOX, x, y + 0.2, z, a * 0.85, b * 0.38, 0.18, 0.4, 0.18, r, C_BEAM); },
+  toolrack(B, x, y, z, r, c) { B.add(BOX, x, y + 0.8, z, 1.2, 1.6, 0.35, r, c); for (let i = -1; i <= 1; i++) hAdd(B, BOX, x, y + 1.0 + i * 0.25, z, i * 0.3, 0.16, 0.16, 0.4, 0.06, r, HW.st); },
+  astand(B, x, y, z, r, c) { B.add(CYL8, x, y + 0.6, z, 0.16, 1.2, 0.16, r, c); B.add(BOX, x, y + 1.1, z, 0.7, 0.55, 0.4, r, HW.st); B.add(BLOB, x, y + 1.6, z, 0.4, 0.4, 0.4, r, HW.st); },
+  wheel(B, x, y, z, r, c) { B.add(BOX, x, y + 0.3, z, 1.0, 0.6, 0.6, r, HW.o); B.add(CYL8, x, y + 0.75, z, 0.7, 0.16, 0.7, r, c); }
+};
+/* the furniture book: wiki rows [id, name, lv, xp, materials, shape, tint, extra]; xp already includes the materials' worth.
+   extra: t = interactive object type, pm = altar multiplier (bare, before burners), pre = must upgrade from that id. */
+{
+  const p = 'plank', o = 'oak_plank', m = 'mahogany_plank', n = 'steel_nails', st = 'steel_bar', cl = 'bolt_of_cloth', ls = 'limestone_brick', gl = 'gold_leaf', mb = 'marble_block', ms = 'magic_stone';
+  var HF = {}, HOPT = {};                                   // id -> recipe row; hotspot key -> option ids
+  const F = (list, rows) => { HOPT[list] = rows.map(r => r[0]); for (const r of rows) HF[r[0]] = r; };
+  F('chair', [['crude_chair', 'Crude wooden chair', 1, 58, [[p, 2], [n, 2]], 'chair', HW.p], ['wooden_chair', 'Wooden chair', 8, 87, [[p, 3], [n, 3]], 'chair', HW.p],
+    ['rocking_chair', 'Rocking chair', 14, 87, [[p, 3], [n, 3]], 'chair', HW.p], ['oak_chair', 'Oak chair', 19, 120, [[o, 2]], 'chair', HW.o],
+    ['oak_armchair', 'Oak armchair', 26, 180, [[o, 3]], 'chair', HW.o], ['mahogany_armchair', 'Mahogany armchair', 50, 280, [[m, 2]], 'chair', HW.m]]);   // teak armchair: no teak in this world
+  F('bookcase', [['wooden_bookcase', 'Wooden bookcase', 4, 115, [[p, 4], [n, 4]], 'bookcase', HW.p], ['oak_bookcase', 'Oak bookcase', 29, 180, [[o, 3]], 'bookcase', HW.o],
+    ['mahogany_bookcase', 'Mahogany bookcase', 40, 420, [[m, 3]], 'bookcase', HW.m]]);
+  F('fireplace', [['stone_fireplace', 'Stone fireplace', 33, 40, [[ls, 2]], 'fireplace', HW.ls], ['marble_fireplace', 'Marble fireplace', 63, 500, [[mb, 1]], 'fireplace', HW.mb]]);   // clay fireplace: no clay
+  F('rug', [['brown_rug', 'Brown rug', 2, 30, [[cl, 2]], 'rug', [0.45, 0.33, 0.2]], ['rug', 'Rug', 13, 60, [[cl, 4]], 'rug', [0.55, 0.2, 0.2]],
+    ['opulent_rug', 'Opulent rug', 65, 360, [[cl, 4], [gl, 1]], 'rug', [0.6, 0.15, 0.3]]]);
+  F('larder', [['wooden_larder', 'Wooden larder', 9, 228, [[p, 8], [n, 8]], 'larder', HW.p], ['oak_larder', 'Oak larder', 33, 480, [[o, 8]], 'larder', HW.o]]);   // teak larder dropped
+  F('stove', [['small_oven', 'Small oven', 24, 80, [[st, 4]], 'stove', HW.st], ['large_oven', 'Large oven', 29, 100, [[st, 5]], 'stove', HW.st],
+    ['steel_range', 'Steel range', 34, 120, [[st, 6]], 'stove', HW.st], ['fancy_range', 'Fancy range', 42, 160, [[st, 8]], 'stove', HW.g]], 0);   // clay firepits dropped
+  for (const id of HOPT.stove) HF[id][7] = { t: 6 };        // every stove cooks
+  F('ktable', [['kitchen_table', 'Kitchen table', 12, 87, [[p, 3], [n, 3]], 'table', HW.p], ['oak_kitchen_table', 'Oak kitchen table', 32, 180, [[o, 3]], 'table', HW.o]]);
+  F('shelf', [['wooden_shelves', 'Wooden shelves', 6, 87, [[p, 3], [n, 3]], 'shelves', HW.p]]);   // higher shelves need clay
+  F('sink', [['pump_and_drain', 'Pump and drain', 7, 100, [[st, 5]], 'sink', HW.st], ['pump_and_tub', 'Pump and tub', 27, 200, [[st, 10]], 'sink', HW.st],
+    ['sink', 'Sink', 47, 300, [[st, 15]], 'sink', HW.ls]]);
+  F('barrel', [['beer_barrel', 'Beer barrel', 7, 87, [[p, 3], [n, 3]], 'barrel', HW.o]]);         // the ale barrels want a brewery
+  F('dtable', [['wood_dining_table', 'Wood dining table', 10, 115, [[p, 4], [n, 4]], 'bigtable', HW.p], ['oak_table', 'Oak dining table', 22, 240, [[o, 4]], 'bigtable', HW.o],
+    ['carved_oak_table', 'Carved oak table', 31, 360, [[o, 6]], 'bigtable', HW.o], ['mahogany_table', 'Mahogany table', 52, 840, [[m, 6]], 'bigtable', HW.m],
+    ['opulent_table', 'Opulent table', 72, 3100, [[m, 6], [cl, 4], [gl, 4], [mb, 2]], 'bigtable', HW.g]]);   // teak tables dropped
+  F('dbench', [['wooden_bench', 'Wooden bench', 10, 115, [[p, 4], [n, 4]], 'bench', HW.p], ['oak_bench', 'Oak bench', 22, 240, [[o, 4]], 'bench', HW.o],
+    ['carved_oak_bench', 'Carved oak bench', 31, 240, [[o, 4]], 'bench', HW.o], ['mahogany_bench', 'Mahogany bench', 52, 560, [[m, 4]], 'bench', HW.m],
+    ['gilded_bench', 'Gilded bench', 61, 1760, [[m, 4], [gl, 4]], 'bench', HW.g]]);
+  F('wdecor', [['oak_decoration', 'Oak wall decoration', 16, 120, [[o, 2]], 'decor', HW.o], ['gilded_decoration', 'Gilded decoration', 56, 1020, [[m, 3], [gl, 2]], 'decor', HW.g]]);
+  F('bed', [['wooden_bed', 'Wooden bed', 20, 117, [[p, 3], [n, 3], [cl, 2]], 'bed', HW.p], ['oak_bed', 'Oak bed', 30, 210, [[o, 3], [cl, 2]], 'bed', HW.o],
+    ['large_oak_bed', 'Large oak bed', 34, 330, [[o, 5], [cl, 2]], 'bed', HW.o], ['four_poster', '4-poster', 53, 450, [[m, 3], [cl, 2]], 'bed', HW.m],
+    ['gilded_four_poster', 'Gilded 4-poster', 60, 1330, [[m, 5], [cl, 2], [gl, 2]], 'bed', HW.g]]);
+  for (const id of HOPT.bed) HF[id][7] = { t: 20 };         // a bed makes this house home
+  F('wardrobe', [['shoe_box', 'Shoe box', 20, 58, [[p, 2], [n, 2]], 'wardrobe', HW.p], ['oak_drawers', 'Oak drawers', 27, 120, [[o, 2]], 'wardrobe', HW.o],
+    ['oak_wardrobe', 'Oak wardrobe', 39, 180, [[o, 3]], 'wardrobe', HW.o], ['mahogany_wardrobe', 'Mahogany wardrobe', 75, 420, [[m, 3]], 'wardrobe', HW.m],
+    ['gilded_wardrobe', 'Gilded wardrobe', 87, 720, [[m, 3], [gl, 1]], 'wardrobe', HW.g]]);
+  F('lectern', [['oak_lectern', 'Oak lectern', 40, 60, [[o, 1]], 'lectern', HW.o], ['eagle_lectern', 'Eagle lectern', 47, 120, [[o, 2]], 'lectern', HW.o],
+    ['mahogany_eagle_lectern', 'Mahogany eagle lectern', 67, 580, [[m, 2], [gl, 1]], 'lectern', HW.m],
+    ['marble_lectern', 'Marble lectern', 77, 1800, [[mb, 1], [ms, 1], [gl, 1]], 'lectern', HW.mb]]);   // no tablets to write here: the scholar's pride alone
+  F('globe', [['globe', 'Globe', 41, 180, [[o, 3]], 'globe', [0.3, 0.5, 0.7]], ['armillary_sphere', 'Armillary sphere', 77, 960, [[m, 2], [gl, 2], [st, 4]], 'globe', HW.g],
+    ['small_orrery', 'Small orrery', 86, 1320, [[m, 3], [gl, 3]], 'globe', HW.g], ['large_orrery', 'Large orrery', 95, 1420, [[m, 3], [gl, 5]], 'globe', HW.g]]);
+  F('chart', [['alchemical_chart', 'Alchemical chart', 43, 30, [[cl, 2]], 'chart', [0.6, 0.5, 0.3]], ['astronomical_chart', 'Astronomical chart', 63, 45, [[cl, 3]], 'chart', [0.3, 0.4, 0.6]],
+    ['infernal_chart', 'Infernal chart', 83, 60, [[cl, 4]], 'chart', [0.6, 0.25, 0.2]]]);
+  F('altar', [['oak_altar', 'Oak altar', 45, 240, [[o, 4]], 'altar', HW.o], ['mahogany_altar', 'Mahogany altar', 60, 590, [[m, 4], [cl, 2]], 'altar', HW.m],
+    ['limestone_altar', 'Limestone altar', 64, 910, [[m, 6], [cl, 2], [ls, 2]], 'altar', HW.ls], ['marble_altar', 'Marble altar', 70, 1030, [[mb, 2], [cl, 2]], 'altar', HW.mb],
+    ['gilded_altar', 'Gilded altar', 75, 2230, [[mb, 2], [cl, 2], [gl, 4]], 'altar', HW.g]]);      // teak and cloth altars dropped
+  const ALT_PM = { oak_altar: 1, mahogany_altar: 1.5, limestone_altar: 1.75, marble_altar: 2, gilded_altar: 2.5 };   // wiki: bury multiplier bare, +0.5 a lit burner
+  for (const id of HOPT.altar) HF[id][7] = { t: 8, pm: ALT_PM[id] };
+  F('burner', [['oak_burners', 'Oak incense burners', 61, 280, [[o, 4], [st, 2]], 'burner', HW.o], ['mahogany_burners', 'Mahogany incense burners', 65, 600, [[m, 4], [st, 2]], 'burner', HW.m],
+    ['marble_burners', 'Marble incense burners', 69, 1600, [[mb, 2], [st, 2]], 'burner', HW.mb]]);   // torches and candlesticks feed no prayer: left out
+  for (const id of HOPT.burner) HF[id][7] = { t: 21 };
+  F('cstatue', [['small_statue', 'Small statue', 49, 40, [[ls, 2]], 'statue', HW.ls], ['medium_statue', 'Medium statue', 69, 500, [[mb, 1]], 'statue', HW.mb],
+    ['large_statue', 'Large statue', 89, 1500, [[mb, 3]], 'statue', HW.mb]]);
+  F('music', [['windchimes', 'Windchimes', 49, 323, [[o, 4], [n, 4], [st, 4]], 'chimes', HW.o], ['organ', 'Organ', 69, 680, [[m, 4], [st, 6]], 'organ', HW.m]]);   // bells are teak
+  F('wbench', [['wooden_workbench', 'Wooden workbench', 17, 143, [[p, 5], [n, 5]], 'bench2', HW.p], ['oak_workbench', 'Oak workbench', 32, 300, [[o, 5]], 'bench2', HW.o],
+    ['steel_framed_bench', 'Steel framed bench', 46, 440, [[o, 6], [st, 4]], 'bench2', HW.st],
+    ['bench_with_vice', 'Bench with vice', 62, 140, [[o, 2], [st, 1]], 'bench2', HW.st, { pre: 'steel_framed_bench' }],
+    ['bench_with_lathe', 'Bench with lathe', 77, 140, [[o, 2], [st, 1]], 'bench2', HW.st, { pre: 'bench_with_vice' }]]);
+  for (const id of HOPT.wbench) HF[id][7] = Object.assign({ t: 18 }, HF[id][6] && HF[id][6].pre ? HF[id][6] : HF[id][7]);
+  F('wrepair', [['repair_bench', 'Repair bench', 15, 120, [[o, 2]], 'wheel', HW.o], ['whetstone', 'Whetstone', 35, 260, [[o, 4], [ls, 1]], 'wheel', HW.ls],
+    ['armour_stand', 'Armour stand', 55, 500, [[o, 8], [ls, 1]], 'astand', HW.ls]]);               // nothing here breaks: built for the xp, as ever
+  F('wtools', [['tool_store', 'Tool store', 15, 120, [[o, 2]], 'toolrack', HW.o]]);
+  for (const id of HOPT.wtools) HF[id][7] = { t: 22 };
+}
+/* the rooms: [key, name, lv, cost, doors NESW, hotspots [list, lx, lz, lrot]]; wiki level and price, doors as published */
+const H_N = 1, H_E = 2, H_S = 4, H_W = 8;
+const ROOMS = [
+  ['parlour', 'Parlour', 1, 1000, H_E | H_S | H_W, [['chair', 2, 2, 0], ['chair', 5, 2, 0], ['bookcase', 2, 6, PI], ['fireplace', 4, 6, PI], ['rug', 3, 3, 0]]],
+  ['kitchen', 'Kitchen', 5, 5000, H_E | H_S, [['larder', 1, 5, PI / 2], ['stove', 4, 6, PI], ['sink', 6, 4, -PI / 2], ['ktable', 3, 2, 0], ['shelf', 1, 2, PI / 2], ['barrel', 6, 1, 0]]],
+  ['dining', 'Dining room', 10, 5000, H_E | H_S | H_W, [['dtable', 3, 3, 0], ['dbench', 3, 1, 0], ['dbench', 3, 5, PI], ['fireplace', 3, 6, PI], ['wdecor', 5, 6, PI]]],
+  ['workshop', 'Workshop', 15, 10000, H_N | H_S, [['wbench', 2, 5, PI], ['wrepair', 5, 5, PI], ['wtools', 6, 2, -PI / 2]]],
+  ['bedroom', 'Bedroom', 20, 10000, H_E | H_S, [['bed', 2, 5, PI], ['wardrobe', 5, 6, PI], ['rug', 4, 2, 0], ['fireplace', 1, 3, PI / 2]]],
+  ['study', 'Study', 40, 50000, H_E | H_S | H_W, [['lectern', 3, 6, PI], ['globe', 1, 2, 0], ['chart', 6, 4, -PI / 2], ['bookcase', 1, 5, PI / 2]]],
+  ['chapel', 'Chapel', 45, 50000, H_E | H_S, [['altar', 3, 5, PI], ['burner', 1, 5, PI], ['burner', 6, 5, PI], ['cstatue', 1, 1, 0], ['music', 6, 1, 0]]]
+];   // garden left out (the world is the garden); portal chamber and throne room out of scope; no upstairs
+const ROOM_BY = {}; ROOMS.forEach((r, i) => ROOM_BY[r[0]] = i);
+/* recipe rows: furniture and rooms flow through the ordinary make engine; the fn reads the hotspot off the task */
+const hexC = a => '#' + a.map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+const defIf = (id, name, c) => { if (!ITEMS[id]) defItem({ id, name, g: 'plank', c, c2: '#4a3a26', val: 0 }); };
+for (const id in HF) {
+  const [, name, lv, xp, mats, , tint] = HF[id];
+  defIf(id, name, hexC(tint));
+  recipe(id, 'construction', lv, xp, mats, { at: 'hs', tool: ['hammer', 'saw'], tk: 2, fn: r => furnBuild(id, r), msg: 'You build ' + aOrAn(name) + '.' });
+}
+const ROOM_RECIPES = ROOMS.map((R, i) => {
+  defIf('room_' + R[0], R[1], '#e8d9b0');
+  return recipe('room_' + R[0], 'construction', R[2], 0, [['coins', R[3]]], { at: 'hsRoom', tk: 2, name: R[1] + ' (' + R[3] + ' gp)', fn: r => roomBuild(i, r), msg: 'You build a ' + R[1].toLowerCase() + '.' });
+});
+const HREC = {}; for (const r of RECIPES) if (r.at === 'hs') HREC[r.id] = r;
+
+/* one registry for every standing house, the player's own included; one floorMap record a house, so the whole roof lifts */
+const housesReg = new Map();                               // pid -> { h, rec, meshes, roof }
+const hsObjs = [], hghosts = []; pickLists.push(hsObjs, hghosts);
+const litMap = new Map();                                  // burner key -> lit-until tick (local flavour, not synced)
+let bmOn = 0, moveSel = null;
+const rotMask = (m, r) => { for (let i = 0; i < (r & 3); i++) m = ((m >> 1) | ((m & 1) << 3)) & 15; return m; };
+const rotL = (lx, lz, r) => { for (let i = 0; i < (r & 3); i++) { const t = lx; lx = RS - 1 - lz; lz = t; } return [lx, lz]; };
+const SIDE = [[H_N, 0, 1], [H_E, 1, 0], [H_S, 0, -1], [H_W, -1, 0]];
+const roomAt = (h, gx, gz) => h.rm.find(r => r[1] === gx && r[2] === gz);
+const NOBLOCK = { rug: 1, chart: 1, decor: 1 };            // flat or wall-hung: walked over
+function clearHouse(pid) {
+  const r = housesReg.get(pid);
+  if (!r) return;
+  for (const k of r.blk) unblock(k);
+  for (const k of r.flr) floorMap.delete(k);
+  for (const m of r.meshes) { scene.remove(m); m.geometry.dispose(); }
+  for (let i = hsObjs.length - 1; i >= 0; i--) if (hsObjs[i].house === pid) { hsObjs[i].dead = 1; hsObjs.splice(i, 1); }
+  housesReg.delete(pid);
+}
+/* baked chunks keep the trees they scattered; rebuilding the covered chunks makes scatter respect the house tiles */
+function dirtyLot(h) {
+  for (let cx = Math.floor((h.x - RS) / CHUNK); cx <= Math.floor((h.x + RS * 2) / CHUNK); cx++)
+    for (let cz = Math.floor((h.z - RS) / CHUNK); cz <= Math.floor((h.z + RS * 2) / CHUNK); cz++) {
+      const key = ck(cx, cz), rec = chunks.get(key);
+      if (rec) { disposeChunk(rec); chunks.delete(key); }
+    }
+}
+function applyHouse(pid, h) {
+  const old = housesReg.get(pid), oldSig = old && old.sig, oldH = old && old.h;
+  clearHouse(pid);
+  if (!h || !h.rm || !h.rm.length) { if (oldH) dirtyLot(oldH); if (pid === hMe()) refreshGhosts(); return; }
+  const hy = h.y, fy = hy + FLOOR_TOP, own = pid === hMe();
+  const rec = { y: hy, shop: null, bank: 0, house: pid, h, blk: [], flr: [] };
+  const B = new Batch();                                    // batches share one scratch buffer: body first, roof after
+  h.rm.forEach((rm, ri) => {
+    const [ti, gx, gz, rot, f] = rm, R = ROOMS[ti], mask = rotMask(R[4], rot);
+    const x0 = h.x + gx * RS, z0 = h.z + gz * RS, cx = x0 + (RS - 1) / 2, cz = z0 + (RS - 1) / 2;
+    for (let lx = 0; lx < RS; lx++) for (let lz = 0; lz < RS; lz++) {   // walls block, floors carry the record
+      const x = x0 + lx, z = z0 + lz, k = tk(x, z);
+      const sN = lz === RS - 1, sS = lz === 0, sE = lx === RS - 1, sW = lx === 0;
+      const mid = v => v === 3 || v === 4;
+      const door = (sN && (mask & H_N) && mid(lx)) || (sS && (mask & H_S) && mid(lx)) || (sE && (mask & H_E) && mid(lz)) || (sW && (mask & H_W) && mid(lz));
+      if ((sN || sS || sE || sW) && !door) { block(k); rec.blk.push(k); } else { floorMap.set(k, rec); rec.flr.push(k); }
+    }
+    // shell: slab, skirt, walls with door gaps, corner posts, beams
+    B.add(BOX, cx, hy + FLOOR_TOP - 0.81, cz, RS, 1.6, RS, 0, C_FLOOR);
+    B.add(BOX, cx, hy - 0.2, cz, RS + 0.3, 0.6, RS + 0.3, 0, C_FOUND);
+    for (const [bit, dx, dz] of SIDE) {
+      const along = dz !== 0, wx = cx + dx * ((RS - 1) / 2), wz = cz + dz * ((RS - 1) / 2);
+      const segs = (mask & bit) ? [[-2.5, 3], [2.5, 3]] : [[0, RS]];
+      for (const [off, len] of segs) B.add(BOX, along ? cx + off : wx, fy + 1.25, along ? wz : cz + off, along ? len : 0.35, 2.5, along ? 0.35 : len, 0, C_WALL);
+      B.add(BOX, along ? cx : wx, fy + 0.22, along ? wz : cz, along ? RS : 0.42, 0.44, along ? 0.42 : RS, 0, C_BEAM);
+      B.add(BOX, along ? cx : wx, fy + 2.38, along ? wz : cz, along ? RS : 0.4, 0.24, along ? 0.4 : RS, 0, C_BEAM);
+      if (mask & bit) B.add(BOX, along ? cx : wx, fy + 2.1, along ? wz : cz, along ? 2.3 : 0.4, 0.35, along ? 0.4 : 2.3, 0, C_BEAM);
+    }
+    for (const a of [0, RS - 1]) for (const b of [0, RS - 1]) B.add(BOX, x0 + a, fy + 1.3, z0 + b, 0.5, 2.6, 0.5, 0, C_BEAM);
+    // furniture: built options render, interactive ones become real objects
+    R[5].forEach((hs, hi) => {
+      const id = f[hi];
+      if (!id || !HF[id]) return;
+      const [, name, , , , shape, tint, xtr] = HF[id];
+      const [lx, lz] = rotL(hs[1], hs[2], rot), x = x0 + lx, z = z0 + lz, fr = hs[3] + rot * PI / 2;
+      const lk = pid + ':' + ri + ':' + hi;
+      FSHAPE[shape](B, x, fy, z, fr, tint, litMap.get(lk) > tickN);
+      if (!NOBLOCK[shape]) { const k = tk(x, z); block(k); rec.blk.push(k); floorMap.delete(k); const fi = rec.flr.indexOf(k); if (fi >= 0) rec.flr.splice(fi, 1); }
+      if (xtr && xtr.t && !(own && bmOn)) {                 // build mode suspends your own fixtures, as ever
+        const ob = { t: xtr.t, k: 0, x, z, y: fy, n: name, house: pid, ri, lk };
+        if (xtr.t === 8) ob.pm = () => xtr.pm + 0.5 * hsObjs.filter(b => b.t === 21 && b.house === pid && b.ri === ri && litMap.get(b.lk) > tickN).length;
+        hsObjs.push(ob);
+      }
+    });
+  });
+  const body = B.mesh();
+  const RB = new Batch();
+  for (const rm of h.rm) {
+    const cx = h.x + rm[1] * RS + (RS - 1) / 2, cz = h.z + rm[2] * RS + (RS - 1) / 2;
+    RB.add(BOX, cx, fy + 2.56, cz, RS + 1.4, 0.16, RS + 1.4, 0, C_ROOF2);
+    RB.add(PYR, cx, fy + 2.64, cz, RS + 1.5, 2.3, RS + 1.5, 0, C_ROOF4);
+  }
+  const roof = RB.mesh();
+  rec.meshes = [body, roof].filter(Boolean);
+  for (const m of rec.meshes) scene.add(m);
+  rec.roof = roof;
+  if (roof) roof.visible = roofShown(rec);
+  rec.sig = h.x + '|' + h.z + '|' + h.rm.map(r => r[1] + ':' + r[2]).sort().join(',');
+  housesReg.set(pid, rec);
+  if (rec.sig !== oldSig) dirtyLot(h);                      // rebuild covered chunks only when the footprint changed
+  if (own) refreshGhosts();
+  wmDirty = 1;
+}
+/* claiming: flat, dry, open ground clear of towns, roads and other holdings; the deed is the estate agent's fee */
+function claimHouse() {
+  if (P.hs) return say('You already own a house. Demolish it before claiming new land.', 'bad');
+  const x0 = P.tx - (RS >> 1), z0 = P.tz - (RS >> 1);
+  const nv = nearVillage(P.tx, P.tz);
+  if (nv && nv.d < nv.v.r * 1.6) return say('Too close to town: the guilds keep this land.', 'bad');
+  if (highwayAt(P.tx, P.tz) > 0.15) return say("You cannot build on the king's road.", 'bad');
+  for (const r of housesReg.values()) if (r.h && Math.max(Math.abs(r.h.x - x0), Math.abs(r.h.z - z0)) < RS * 3 + 10) return say('Another house stands too near.', 'bad');
+  let lo = 1e9, hi = -1e9;
+  for (let a = -RS; a < RS * 2; a++) for (let b = -RS; b < RS * 2; b++) {   // the whole nine-room lot must fit
+    const y = heightAt(x0 + a, z0 + b);
+    if (y < 1.2) return say('The lot runs into water.', 'bad');
+    if (floorMap.has(tk(x0 + a, z0 + b))) return say('Something already stands on this ground.', 'bad');
+    lo = Math.min(lo, y); hi = Math.max(hi, y);
+  }
+  if (hi - lo > 2.2) return say('The ground is too uneven to build on. Seek flatter land.', 'bad');
+  for (let a = 0; a < RS; a++) for (let b = 0; b < RS; b++) if (blocked.has(tk(x0 + a, z0 + b))) return say('Clear the trees and rocks here first.', 'bad');
+  invRemove('house_deed', 1);
+  P.hs = { x: x0, z: z0, y: Math.round(hi * 4) / 4, rev: 1, rm: [[0, 0, 0, 0, []]] };
+  applyHouse(hMe(), P.hs);
+  houseSync();
+  say('The land is yours. A parlour rises around you — step outside and press Build to extend it.', 'lv');
+}
+function houseSync() { markDirty(1); if (!OFFLINE && srvBuild >= 6) wsSend([23, P.hs || 0]); }
+function hFinish() { P.hs.rev = (P.hs.rev || 0) + 1; applyHouse(hMe(), P.hs); houseSync(); P.task = null; }
+const hConnected = rms => {                                // every room must reach the first by shared sides
+  if (!rms.length) return true;
+  const key = r => r[1] + ':' + r[2], seen = new Set([key(rms[0])]), q = [rms[0]];
+  while (q.length) { const c = q.pop(); for (const r of rms) if (!seen.has(key(r)) && Math.abs(r[1] - c[1]) + Math.abs(r[2] - c[2]) === 1) { seen.add(key(r)); q.push(r); } }
+  return rms.every(r => seen.has(key(r)));
+};
+const hRefuse = (r, why) => {                              // a refused build hands the materials back and ends the job
+  for (const [id, n] of r.need) { invAdd(id, n); if (id === 'coins') gpSunk -= n; }
+  if (why) say(why, 'bad');
+  P.task = null;
+  return null;
+};
+function roomBuild(i, r) {
+  const g = P.task && P.task.o;
+  if (!g || g.gk !== 'room' || !P.hs || roomAt(P.hs, g.gx, g.gz) || P.hs.rm.length >= 9) return hRefuse(r);
+  for (let a = 0; a < RS; a++) for (let b = 0; b < RS; b++) {
+    const k = tk(P.hs.x + g.gx * RS + a, P.hs.z + g.gz * RS + b);
+    if (blocked.has(k) || (floorMap.has(k) && floorMap.get(k).house !== hMe())) return hRefuse(r, 'Clear the trees and rocks off that ground first.');
+  }
+  P.hs.rm.push([i, g.gx, g.gz, 0, []]);
+  hFinish();
+  return [];
+}
+function furnBuild(id, r) {
+  const g = P.task && P.task.o;
+  if (!g || (g.gk !== 'furn' && g.gk !== 'rem') || !P.hs) return hRefuse(r);
+  const rm = P.hs.rm[g.ri];
+  if (!rm) return hRefuse(r);
+  const cur = rm[4][g.hi] || null, pre = HF[id][7] && HF[id][7].pre;
+  if (pre ? cur !== pre : cur) return hRefuse(r, 'There is already something built there.');
+  rm[4][g.hi] = id;
+  hFinish();
+  return [];
+}
+/* build mode: ghost markers for room doors, empty hotspots, and removals; your own fixtures stand down meanwhile */
+function refreshGhosts() {
+  hghosts.forEach(g => g.dead = 1); hghosts.length = 0;
+  const h = P.hs;
+  if (!bmOn || !h) return;
+  const fy = h.y + FLOOR_TOP, cells = new Set();
+  h.rm.forEach((rm, ri) => {
+    const [ti, gx, gz, rot, f] = rm, R = ROOMS[ti], mask = rotMask(R[4], rot);
+    const x0 = h.x + gx * RS, z0 = h.z + gz * RS;
+    for (const [bit, dx, dz] of SIDE) {                     // a door with nothing beyond it is where a room can grow
+      const nx = gx + dx, nz = gz + dz, ck2 = nx + ':' + nz;
+      if (!(mask & bit) || Math.abs(nx) > HGRID || Math.abs(nz) > HGRID || roomAt(h, nx, nz) || cells.has(ck2)) continue;
+      cells.add(ck2);
+      hghosts.push({ t: 19, gk: 'room', gx: nx, gz: nz, x: h.x + nx * RS + 3.5, z: h.z + nz * RS + 3.5, y: fy, n: 'Room space' });
+    }
+    hghosts.push({ t: 19, gk: 'ctl', ri, x: x0 + 3.5, z: z0 + 3.5, y: fy, n: R[1] });
+    R[5].forEach((hs, hi) => {
+      const [lx, lz] = rotL(hs[1], hs[2], rot), x = x0 + lx, z = z0 + lz, id = f[hi];
+      if (id) hghosts.push({ t: 19, gk: 'rem', ri, hi, x, z, y: fy, n: HF[id] ? HF[id][1] : id, hs });
+      else hghosts.push({ t: 19, gk: 'furn', ri, hi, x, z, y: fy, n: 'Build ' + hs[0], hs });
+    });
+  });
+}
+const furnOptsFor = g => {                                  // fresh builds when empty, the chain's next step when not
+  const rm = P.hs.rm[g.ri], cur = rm[4][g.hi] || null;
+  return HOPT[g.hs[0]].map(id => HREC[id]).filter(r => { const pre = HF[r.id][7] && HF[r.id][7].pre; return pre ? cur === pre : !cur; });
+};
+OBJ_OPTS[19] = o => {
+  if (o.gk === 'room') return moveSel !== null
+    ? [{ t: 'Move room', o: 'here', f: act(o, o2 => { const rm = P.hs.rm[moveSel]; moveSel = null; const was = [rm[1], rm[2]]; rm[1] = o2.gx; rm[2] = o2.gz; if (!hConnected(P.hs.rm)) { rm[1] = was[0]; rm[2] = was[1]; return say('The rooms must stay joined.', 'bad'); } hFinish(); say('The room is moved.'); }) }]
+    : [{ t: 'Build', o: 'New room', f: act(o, o2 => showMake('Build a room', ROOM_RECIPES, o2)) }];
+  if (o.gk === 'furn') return [{ t: 'Build', o: o.n.slice(6), f: act(o, o2 => { const rows = furnOptsFor(o2); rows.length ? showMake(o2.n, rows, o2) : say('Nothing can be built there yet.'); }) }];
+  if (o.gk === 'rem') {
+    const up = furnOptsFor(o);                              // the chain's next step builds over what stands (vice on the steel bench)
+    const opts2 = up.length ? [{ t: 'Upgrade', o: o.n, f: act(o, o2 => showMake(o2.n, furnOptsFor(o2), o2)) }] : [];
+    return opts2.concat([{ t: 'Remove', o: o.n, f: act(o, o2 => { P.hs.rm[o2.ri][4][o2.hi] = null; hFinish(); say('You tear it out. The materials are past saving.'); }) }]);
+  }
+  const opts = [{ t: 'Rotate', o: o.n, f: act(o, o2 => { const rm = P.hs.rm[o2.ri]; rm[3] = (rm[3] + 1) & 3; hFinish(); say('The room turns a quarter to the ' + ['north', 'east', 'south', 'west'][rm[3]] + '.'); }) },
+    { t: 'Move', o: o.n, f: () => { moveSel = o.ri; say('Now click a room space to set it down.', 'lv'); } }];
+  opts.push(P.hs.rm.length === 1
+    ? { t: 'Demolish', o: 'house', f: () => askDemolish() }
+    : { t: 'Remove', o: o.n + ' (room)', f: act(o, o2 => { const rms = P.hs.rm.slice(); rms.splice(o2.ri, 1); if (!hConnected(rms)) return say('That room holds the house together.', 'bad'); P.hs.rm.splice(o2.ri, 1); hFinish(); say('The room comes down; its furniture is lost.'); }) });
+  return opts;
+};
+function askDemolish() {
+  showModal('Demolish the house',
+    '<p class="smsg">The house and <b>everything built in it</b> will be gone for good. The land returns to the wild. No materials come back.</p>' +
+    '<div class="wrow2"><button id="demoGo">Demolish</button><button id="demoNo">Keep it</button></div>', '');
+  el('demoGo').onclick = () => { closeOverlays(); P.hs = null; applyHouse(hMe(), null); markDirty(1); if (!OFFLINE && srvBuild >= 6) wsSend([23, 0]); bmOn = 0; say('The house comes down.'); };
+  el('demoNo').onclick = closeOverlays;
+}
+/* the fixtures a house offers */
+OBJ_OPTS[20] = ['Rest at', 'Bed', o => { if (o.house !== hMe()) return say('That is not your bed.'); P.home.x = o.x; P.home.z = o.z; markDirty(1); say('Home is where this bed stands: death and the home teleport return here.', 'lv'); }];
+OBJ_OPTS[21] = ['Light', 'Incense burner', o => {
+  if (!invCount('tinderbox')) return say('You need a tinderbox.', 'bad');
+  if (!invCount('marrentill')) return say('You need a clean marrentill to burn.', 'bad');
+  invRemove('marrentill', 1);
+  const fm = lvl[SK.firemaking];
+  litMap.set(o.lk, tickN + 200 + fm + randInt(0, Math.max(0, fm - 1)));   // the wiki's burner clock: 200 + FM + rand(FM)
+  const hr = housesReg.get(o.house);
+  say('The burner takes the flame; sweet smoke fills the room.', 'lv');
+  if (hr) { const src = o.house === hMe() ? P.hs : hr.h; if (src) applyHouse(o.house, src); }
+}];
+OBJ_OPTS[22] = ['Search', 'Tool store', () => {
+  let got = 0;
+  for (const t of ['hammer', 'saw']) if (!invCount(t) && invAdd(t, 1)) got = 1;
+  say(got ? 'You take a hammer and saw from the store.' : 'Every slot of it is tools you already have.');
+}];
+/* the Build button lives by the minimap whenever you stand on your own floor */
+const bmBtn = document.createElement('button');
+bmBtn.id = 'bmBtn'; bmBtn.textContent = 'Build';
+bmBtn.style.cssText = 'position:fixed;right:12px;top:150px;display:none;z-index:5;padding:6px 14px;font:inherit;cursor:pointer';
+document.body.appendChild(bmBtn);
+bmBtn.onclick = () => { bmOn ^= 1; bmBtn.classList.toggle('on', !!bmOn); moveSel = null; if (P.hs) applyHouse(hMe(), P.hs); say(bmOn ? 'Building mode: click the yellow posts.' : 'Building mode off.'); };
+tickHooks.push(() => {
+  const inMine = indoors && indoors.house === hMe();
+  bmBtn.style.display = inMine || (bmOn && P.hs) ? '' : 'none';
+  if (bmOn && !P.hs) { bmOn = 0; refreshGhosts(); }
+});
+const POOL_GH = Pool(merge([shade(cyl(0.05, 0.07, 1.0, 4).translate(0, 0.5, 0), [0.2, 0.2, 0.2]), shade(octa(0.3).translate(0, 1.15, 0), WHITE)]), 96, 1);
+POOLS.push(POOL_GH);
+poolHooks.push(t => { if (bmOn) for (const g of hghosts) poolPut(POOL_GH, g.x, g.y, g.z, t * 1.4, 0.9 + Math.sin(t * 4 + g.x) * 0.08, 1, 0.9, g.gk === 'rem' ? 0xd83a2a : g.gk === 'furn' ? 0xffe14a : 0x4ad8ff); });
 
 /* ---- MAGIC: blasts, waves and curses are SPELLS rows; the utility spells below are armed as P.uspell (item spells) or fire at once (teleports) ---- */
 P.uspell = null; P.homeT = -1e9;

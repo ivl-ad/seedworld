@@ -38,7 +38,7 @@ const cleanSeed = s => (String(s || '').trim().toLowerCase().slice(0, 32)) || 'l
    invisible from the browser: assets update instantly and the Worker does not,
    so the game looks new while the server is months old and silently dropping
    everything it does not understand. */
-const BUILD = 5;
+const BUILD = 6;   // 6: player houses (op 23)
 
 /* The spawn-table revision this deployment expects, echoed in the socket hello
    (element 6). A client whose own SPAWN_REV differs keeps its world private
@@ -95,6 +95,14 @@ export class World extends DurableObject {
        little early, which nobody will ever prove. */
     this.depleted = new Map();
     this.monDead = new Map();
+
+    /* Player houses: pid -> {x, z, d} where d is the client's compact house
+       object. Loaded from D1 once per object lifetime, written back only when
+       an edit has sat for a few seconds — a build session costs one read and
+       a handful of writes, not a write per wall. */
+    this.houses = null;          // null until loadHouses has run
+    this.hDirty = new Set();
+    this.hFlushT = 0;
 
     // With the hibernation API this object can be evicted between messages and
     // rebuilt. Per-connection state therefore lives on the socket, not here.
@@ -155,6 +163,13 @@ export class World extends DurableObject {
     for (let i = 0; i < snap.length; i += 100) {
       try { server.send(JSON.stringify(snap.slice(i, i + 100))); } catch {}
     }
+    // every standing house, in pages: rare data, but a joiner must see them all
+    await this.loadHouses(seed);
+    const hs = [];
+    for (const [hp, h] of this.houses) hs.push([23, hp, h.d]);
+    for (let i = 0; i < hs.length; i += 20) {
+      try { server.send(JSON.stringify(hs.slice(i, i + 20))); } catch {}
+    }
 
     /* Interest management only runs inside flush(), and flush only runs when
        somebody queues traffic. Without this, a join is invisible to a room
@@ -190,7 +205,7 @@ export class World extends DurableObject {
     const batch = Array.isArray(m[0]);
     const msgs = batch ? m.slice(0, 16) : [m];
     if ((me.n += msgs.length) > RATE) return;
-    if (m[0] !== 8 && raw.length > (batch ? MAXSMALL * 4 : MAXSMALL)) {
+    if (m[0] !== 8 && m[0] !== 23 && raw.length > (batch ? MAXSMALL * 4 : MAXSMALL)) {   // 23 has its own 1600-byte lane in handle()
       console.log('oversize', batch ? 'batch' : m[0], raw.length, me.pid);
       return;
     }
@@ -377,6 +392,22 @@ export class World extends DurableObject {
         return;                                  // no attachment change
       }
 
+      case 23: {                                 // house claimed, edited or demolished: [23, houseObj | 0]
+        const h = m[1];
+        await this.loadHouses(me.seed);
+        if (!h) { this.houses.delete(me.pid); }
+        else {
+          if (!Number.isInteger(h.x) || !Number.isInteger(h.z) || Math.abs(h.x) > 1e6 || Math.abs(h.z) > 1e6 || !Array.isArray(h.rm)) return;
+          let d; try { d = JSON.stringify(h); } catch { return; }
+          if (d.length > 1600 || h.rm.length > 12) return;
+          this.houses.set(me.pid, { x: h.x, z: h.z, d: h });
+        }
+        this.hDirty.add(me.pid);
+        this.flushHouses();
+        this.queue('23:' + me.pid, [23, me.pid, h || 0]);
+        break;
+      }
+
       case 9:                                    // clock ping
         ws.send(JSON.stringify([[9, m[1], Date.now()]]));
         return;
@@ -398,6 +429,53 @@ export class World extends DurableObject {
     // a runaway client cannot grow these without bound: oldest entries fall off
     while (this.depleted.size > 800) this.depleted.delete(this.depleted.keys().next().value);
     while (this.monDead.size > 800) this.monDead.delete(this.monDead.keys().next().value);
+  }
+
+  /* One SELECT per object lifetime; the table self-creates the first time a
+     world ever sees a house. Rows hold the client's compact JSON. */
+  async loadHouses(seed) {
+    if (this.houses) return;
+    this.houses = new Map();
+    this.housesSeed = seed;
+    if (!this.env.DB) return;
+    try {
+      const q = () => this.env.DB.prepare('SELECT pid, data FROM houses WHERE seed=?').bind(seed).all();
+      let rows;
+      try { rows = await q(); } catch (e) {
+        if (!/no such table/i.test(String(e))) throw e;
+        await this.env.DB.prepare('CREATE TABLE IF NOT EXISTS houses (pid TEXT NOT NULL, seed TEXT NOT NULL, x INTEGER, z INTEGER, data TEXT, updated INTEGER, PRIMARY KEY (pid, seed))').run().catch(() => {});
+        rows = await q();
+      }
+      for (const r of (rows.results || [])) {
+        try { const h = JSON.parse(r.data); this.houses.set(r.pid, { x: h.x | 0, z: h.z | 0, d: h }); } catch {}
+      }
+    } catch (e) { console.log('loadHouses failed', String(e).slice(0, 120)); }
+  }
+
+  /* Dirty pids drain to D1 in one burst, at most every 10 s; force on a
+     player's disconnect so a finished build session cannot be lost to
+     hibernation. Fire-and-forget: a miss costs a house edit, not a session. */
+  flushHouses(force) {
+    if (!this.hDirty.size || !this.env.DB || !this.houses) return;
+    const t = Date.now();
+    if (!force && t - this.hFlushT < 10000) return;
+    this.hFlushT = t;
+    const dirty = [...this.hDirty]; this.hDirty.clear();
+    this.ctx.waitUntil((async () => {
+      for (const pid of dirty) {
+        const h = this.houses.get(pid);
+        const run = () => h
+          ? this.env.DB.prepare('INSERT INTO houses (pid, seed, x, z, data, updated) VALUES (?,?,?,?,?,?) ON CONFLICT(pid, seed) DO UPDATE SET x=excluded.x, z=excluded.z, data=excluded.data, updated=excluded.updated')
+              .bind(pid, this.housesSeed, h.x, h.z, JSON.stringify(h.d), t).run()
+          : this.env.DB.prepare('DELETE FROM houses WHERE pid=? AND seed=?').bind(pid, this.housesSeed).run();
+        try { await run(); } catch (e) {
+          if (/no such table/i.test(String(e))) {
+            await this.env.DB.prepare('CREATE TABLE IF NOT EXISTS houses (pid TEXT NOT NULL, seed TEXT NOT NULL, x INTEGER, z INTEGER, data TEXT, updated INTEGER, PRIMARY KEY (pid, seed))').run().catch(() => {});
+            await run().catch(e2 => console.log('house write failed', pid, String(e2).slice(0, 120)));
+          } else console.log('house write failed', pid, String(e).slice(0, 120));
+        }
+      }
+    })());
   }
 
   queue(key, msg) {
@@ -456,6 +534,10 @@ export class World extends DurableObject {
           if (m[3] !== p.pid) out.push(m);
           continue;
         }
+        if (m[0] === 23) {                       // houses are landscape: everyone in the room hears of one
+          if (m[1] !== p.pid) out.push(m);
+          continue;
+        }
         if (m[0] === 21) {
           if (m[8] !== p.pid &&
               Math.abs((m[2] | 0) - p.x) <= VIEW * 2 && Math.abs((m[3] | 0) - p.z) <= VIEW * 2) out.push(m);
@@ -482,6 +564,7 @@ export class World extends DurableObject {
     const cur = this.players.get(a.pid);
     if (!cur || cur.ws !== ws) return;
     this.players.delete(a.pid);
+    this.flushHouses(1);                         // a leaver's pending house edits go to disk now
     for (const p of this.players.values()) {
       if (p.seen.delete(a.pid)) {
         try { p.ws.send(JSON.stringify([[5, a.pid]])); } catch {}
@@ -928,7 +1011,8 @@ export default {
           'CREATE INDEX IF NOT EXISTS idx_players_auth ON players (auth_hash)',
           'CREATE INDEX IF NOT EXISTS idx_players_name ON players (name COLLATE NOCASE)',
           'CREATE INDEX IF NOT EXISTS idx_players_ip ON players (ip_hash, created)',
-          'CREATE INDEX IF NOT EXISTS idx_characters_pid ON characters (pid, updated)'
+          'CREATE INDEX IF NOT EXISTS idx_characters_pid ON characters (pid, updated)',
+          'CREATE TABLE IF NOT EXISTS houses (pid TEXT NOT NULL, seed TEXT NOT NULL, x INTEGER, z INTEGER, data TEXT, updated INTEGER, PRIMARY KEY (pid, seed))'
         ]) { try { await env.DB.prepare(q).run(); } catch {} }
         return json({ ok: 1, db: 'up', now: Date.now(), build: BUILD }, 200, origin);
       } catch (e) {
