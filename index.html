@@ -742,7 +742,7 @@ function finish(x, z, m) {
     flat = 1 - smoothstep(core, 1.0, n.d / v.r);
     h = m + (v.y - m) * flat * (0.94 + v.rank * 0.012);
   }
-  if (flat < 0.999) h += microRelief(x, z) * (1 - flat) * smoothstep(-3, 2, h);
+  if (flat < 0.999 && z < 500000) h += microRelief(x, z) * (1 - flat) * smoothstep(-3, 2, h);   // the dungeon band stays smooth: relief turned its walls into rows of spikes
   return h;
 }
 const heightAt = (x, z) => finish(x, z, macroHeight(x, z));
@@ -1944,9 +1944,9 @@ function qpts(x0, y0, cx, cy, x1, y1, k) {
 }
 const WOOD = [0.42, 0.29, 0.15], STRING = [0.94, 0.90, 0.78];
 const WGRIP = { sword: [16, 26], dagger: [16, 25], scim: [8, 28], axe: [11.5, 26], pick: [16, 26], staff: [16, 26], bow: [20, 16], lsword: [16, 27], sword2h: [16, 27],
-  mace: [16, 26], baxe: [10, 28], wham: [16, 26], claws: [16, 28], halberd: [16, 24], spear: [16, 24], cbow: [16, 17], wand: [10.5, 26.5] };
+  mace: [16, 26], baxe: [10, 28], wham: [16, 26], claws: [16, 28], halberd: [16, 24], spear: [16, 24], cbow: [16, 17], wand: [10.5, 26.5], whip: [16, 26] };
 /* hangs point-down at half scale, edge-on to the chest */
-const WHANG = new Set(['sword', 'dagger', 'scim', 'axe', 'pick', 'rod', 'lsword', 'sword2h', 'mace', 'baxe', 'wham', 'claws', 'wand']);
+const WHANG = new Set(['sword', 'dagger', 'scim', 'axe', 'pick', 'rod', 'lsword', 'sword2h', 'mace', 'baxe', 'wham', 'claws', 'wand', 'whip']);
 const WUP = new Set(['staff', 'halberd', 'spear']);      // held tip-up: a thrust lowers them first
 const WFLIP = new Set(['scim', 'rod', 'wand']);           // tips that lean right in the icon are turned to lean forward in the hand
 const TWO_A = -1.0, TWO_Z = 0.9;                          // the two-hand hold: both arms swung forward and in, hands met at the waist
@@ -1975,7 +1975,10 @@ const WEAPON = {
   spear: (c, d, x, y) => [xrect(14.8, 8, 2.4, 22, WOOD, x, y), xtr([16, 1, 19.4, 7.6, 16, 12, 12.6, 7.6], c, x, y), xrect(13.4, 12, 5.2, 1.8, d, x, y)],
   cbow: (c, d, x, y) => [xrect(14.4, 8, 3.2, 18, WOOD, x, y), xtr(qpts(4, 12, 16, 3, 28, 12, 8).concat(qpts(28, 12, 16, 8, 4, 12, 8)), c, x, y),
     xtr([4.5, 11.6, 16, 14.6, 27.5, 11.6, 27.5, 12.4, 16, 15.4, 4.5, 12.4], STRING, x, y), xrect(13.4, 15, 5.2, 4, d, x, y)],
-  wand: (c, d, x, y) => [xtr([19.4, 9, 22, 11.6, 12, 28, 9.4, 25.4], c, x, y), xcirc(22.5, 8.5, 3.4, d, x, y)]
+  wand: (c, d, x, y) => [xtr([19.4, 9, 22, 11.6, 12, 28, 9.4, 25.4], c, x, y), xcirc(22.5, 8.5, 3.4, d, x, y)],
+  whip: (c, d, x, y) => [xrect(14.4, 22, 3.2, 8, d, x, y), xrect(13.6, 20.6, 4.8, 2, WOOD, x, y),   // handle and collar; the lash curls up and over in a tapering ribbon
+    xtr(qpts(14.6, 21, 4, 2, 20, 5.5, 12).concat(qpts(21.6, 7.5, 7.5, 4.5, 17.4, 21, 12)), c, x, y),
+    xcirc(21, 6.8, 1.6, d, x, y)]
 };
 const _wepGeo = new Map();
 function wepGeo(id) {
@@ -3525,7 +3528,7 @@ function buildStructures(rec, cx, cz) {
   if (castle) {
     batchInto(rec, B => emitCastle(B, castle)); rec.blk.push(...castle.blk);
     const k = castle.hall, dx2 = Math.round(k.x + DDX[castle.gate] * (k.w / 2)), dz2 = Math.round(k.z + DDZ[castle.gate] * (k.d / 2));
-    rec.objs.push({ t: 23, k: 0, x: dx2, z: dz2, y: castle.y, key: tk(dx2, dz2), n: 'Black door' });   // sits on the slab itself; the walk stops at reach 1, outside the wall
+    rec.objs.push({ t: 23, k: 0, x: dx2, z: dz2, y: castle.y, key: tk(dx2, dz2), n: 'Dungeon' });   // sits on the slab itself; the walk stops at reach 1, outside the wall
   }
   if (walls.length || citytrees.length || lms.length || furn.length || ges.length) batchInto(rec, W => {
     for (const w of walls) emitWallCell(W, w);
@@ -4675,8 +4678,8 @@ function taskTick() {
     if (needLv(G.sk, R.lv)) return;
     if (Math.random() < gatherChance(lvl[SK[G.sk]], R.lv, tool.tier)) {
       const id = R.k === 'essence' && lvl[SK.mining] >= 30 ? 'pure_essence' : R[G.yield];
-      if (!invAdd(id, 1)) return fail(FULL);
-      say(G.got + ITEMS[id].name.toLowerCase() + '.');
+      if (!invAdd(id, 1)) { dropItem(id, 1, P.tx, P.tz); say('Your pack is full; the ' + ITEMS[id].name.toLowerCase() + ' falls at your feet.'); }
+      else say(G.got + ITEMS[id].name.toLowerCase() + '.');
       gainXp(G.sk, R.xp);
       if (t.k === 'mine' && R.rs && Math.random() < 1 / 256 && invFree()) { const g = rollTable(GEM_T)[0]; invAdd(g, 1); say('You find an ' + ITEMS[g].name.toLowerCase() + '!', 'lv'); }
       if (R.rs && (t.k !== 'chop' || !R.i || Math.random() < 0.125)) { deplete(o, R.rs); P.task = null; }   // oaks and up fall one log in eight
@@ -4692,9 +4695,9 @@ function taskTick() {
     let f = null;
     for (let i = pool.length - 1; i >= 0 && !f; i--) if (Math.random() < rollChance(lvl[SK.fishing], pool[i].lv, 2)) f = pool[i];
     if (f) {
-      if (!invAdd(f.raw, 1)) return fail(FULL);
+      if (!invAdd(f.raw, 1)) { dropItem(f.raw, 1, P.tx, P.tz); say('Your pack is full; the ' + f.n.toLowerCase() + ' flops at your feet.'); }
+      else say('You catch a ' + f.n.toLowerCase() + '.');
       if (f.k === 'trout' || f.k === 'salmon') invRemove('feather', 1);
-      say('You catch a ' + f.n.toLowerCase() + '.');
       gainXp('fishing', f.xp);
       if ((hash2(P.tx, tickN, S) & 7) === 0) deplete(o, 14);   // spots move on
     }
@@ -4773,11 +4776,19 @@ function paintModal(title, html, foot) {
   showTab('inv');
 }
 function openBank() { clearUse(); bankOpen = 1; say('The banker pulls out your vault book.'); drawBank(); }
-let bankQ = '';
+let bankQ = '', bankMode = '1', bankX = 50;                 // the 2007 quantity row: 1 / 5 / 10 / X / All drives both directions
+const bankQty = () => bankMode === 'all' ? 1e9 : bankMode === 'x' ? bankX : +bankMode;
+const bankQtyLbl = () => bankMode === 'all' ? 'all' : bankQty();
 function drawBank() {                                      // the search box filters the grid in place, so typing never repaints the modal
   if (!bankOpen) return;
-  paintModal('Bank of Seedworld — ' + bank.length + '/' + BANK_N + ' slots', '<input id="bankQ" placeholder="search your vault…" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:5px"><div class="grid" id="bankGrid"></div>',
-    'Click to withdraw one, ALL for the stack. Click your pack to store things.');
+  const bq = (m, lbl) => '<button data-bq="' + m + '"' + (bankMode === m ? ' style="outline:2px solid var(--amber)"' : '') + '>' + lbl + '</button>';
+  paintModal('Bank of Seedworld — ' + bank.length + '/' + BANK_N + ' slots',
+    '<div class="wrow" style="margin-bottom:5px">' + bq('1', '1') + bq('5', '5') + bq('10', '10') + bq('x', 'X') +
+    '<input id="bankXin" inputmode="numeric" value="' + bankX + '" aria-label="custom amount" style="width:52px">' + bq('all', 'All') + '</div>' +
+    '<input id="bankQ" placeholder="search your vault…" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:5px"><div class="grid" id="bankGrid"></div>',
+    'Click to withdraw ' + bankQtyLbl() + ', ALL for the stack. Click your pack to store ' + bankQtyLbl() + '.');
+  const xin = el('bankXin');
+  xin.oninput = () => { bankX = clamp(Math.floor(+xin.value) || 1, 1, 1e9); };
   const q = el('bankQ'), fill = () => { const f = bankQ.toLowerCase(); el('bankGrid').innerHTML = bank.map((s, i) => ITEMS[s.id].name.toLowerCase().includes(f)
     ? mkRow('data-wd="' + i + '"', s.id, ITEMS[s.id].name, fmt(s.n) + ' banked', '<b class="gp" data-wall="' + i + '">ALL</b>') : '').join('') || '<p style="opacity:.7">' + (bank.length ? 'Nothing matches.' : 'Your vault is empty.') + '</p>'; };
   q.value = bankQ; q.oninput = () => { bankQ = q.value; fill(); }; fill();
@@ -5178,12 +5189,14 @@ on(modalBody, 'click', e => {
     }
     return;
   }
+  const bqb = e.target.closest('[data-bq]');
+  if (bqb) { bankMode = bqb.dataset.bq; if (el('bankXin')) bankX = clamp(Math.floor(+el('bankXin').value) || 1, 1, 1e9); drawBank(); return; }
   const all = e.target.closest('[data-wall]');
   if (all) return bankWithdraw(+all.dataset.wall, 1e9);
   const row = e.target.closest('[data-buy],[data-mk],[data-wd]');
   if (!row) return;
   if (row.dataset.buy) shopBuy(row.dataset.buy);
-  else if (row.dataset.wd !== undefined) bankWithdraw(+row.dataset.wd, 1);
+  else if (row.dataset.wd !== undefined) bankWithdraw(+row.dataset.wd, bankQty());
   else { const r = makeRows && makeRows[+row.dataset.mk]; if (r && mkOk(r)) { startMake(r, makeAt); closeOverlays(); } }
 });
 const PANES = ['inv', 'eq', 'sk', 'wd', 'cb', 'mg', 'pr', 'op'], PANE_DRAW = { cb: () => drawStyles(), mg: () => drawSpells(), pr: () => drawPrayers(), op: () => drawOpts() };
@@ -5499,8 +5512,8 @@ function itemOptions(i) {
     opts.push(examineOpt(it));
     return opts;
   }
-  if (bankOpen) {                                           // at the bank it is a deposit sheet
-    opts.push(itm('Store', nm, () => bankDeposit(s.id, 1)));
+  if (bankOpen) {                                           // at the bank it is a deposit sheet; the quantity row drives the first option
+    opts.push(itm('Store ' + bankQtyLbl(), nm, () => bankDeposit(s.id, bankQty())));
     const cnt = invCount(s.id);
     if (cnt >= 5) opts.push(itm('Store 5', nm, () => bankDeposit(s.id, 5)));
     if (cnt > 1) opts.push(itm('Store all', nm, () => bankDeposit(s.id, cnt)));
@@ -5765,6 +5778,12 @@ on(invGrid, 'click', e => {
   if (!s) return clearUse();
   const i = +s.dataset.i;
   if (trade && trade.open) return tradeAdd(i);
+  if (e.shiftKey && inv[i] && !bankOpen && !openShop && !useSel) {   // shift-click sheds the stack at your feet, as ever
+    const s2 = inv[i];
+    dropItem(s2.id, s2.n, P.tx, P.tz);
+    inv[i] = null; dirty.inv = 1; markDirty();
+    return;
+  }
   if (useSel) {
     const from = useSel.i;
     if (from === i) return clearUse();
@@ -6788,7 +6807,7 @@ function labelAt(owner, key, x, y, z, text, cls) {         // one projected labe
   q.el.style.transform = 'translate(' + ((_pv.x * 0.5 + 0.5) * innerWidth) + 'px,' + ((-_pv.y * 0.5 + 0.5) * innerHeight) + 'px) translate(-50%,0)';
   return true;
 }
-const MARK_H = [0, 0, 0, 4.6, 2.9, 3.4, 3.1, 3.4, 3.0, 3.4, 3.6, 3.2, 3.4, 3.0, 3.4, 1.5, 2.0];   // float height by object type
+const MARK_H = [0, 0, 0, 4.6, 2.9, 3.4, 3.1, 3.4, 3.0, 3.4, 3.6, 3.2, 3.4, 3.0, 3.4, 1.5, 2.0, 0, 0, 0, 0, 0, 0, 4.4, 0, 4.2];   // float height by object type; a missing entry is a NaN plate stuck to the sky
 const DEATH_HTML = '<img src="' + _dmc.toDataURL() + '" alt=""> Your death';
 const _markCache = new Map();
 function markHtml(o) {
@@ -8220,7 +8239,14 @@ function dunOf(v) {
   if (v.dun) return v.dun;
   const h = hash2(v.x, v.z, S + 700);
   const pw = powerAt(v.x, v.z) * 1.1 + 0.35 + ((h >>> 20) & 63) / 64 * 0.9;   // strictly meaner than the streets above
-  const E = Math.min(72, 40 + ((h >>> 8) & 3) * 8 + Math.round(Math.min(8, pw * 4)));
+  const cx = Math.floor(v.x * INV_CELL), cz = Math.floor(v.z * INV_CELL);
+  let near2 = 1e9;                                          // two courts must never overlap: size is capped by the nearest castle
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+    if (!a && !b) continue;
+    const q = villageAt(cx + a, cz + b);
+    if (q && q.rank >= 3) near2 = Math.min(near2, Math.hypot(q.x - v.x, q.z - v.z));
+  }
+  const E = Math.max(44, Math.min(Math.floor(near2 / 2) - 6, 56 + ((h >>> 8) & 3) * 10 + Math.round(Math.min(14, pw * 6))));
   const pool = DUN_THEMES.filter(t => pw >= t.min);
   const th = pool[(h >>> 13) % pool.length];
   return v.dun = { v, ox: v.x, oz: v.z + DUN_Z, seed: h, E, pw, th, name: 'The ' + villageName(v).split(' ').pop() + ' ' + th.pl };
@@ -8240,30 +8266,45 @@ function dunFor(x, z) {
   }
   return _dfd;
 }
-/* the maze: scattered overlapping rooms chained by corridors; webs bar the trunk, squeezes guard the shortcuts */
+/* the maze: an organic outline of hashed radii, big chambers, wide corridors, and a braided labyrinth filling the rock between */
 function layoutDun(d) {
   if (d.G) return d;
   const E = d.E, W = E * 2 + 1, G = new Uint8Array(W * W), h0 = d.seed;
-  const at = (x, z) => (x < 2 || z < 2 || x > W - 3 || z > W - 3) ? 0 : G[z * W + x];
-  const set = (x, z, c) => { if (x > 1 && z > 1 && x < W - 2 && z < W - 2) G[z * W + x] = c; };
-  const carve = (x0, z0, w, ht) => { for (let z = z0; z < z0 + ht; z++) for (let x = x0; x < x0 + w; x++) set(x, z, 2); };
   let rs = h0 | 0;                                          // a private LCG, so every client deals the same cards in the same order
   const rnd = () => (rs = (Math.imul(rs, 1103515245) + 12345) | 0, (rs >>> 16) / 65536);
-  // 1. halls: a broad entry room by the door, a grand hall far north for the master, and a spread of big chambers
-  const rooms = [{ x: E, z: 5 }];
-  carve(E - 5, 2, 11, 8);
-  const boss = { x: 8 + Math.floor(rnd() * (W - 16)), z: W - 11 };
+  // 0. the outline: twelve hashed radii swept smoothly round the compass — no two dungeons share a silhouette
+  const CRN = 12, CR = Array.from({ length: CRN }, () => E * (0.62 + rnd() * 0.36));
+  const radAt = (dx, dz) => {
+    const a = (Math.atan2(dz, dx) + PI) / TAU * CRN, i0 = Math.floor(a) % CRN, t = a - Math.floor(a), s = (1 - Math.cos(t * PI)) / 2;
+    return CR[i0] * (1 - s) + CR[(i0 + 1) % CRN] * s;
+  };
+  const mask = new Uint8Array(W * W);
+  for (let z = 0; z < W; z++) for (let x = 0; x < W; x++) if (Math.hypot(x - E, z - E) <= radAt(x - E, z - E)) mask[z * W + x] = 1;
+  const at = (x, z) => (x < 2 || z < 2 || x > W - 3 || z > W - 3) ? 0 : G[z * W + x];
+  const set = (x, z, c) => { if (x > 1 && z > 1 && x < W - 2 && z < W - 2 && mask[z * W + x]) G[z * W + x] = c; };
+  const set0 = (x, z, c) => { if (x > 1 && z > 1 && x < W - 2 && z < W - 2) G[z * W + x] = c; };   // walls may stand outside the line
+  const carve = (x0, z0, w, ht) => { for (let z = z0; z < z0 + ht; z++) for (let x = x0; x < x0 + w; x++) set(x, z, 2); };
+  const inMask = (x, z) => x > 1 && z > 1 && x < W - 2 && z < W - 2 && mask[z * W + x];
+  // 1. halls: the entry sits just inside the southern edge, the master's hall against the north, big chambers between
+  const Rs = radAt(0, -1) | 0, Rn = radAt(0, 1) | 0;
+  const enZ = Math.max(4, E - Rs + 4);
+  const entry = { x: E, z: enZ + 3 };
+  carve(E - 5, enZ, 11, 8);
+  const rooms = [entry];
+  const boss = { x: E + Math.round((rnd() - 0.5) * E * 0.5), z: E + Rn - 11 };
+  while (!inMask(boss.x, boss.z)) boss.x += boss.x > E ? -2 : 2;   // slide the hall along until the outline holds it
   carve(boss.x - 7, boss.z - 7, 15, 15); rooms.push(boss);
-  const nR = 8 + Math.floor(rnd() * 5) + ((E - 40) >> 3);
-  for (let i = 0; i < nR * 3 && rooms.length < nR + 2; i++) {
-    const w = 7 + Math.floor(rnd() * 9), ht = 7 + Math.floor(rnd() * 9);
-    const x = 3 + Math.floor(rnd() * (W - w - 6)), z = 11 + Math.floor(rnd() * (W - ht - 22));
+  const nR = 10 + Math.floor(rnd() * 6) + ((E - 56) >> 3);
+  for (let i = 0; i < nR * 4 && rooms.length < nR + 2; i++) {
+    const w = 9 + Math.floor(rnd() * 11), ht = 9 + Math.floor(rnd() * 11);
+    const x = 3 + Math.floor(rnd() * (W - w - 6)), z = enZ + 9 + Math.floor(rnd() * Math.max(4, W - ht - enZ - 20));
+    if (!inMask(x + (w >> 1), z + (ht >> 1)) || !inMask(x, z) || !inMask(x + w, z + ht)) continue;
     carve(x, z, w, ht); rooms.push({ x: x + (w >> 1), z: z + (ht >> 1) });
   }
-  // 2. corridors: two or three tiles wide, an L between rooms; pinch-points remembered for obstacles
+  // 2. corridors: three tiles wide as a rule, an L between rooms; pinch-points remembered for obstacles
   const pinches = [];
   const corridor = (a, b, loop) => {
-    const wide = rnd() < 0.35 ? 3 : 2;
+    const wide = rnd() < 0.5 ? 3 : 2;
     const seg = (fx, tx2, fz, tz2, horiz) => { for (let x = Math.min(fx, tx2); x <= Math.max(fx, tx2); x++) for (let z = Math.min(fz, tz2); z <= Math.max(fz, tz2); z++) for (let o = 0; o < wide; o++) set(x + (horiz ? 0 : o), z + (horiz ? o : 0), 2); };
     seg(a.x, b.x, a.z, a.z, 1); seg(b.x, b.x, a.z, b.z, 0);
     pinches.push({ x: Math.round((a.x + b.x) / 2), z: a.z, hx: 1, wide, loop });
@@ -8277,9 +8318,12 @@ function layoutDun(d) {
     done.push(todo.splice(bj, 1)[0]);
   }
   for (let i = 0; i < (nR >> 1) + 2; i++) corridor(rooms[Math.floor(rnd() * rooms.length)], rooms[Math.floor(rnd() * rooms.length)], 1);
-  // 3. the labyrinth: a braided maze fills the solid ground between the halls — two-tile walkways on a three-tile pitch
-  const MC = Math.floor((W - 4) / 3), cOpen = new Uint8Array(MC * MC);   // bit 1 E open, bit 2 S open, bit 4 visited
-  const cSolid = (i, j) => { for (let z = 2 + j * 3; z < 5 + j * 3; z++) for (let x = 2 + i * 3; x < 5 + i * 3; x++) if (G[z * W + x]) return 0; return 1; };
+  // 3. the labyrinth: a braided maze fills the rock between the halls — three-tile walkways on a four-tile pitch
+  const MP = 4, MB = 3, MC = Math.floor((W - 4) / MP), cOpen = new Uint8Array(MC * MC);   // bit 1 E open, bit 2 S open, bit 4 visited
+  const cSolid = (i, j) => {
+    for (let z = 2 + j * MP; z < 2 + j * MP + MB; z++) for (let x = 2 + i * MP; x < 2 + i * MP + MB; x++) { const q = z * W + x; if (G[q] || !mask[q]) return 0; }
+    return 1;
+  };
   const stack = [];
   for (let sj = 0; sj < MC; sj++) for (let si = 0; si < MC; si++) {
     if (!cSolid(si, sj) || (cOpen[sj * MC + si] & 4)) continue;
@@ -8299,22 +8343,34 @@ function layoutDun(d) {
   }
   for (let j = 0; j < MC; j++) for (let i = 0; i < MC; i++) {          // carve the visited cells and their openings
     if (!(cOpen[j * MC + i] & 4)) continue;
-    carve(2 + i * 3, 2 + j * 3, 2, 2);
-    if (cOpen[j * MC + i] & 1) carve(4 + i * 3, 2 + j * 3, 1, 2);
-    if (cOpen[j * MC + i] & 2) carve(2 + i * 3, 4 + j * 3, 2, 1);
+    carve(2 + i * MP, 2 + j * MP, MB, MB);
+    if (cOpen[j * MC + i] & 1) carve(2 + i * MP + MB, 2 + j * MP, MP - MB, MB);
+    if (cOpen[j * MC + i] & 2) carve(2 + i * MP, 2 + j * MP + MB, MB, MP - MB);
   }
   // 4. braid and join: knock through a share of the one-thick walls with floor on both sides, so there is rarely only one way
   for (let z = 3; z < W - 3; z++) for (let x = 3; x < W - 3; x++) {
-    if (G[z * W + x]) continue;
+    if (G[z * W + x] || !mask[z * W + x]) continue;
     const H = at(x - 1, z) === 2 && at(x + 1, z) === 2, V = at(x, z - 1) === 2 && at(x, z + 1) === 2;
-    if ((H || V) && rnd() < 0.16) set(x, z, 2);
+    if ((H || V) && rnd() < 0.18) set(x, z, 2);
   }
+  // 4b. no hall left behind: anything the entry cannot reach gets a spoke through the centre (a star shape always allows it)
+  const seen = new Uint8Array(W * W), q2 = [entry.z * W + entry.x];
+  seen[q2[0]] = 1;
+  while (q2.length) {
+    const c = q2.pop(), x = c % W, z = (c / W) | 0;
+    for (const [dx2, dz2] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx2, nz = z + dz2, g = at(nx, nz);
+      if ((g === 2 || g === 8) && !seen[nz * W + nx]) { seen[nz * W + nx] = 1; q2.push(nz * W + nx); }
+    }
+  }
+  const C = { x: E, z: E };
+  for (const r of rooms) if (!seen[r.z * W + r.x]) { corridor(r, C, 0); corridor(C, entry, 0); }
   for (let z = boss.z - 7; z <= boss.z + 7; z++) for (let x = boss.x - 7; x <= boss.x + 7; x++) if (at(x, z) === 2) set(x, z, 8);
   // 5. obstacles: a wall thrown across a trunk corridor with one barred gap — the labyrinth always offers a way round
   d.obs = [];
   for (const m of pinches) {
     if (d.obs.length >= 3 + (E >> 4)) break;
-    if (Math.hypot(m.x - E, m.z - 5) < 11 || Math.hypot(m.x - boss.x, m.z - boss.z) < 10) continue;
+    if (Math.hypot(m.x - entry.x, m.z - entry.z) < 12 || Math.hypot(m.x - boss.x, m.z - boss.z) < 10) continue;
     if (d.obs.some(o => Math.abs(o.gx - m.x) + Math.abs(o.gz - m.z) < 10)) continue;
     if (rnd() > (m.loop ? 0.6 : 0.45)) continue;
     const ax = m.hx ? 1 : 0, az = m.hx ? 0 : 1;             // corridor axis; the pinch wall runs across it
@@ -8326,17 +8382,19 @@ function layoutDun(d) {
     for (let o = 1; o < m.wide; o++) set(m.x + az * o, m.z + ax * o, 1);
     d.obs.push({ gx: m.x, gz: m.z, t: kind, hx: ax });
   }
-  // 6. ore in the crannies
-  for (let i = 0, want = 3 + (E >> 4); i < 90 && want > 0; i++) {
-    const x = 3 + Math.floor(rnd() * (W - 6)), z = 11 + Math.floor(rnd() * (W - 17));
+  // 6. ore against the walls
+  for (let i = 0, want = 5 + (E >> 4); i < 260 && want > 0; i++) {
+    const x = 3 + Math.floor(rnd() * (W - 6)), z = 3 + Math.floor(rnd() * (W - 6));
     if (at(x, z) !== 2) continue;
-    const wn = (at(x - 1, z) !== 2) + (at(x + 1, z) !== 2) + (at(x, z - 1) !== 2) + (at(x, z + 1) !== 2);
-    if (wn < 2) continue;
+    const wn = !at(x - 1, z) + !at(x + 1, z) + !at(x, z - 1) + !at(x, z + 1);
+    if (!wn) continue;
+    if (d.obs.some(o => Math.abs(o.gx - x) + Math.abs(o.gz - z) < 4)) continue;
     set(x, z, 6); want--;
   }
-  set(E, 3, 7);                                             // the way back out
+  set0(E, enZ - 2, 7);                                      // the way back out, cut into the outline's own edge
+  set0(E, enZ - 1, 2);
   const w2 = x => d.ox - E + x, w3 = z => d.oz - E + z;
-  d.en = { x: w2(E), z: w3(5) }; d.ex = { x: w2(E), z: w3(3) };
+  d.en = { x: w2(E), z: w3(enZ + 1) }; d.ex = { x: w2(E), z: w3(enZ - 2) };
   d.bossAt = { x: w2(boss.x), z: w3(boss.z) };
   d.G = G; d.W = W;
   return d;
@@ -8404,7 +8462,8 @@ function dunPick(d, h) {
   return t.types[lo];
 }
 /* doors: the castle's black door goes down, the standing door below comes back up */
-MK_ART[23] = ['lock', '#0a0a0e', '#b8b0a0', 'Black door'];
+MK_ART[23] = ['lock', '#0a0a0e', '#b8b0a0', 'Dungeon'];
+MK_ART[25] = ['wheat', '#d8c05a', '#8a7a2a', 'Windmill'];
 PICK_R[23] = 1.9; PICK_Y[23] = 1.5;                        // the pick tables end at t16: without these the door cannot be clicked at all
 PICK_R[24] = 1.4; PICK_Y[24] = 1.2;
 function enterDun(o) {
@@ -8423,7 +8482,7 @@ function leaveDun(o) {
   const spot = openNear(Math.round(k.x + DDX[c.gate] * (k.w / 2 + 2)), Math.round(k.z + DDZ[c.gate] * (k.d / 2 + 2)), 4);
   if (spot) { teleport(spot.x, spot.z, 400); say('You climb back into the daylight.'); }
 }
-OBJ_OPTS[23] = o => [{ t: o.k ? 'Leave through' : 'Enter', o: 'Black door', f: act(o, o.k ? leaveDun : enterDun) }];
+OBJ_OPTS[23] = o => [{ t: o.k ? 'Leave' : 'Enter', o: 'Dungeon', f: act(o, o.k ? leaveDun : enterDun) }];
 OBJ_OPTS[24] = ['Slash', 'Web', o => {
   if (!eq.weapon && !invCount('knife')) return say('You need a blade to cut through it.', 'bad');
   deplete(o, 1500);
@@ -8444,7 +8503,7 @@ structHooks.push((rec, vs, inChunk) => {
   layoutDun(d);
   const B = [];
   if (inChunk(d.ex.x, d.ex.z)) {
-    rec.objs.push({ t: 23, k: 1, x: d.ex.x, z: d.ex.z, y: DUN_FLOOR, key: tk(d.ex.x, d.ex.z), n: 'Black door' });
+    rec.objs.push({ t: 23, k: 1, x: d.ex.x, z: d.ex.z, y: DUN_FLOOR, key: tk(d.ex.x, d.ex.z), n: 'Dungeon exit' });
     B.push(['door', d.ex.x, d.ex.z]);
   }
   for (const ob of d.obs) {
