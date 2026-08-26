@@ -2058,7 +2058,8 @@ function riggedMesh(spec, material) {
   for (const L of spec.limbs) {
     const m = noCull(new THREE.Mesh(L.geo, M));
     m.position.set(L.x, L.y, L.z);
-    g.add(m); g.limbs.push({ m, kind: L.kind, s: L.s });
+    if (L.base !== undefined) m.rotation.y = L.base;         // a splayed limb rests at its own yaw before any gait touches it
+    g.add(m); g.limbs.push({ m, kind: L.kind, s: L.s, ph: L.ph || 0, base: L.base || 0 });
   }
   return g;
 }
@@ -2091,12 +2092,17 @@ function quadruped(o) {
 }
 function spiderGeo(o) {
   const w = o.w, h = o.h || o.w, body = o.body;
-  const l = [shade(shift(octa(w * 0.55), h * 0.5).translate(0, 0, -w * 0.3), body), shade(shift(octa(w * 0.34), h * 0.46).translate(0, 0, w * 0.42), o.head || body)];
-  for (let i = 0; i < 8; i++) {
-    const s = i < 4 ? 1 : -1, a = 0.5 + (i % 4) * 0.42;
-    l.push(shade(box(w * 0.09, w * 0.09, w * 1.0).rotateX(0.5).rotateY(s * a).translate(s * w * 0.42, h * 0.34, w * 0.1 - (i % 4) * w * 0.22), o.leg || body));
+  const core = [shade(shift(octa(w * 0.55), h * 0.5).translate(0, 0, -w * 0.3), body), shade(shift(octa(w * 0.34), h * 0.46).translate(0, 0, w * 0.42), o.head || body)];
+  const limbs = [];
+  for (let i = 0; i < 8; i++) {                             // four hips a flank; each leg pivots at its own hip so the gait can sweep it
+    const s = i < 4 ? 1 : -1, r = i % 4;
+    const geo = shade(box(w * 0.09, w * 0.09, w * 1.05).translate(0, 0, w * 0.52).rotateX(0.42), o.leg || body);
+    const L = limb('sleg', s, geo, s * w * 0.36, h * 0.42, w * 0.14 - r * w * 0.2);
+    L.base = s * (0.55 + r * 0.42);
+    L.ph = (r & 1) * PI + (s < 0 ? PI / 2 : 0) + r * 0.3;   // alternating tetrapod, the flanks half a beat apart
+    limbs.push(L);
   }
-  return rig(l, [], body);
+  return rig(core, limbs, body);
 }
 function dragonGeo(o) {
   const w = o.w, h = o.h, body = o.body;
@@ -2269,7 +2275,7 @@ const BOSSES = [
   ['eldric', 'Eldric the Ice King', 'icegiant', 250, 600, 300, 250, 100, 12, 150, 0, null, null, 'mg', 6, 7, 0.8, 1.6, null, 0x80e0ff, null],
   ['branda', 'Branda the Fire Queen', 'firegiant', 250, 600, 300, 250, 100, 12, 150, 0, null, null, 'mg', 6, 7, 0.8, 1.6, null, 0xff7030, null],
   ['kbd', 'King Black Dragon', 'blackdragon', 276, 240, 240, 240, 240, 90, 0, 0, null, 65, 'mg', 7, 4, 0.8, 1.8, null, 0xd04a2a, null],
-  ['sarachnis', 'Sarachnis', 'redspider', 318, 400, 200, 240, 150, 40, 30, 0, 31, null, 'mr', 6, 4, 1.3, 2.5, 0xd08888, null, 0xe0e0a0],
+  ['sarachnis', 'Sarachnis', 'redspider', 318, 400, 200, 240, 150, 40, 30, 0, 31, null, 'mr', 6, 4, 1.3, 4.2, 0xd08888, null, 0xe0e0a0],
   ['skotizo', 'Skotizo', 'blackdemon', 321, 450, 240, 250, 200, 80, 160, 31, null, null, 'mg', 6, 4, 0.9, 1.8, 0xd07070, 0xc040ff, null],
   ['kalphitequeen', 'Kalphite Queen', 'kalphitesoldier', 333, 255, 300, 300, 300, 50, 0, 0, null, null, 'mrg', 6, 4, 0.9, 2.0, 0xb8a868, 0x60d0c0, 0xd0b060],
   ['vorkath', 'Vorkath', 'bluedragon', 392, 750, 560, 308, 214, 108, 16, 0, null, 80, 'mrg', 7, 5, 0.8, 2.0, 0xa8c0d0, 0x4ad0ff, 0xc0e0ff],
@@ -4207,7 +4213,7 @@ function spawnBosses() {
     if (spot) spawnNpc(L.t, spot.x, spot.z, key, powerAt(spot.x, spot.z));
   }
 }
-function removeNpc(n) { scene.remove(n.mesh); const i = npcs.indexOf(n); if (i >= 0) npcs.splice(i, 1); }
+function removeNpc(n) { if (n.fpK) { for (const k of n.fpK) unblock(k); n.fpK = null; } scene.remove(n.mesh); const i = npcs.indexOf(n); if (i >= 0) npcs.splice(i, 1); }
 function refreshNpcs() {
   for (let i = npcs.length - 1; i >= 0; i--) { const n = npcs[i]; if (Math.abs(n.tx - P.tx) > 92 || Math.abs(n.tz - P.tz) > 92) removeNpc(n); }
   spawnBosses();
@@ -4256,9 +4262,11 @@ function spawnNpc(t, x, z, key, pw) {
   const mesh = riggedMesh(base.rig, t.mat || null);
   if (t.scale) mesh.scale.setScalar(t.scale);
   scene.add(mesh);
-  npcs.push({ npc: 1, t, key, name: t.n, tx: x, tz: z, px: x, pz: z, rx: x, rz: z, ry: walkY(x, z), home: { x, z }, hp: t.hp, maxhp: t.hp, face: 0, faceT: 0, mesh,
+  const n = { npc: 1, t, key, name: t.n, tx: x, tz: z, px: x, pz: z, rx: x, rz: z, ry: walkY(x, z), home: { x, z }, hp: t.hp, maxhp: t.hp, face: 0, faceT: 0, mesh,
     atkT: 0, atkStyle: 'm', limbs: mesh.limbs || null, walkPhase: 0, styleIx: 0, styleN: 0, cd: 2 + (hash2(x, z, S) & 3), target: null, dead: 0, mv: 0,
-    pw: pw !== undefined ? pw : powerAt(x, z), kh, dest, owner: null, lastNet: 0, netAct: 0 });
+    pw: pw !== undefined ? pw : powerAt(x, z), kh, dest, owner: null, lastNet: 0, netAct: 0 };
+  npcs.push(n);
+  npcFoot(n);
 }
 /* one player owns an engaged monster and everyone else watches: the owner simulates, the rest interpolate */
 function claimMon(n) { n.owner = PID; n.lastNet = tickN; sendMonFrame(n); }
@@ -4284,6 +4292,16 @@ function npcBolt(n, style, tgt) {
 }
 /* one banked step toward (tx, tz). Chasing: the diagonal needs dry ground, orthogonals do not. Wandering (strict): every step does,
    and a zero axis is never tried. Returns 0 when walled in. */
+/* the oversized claim their ground: a 3x3 footprint (5x5 for the truly vast) blocks walking, so fights happen at the hide, not the heart */
+const npcFp = t => t.big ? (t.sz >= 3 ? 2 : 1) : 0;
+function npcFoot(n) {
+  const fp = npcFp(n.t);
+  if (!fp || (n.fpX === n.tx && n.fpZ === n.tz)) return;
+  if (n.fpK) for (const k of n.fpK) unblock(k);
+  n.fpK = [];
+  for (let a = -fp; a <= fp; a++) for (let b = -fp; b <= fp; b++) { const k = tk(n.tx + a, n.tz + b); block(k); n.fpK.push(k); }
+  n.fpX = n.tx; n.fpZ = n.tz;
+}
 function npcStep(n, tx, tz, strict) {
   const dx = Math.sign(tx - n.tx), dz = Math.sign(tz - n.tz);
   const ok = (x, z, wet) => canStep(n.tx, n.tz, x, z) && (!wet || !isWater(walkY(x, z)));
@@ -4312,7 +4330,8 @@ function npcTick(n) {
     if (n.hp <= 0) { killNpc(n); return; }
   }
   if (n.target) {
-    const phase = n.t.boss ? n.t.at[n.styleIx % n.t.at.length] : null, want = phase === 'm' ? 1 : (n.t.rng || 1);   // bosses fight in phases
+    const bigR = npcFp(n.t) + 1;                            // a big thing strikes from its own edge, not from atop you
+    const phase = n.t.boss ? n.t.at[n.styleIx % n.t.at.length] : null, want = phase === 'm' ? bigR : Math.max(n.t.rng || 1, bigR);
     if (near > want) {
       if (n.heldT > tickN) { n.mv = 0; } else {            // a snared thing strains at the ground instead of closing in
       for (n.mv += n.t.mspd; n.mv >= 1; n.mv--) {         // mspd is tiles per tick, banked
@@ -4369,6 +4388,7 @@ function npcTick(n) {
   }
   if (n.target) n.faceT = Math.atan2(P.tx - n.tx, P.tz - n.tz);                   // something with a target looks at it
   else if (n.tx !== n.px || n.tz !== n.pz) n.faceT = Math.atan2(n.tx - n.px, n.tz - n.pz);
+  npcFoot(n);
 }
 /* the shared tables of 2007, weights verbatim from the wiki; entries with no counterpart here (key halves, hops and
    flower seeds, shield left half) fall through as the tables' own empty weight. Reached only through an authored
@@ -4626,7 +4646,7 @@ function taskTick() {
     if (o.dead || (o.key !== undefined && depleted.has(o.key) && t.k !== 'cook' && t.k !== 'make') || (o.npc && !o.mesh.parent) || (o.remote && !remotes.has(o.pid))) { P.task = null; return; }
     const ox = (o.npc || o.remote) ? o.tx : o.x, oz = (o.npc || o.remote) ? o.tz : o.z;
     // reach: a spell ten tiles, a bow its range, melee one tile — or the bulk of the thing for the big ones, or a halberd's two
-    const reach = t.k !== 'attack' ? (t.reach || 1) : P.spell !== null ? MAGIC_RANGE : bowRange() || Math.max((eq.weapon && ITEMS[eq.weapon].reach) || 1, o.npc && o.t.big ? Math.max(1, Math.round(o.t.sz)) : 1);
+    const reach = t.k !== 'attack' ? (t.reach || 1) : P.spell !== null ? MAGIC_RANGE : bowRange() || Math.max((eq.weapon && ITEMS[eq.weapon].reach) || 1, o.npc && o.t.big ? Math.max(npcFp(o.t) + 1, Math.round(o.t.sz)) : 1);
     if (chebDist(P.tx, P.tz, ox, oz) > reach) {
       if (!P.path.length) {                                 // chase, or give up if it walked off a cliff
         const p = findPath(P.tx, P.tz, ox, oz, reach);
@@ -6199,6 +6219,11 @@ function animateNpc(n, dt) {
   const s = moving ? Math.sin(n.walkPhase) * 0.62 : 0;
   for (const L of n.limbs) {
     if (L.kind === 'wing') L.m.rotation.z = L.s * (0.12 + Math.sin(tSec * 3.1 + (n.kh & 7)) * 0.30);
+    else if (L.kind === 'sleg') {                            // spiders row their legs: a yaw sweep with a small lift on the recovery
+      const w2 = n.walkPhase * 1.7 + L.ph;
+      L.m.rotation.y = L.base + (moving ? Math.sin(w2) * 0.30 : Math.sin(tSec * 1.3 + L.ph) * 0.05) * L.s;
+      L.m.rotation.x = moving ? -Math.max(0, Math.sin(w2 + PI / 2)) * 0.14 : 0;
+    }
     else L.m.rotation.x = s * L.s * (L.kind === 'arm' ? 0.85 : L.kind === 'qleg' ? 0.72 : 1);
   }
   if (moving && !(n.atkT > 0)) n.mesh.position.y += Math.abs(Math.sin(n.walkPhase)) * 0.045;
@@ -6664,6 +6689,7 @@ function onNet(m) {
       const nx = m[2] | 0, nz = m[3] | 0, jump = chebDist(nx, nz, q.tx, q.tz);
       q.px = jump > 3 ? nx : q.tx; q.pz = jump > 3 ? nz : q.tz;
       q.tx = nx; q.tz = nz;
+      npcFoot(q);
       q.faceT = ((m[4] | 0) & 15) / 16 * TAU;
       q.hp = clamp(m[5] | 0, 0, q.maxhp);
       if (act >= 1 && act <= 3) {
