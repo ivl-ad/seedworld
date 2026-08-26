@@ -982,15 +982,16 @@ for (const t of TIERS) for (const p of PIECES) {
 const BOWS = [
   { k: '', n: '', lv: 1, ra: 8, c: '#8a6438', c2: '#5b4123' }, { k: 'oak_', n: 'Oak ', lv: 5, ra: 14, c: '#7d6030', c2: '#4e3c1d' },
   { k: 'willow_', n: 'Willow ', lv: 20, ra: 20, c: '#6f8f3a', c2: '#465a24' }, { k: 'maple_', n: 'Maple ', lv: 30, ra: 29, c: '#a8632a', c2: '#6b3e1a' },
-  { k: 'yew_', n: 'Yew ', lv: 40, ra: 41, c: '#2f5a3c', c2: '#1c3824' }, { k: 'magic_', n: 'Magic ', lv: 50, ra: 55, c: '#6f6fc8', c2: '#43439b' }
+  { k: 'yew_', n: 'Yew ', lv: 40, ra: 47, c: '#2f5a3c', c2: '#1c3824' }, { k: 'magic_', n: 'Magic ', lv: 50, ra: 69, c: '#6f6fc8', c2: '#43439b' }
 ];
-const BOWFORM = [{ k: 'shortbow', n: 'shortbow', spd: 4, rng: 7, m: 1.00 }, { k: 'longbow', n: 'longbow', spd: 6, rng: 9, m: 1.35 }];
+/* the wiki gives both forms one accuracy: a longbow buys reach, not aim */
+const BOWFORM = [{ k: 'shortbow', n: 'shortbow', spd: 4, rng: 7, m: 1.00 }, { k: 'longbow', n: 'longbow', spd: 6, rng: 9, m: 1.00 }];
 for (const b of BOWS) for (const f of BOWFORM) defWear({
   id: b.k + f.k, name: b.n ? b.n + f.n : cap(f.n), g: 'bow', c: b.c, c2: b.c2, slot: 'weapon', bow: 1, two: 1, spd: f.spd, rng: f.rng,
   rat: Math.round(b.ra * f.m), req: { ranged: b.lv }, val: Math.round(30 + b.ra * b.ra * 0.55 * f.m)
 });
 /* crossbows: one hand, bolts only; the 2007 levels and the slow six-tick cadence */
-const XBOWS = [['bronze', 12, 1], ['iron', 18, 26], ['steel', 26, 31], ['mithril', 36, 36], ['adamant', 46, 46], ['rune', 61, 61], ['dragon', 78, 64]]
+const XBOWS = [['bronze', 18, 1], ['iron', 42, 26], ['steel', 54, 31], ['mithril', 66, 36], ['adamant', 78, 46], ['rune', 90, 61], ['dragon', 94, 64]]
   .map(([k, ra, lv]) => ({ k, ra, lv }));
 for (const b of XBOWS) { const t = TIER[b.k]; defWear({ id: b.k + '_crossbow', name: t.n + ' crossbow', g: 'cbow', c: t.c, c2: t.c2, slot: 'weapon', bow: 1,
   ammoT: 'bolt', spd: 6, rng: 7, rat: b.ra, req: { ranged: b.lv }, val: Math.round(40 + b.ra * b.ra * 0.5) }); }
@@ -1017,18 +1018,22 @@ const DARTS = THROWN_T.map((t, i) => ({ k: t.k, rs: THROWN[1].rs[i] }));
 /* unfinished ammunition: the anvil turns a bar into tips, bolt blanks or dart tips, fletching finishes them */
 for (const [L, s, n, g] of [[ARROWS, '_arrowtips', ' arrowtips', 'arrow'], [BOLTS, '_bolts_u', ' bolts (unf)', 'bolt'], [DARTS, '_dart_tips', ' dart tips', 'dart']])
   for (const a of L) { const t = TIER[a.k]; if (t) defItem({ id: a.k + s, name: t.n + n, g, c: t.c, c2: t.c2, stack: 1, val: Math.max(1, a.rs >> 1) }); }
-/* hide: light defence, the only armour that does not fight the draw */
+/* hide: light armour with the wiki's own defence means and ranged bonuses per piece, st: [coif d/rat, body d/rat, chaps d/rat, vamb d/rat];
+   the coifs are this game's invention (2007 has none above leather) and scale off the body */
 const HIDES = [
-  { k: 'leather', n: 'Leather', lv: 1, df: 1, ra: 2, c: '#8a6438', c2: '#5b4123' }, { k: 'studded', n: 'Studded', lv: 20, df: 20, ra: 6, c: '#6f4a28', c2: '#452c16' },
-  { k: 'green_dhide', n: "Green d'hide", lv: 40, df: 40, ra: 11, c: '#4a7a3a', c2: '#2c4d22' }, { k: 'blue_dhide', n: "Blue d'hide", lv: 50, df: 40, ra: 15, c: '#3a5f8a', c2: '#223a55' },
-  { k: 'red_dhide', n: "Red d'hide", lv: 60, df: 40, ra: 19, c: '#8a3a2a', c2: '#552218' }, { k: 'black_dhide', n: "Black d'hide", lv: 70, df: 40, ra: 23, c: '#2e2c30', c2: '#18171a' }
+  { k: 'leather', n: 'Leather', lv: 1, df: 1, c: '#8a6438', c2: '#5b4123', st: [6, 2, 9, 2, 2, 4, 2, 4] },
+  { k: 'studded', n: 'Studded', lv: 20, df: 20, c: '#6f4a28', c2: '#452c16', st: [8, 3, 22, 8, 16, 6, 3, 5] },
+  { k: 'green_dhide', n: "Green d'hide", lv: 40, df: 40, c: '#4a7a3a', c2: '#2c4d22', st: [8, 4, 23, 15, 15, 8, 2, 8] },
+  { k: 'blue_dhide', n: "Blue d'hide", lv: 50, df: 40, c: '#3a5f8a', c2: '#223a55', st: [9, 5, 28, 20, 16, 11, 3, 9] },
+  { k: 'red_dhide', n: "Red d'hide", lv: 60, df: 40, c: '#8a3a2a', c2: '#552218', st: [10, 6, 32, 25, 18, 14, 4, 10] },
+  { k: 'black_dhide', n: "Black d'hide", lv: 70, df: 40, c: '#2e2c30', c2: '#18171a', st: [11, 7, 38, 30, 21, 17, 5, 11] }
 ];
-const HIDEPIECE = [{ k: 'coif', n: 'coif', g: 'hat', slot: 'head', d: 3, m: 0.35 }, { k: 'body', n: 'body', g: 'robe', slot: 'body', d: 9, m: 1.00 },
-  { k: 'chaps', n: 'chaps', g: 'legs', slot: 'legs', d: 5, m: 0.55 }, { k: 'vambraces', n: 'vambraces', g: 'glove', slot: 'hands', d: 2, m: 0.30 }];
-for (const h of HIDES) for (const q of HIDEPIECE) defWear({
-  id: h.k + '_' + q.k, name: h.n + ' ' + q.n, g: q.g, c: h.c, c2: h.c2, slot: q.slot, def: Math.round(q.d * (1 + h.ra * 0.09)), rat: Math.round(h.ra * q.m),
-  req: { ranged: h.lv, defence: h.df }, val: Math.round((q.d + h.ra * 1.4 + 6) * (1 + h.ra * 0.22))
-});
+const HIDEPIECE = [{ k: 'coif', n: 'coif', g: 'hat', slot: 'head' }, { k: 'body', n: 'body', g: 'robe', slot: 'body' },
+  { k: 'chaps', n: 'chaps', g: 'legs', slot: 'legs' }, { k: 'vambraces', n: 'vambraces', g: 'glove', slot: 'hands' }];
+HIDES.forEach(h => HIDEPIECE.forEach((q, qi) => defWear({
+  id: h.k + '_' + q.k, name: h.n + ' ' + q.n, g: q.g, c: h.c, c2: h.c2, slot: q.slot, def: h.st[qi * 2], rat: h.st[qi * 2 + 1],
+  req: { ranged: h.lv, defence: h.df }, val: Math.round((h.st[qi * 2] + h.st[qi * 2 + 1] * 1.4 + 6) * (1 + h.st[3] * 0.22))
+})));
 
 /* trees: level, xp, firemaking xp, respawn ticks, canopy tint, scale */
 const TREES = [
@@ -1108,15 +1113,15 @@ defWear({ id: 'gilded_hatchet', name: 'Gilded hatchet', g: 'axe', c: '#e8c34a', 
 defWear({ id: 'gilded_pickaxe', name: 'Gilded pickaxe', g: 'pick', c: '#e8c34a', c2: '#9a7414', slot: 'weapon', tier: 6, tname: 'Gilded', spd: 5, atk: 21, str: 28, tool: 'mining', req: { mining: 41 }, val: 764 });
 defWear({ id: 'leather_gloves', name: 'Leather gloves', g: 'glove', c: '#8a6438', c2: '#5b4123', slot: 'hands', def: 1, req: { defence: 1 }, val: 6 });
 defWear({ id: 'leather_boots', name: 'Leather boots', g: 'boot', c: '#8a6438', c2: '#5b4123', slot: 'feet', def: 2, req: { defence: 1 }, val: 9 });
-defWear({ id: 'anti_dragon_shield', name: 'Anti-dragon shield', g: 'shield', c: '#6b5334', c2: '#c04a2a', slot: 'shield', def: 12, val: 120 });
-defWear({ id: 'snakeskin_boots', name: 'Snakeskin boots', g: 'boot', c: '#7a8a4a', c2: '#4a5a2a', slot: 'feet', def: 3, rat: 2, req: { ranged: 30, defence: 30 }, val: 85 });
+defWear({ id: 'anti_dragon_shield', name: 'Anti-dragon shield', g: 'shield', c: '#6b5334', c2: '#c04a2a', slot: 'shield', def: 8, val: 120 });
+defWear({ id: 'snakeskin_boots', name: 'Snakeskin boots', g: 'boot', c: '#7a8a4a', c2: '#4a5a2a', slot: 'feet', def: 1, rat: 3, req: { ranged: 30, defence: 30 }, val: 85 });
 /* Ava's devices: the arrow simply is not consumed, at the advertised rate */
 defWear({ id: 'avas_attractor', name: "Ava's attractor", g: 'cape', c: '#7a5a3a', c2: '#4a3826', slot: 'cape', rat: 2, save: 0.6, req: { ranged: 30 }, val: 780 });
 defWear({ id: 'avas_accumulator', name: "Ava's accumulator", g: 'cape', c: '#8a8a52', c2: '#565634', slot: 'cape', rat: 4, save: 0.72, req: { ranged: 50 }, val: 9800 });
 defWear({ id: 'team_cape', name: 'Team cape', g: 'cape', c: '#b03a3a', c2: '#6b2020', slot: 'cape', val: 50 });
 for (const [k, c, c2, b, val] of [['magic', '#4a72d0', '#2a4485', { mag: 10 }, 350], ['defence', '#c04a4a', '#7a2a2a', { def: 7 }, 700],
-  ['strength', '#3f9a4a', '#25622c', { str: 10 }, 1400], ['power', '#8a4ad0', '#552a85', { atk: 6, str: 6, def: 6, mag: 6 }, 2800],
-  ['glory', '#e0448a', '#8f2455', { atk: 10, str: 6, def: 3, mag: 10 }, 11000]])
+  ['strength', '#3f9a4a', '#25622c', { str: 10 }, 1400], ['power', '#8a4ad0', '#552a85', { atk: 6, str: 6, def: 6, mag: 6, rat: 6, pb: 1 }, 2800],
+  ['glory', '#e0448a', '#8f2455', { atk: 10, str: 6, def: 3, mag: 10, rat: 10, pb: 3 }, 11000]])
   defWear(Object.assign({ id: 'amulet_of_' + k, name: 'Amulet of ' + k, g: 'amulet', c, c2, slot: 'neck', val }, b));
 /* rings carry behaviours, not stats */
 for (const [k, c, c2, val] of [['recoil', '#4a72d0', '#2a4485', 1200], ['life', '#d0d4dc', '#8a8f98', 5000], ['wealth', '#e0b436', '#9a7414', 9000]])
@@ -1280,40 +1285,41 @@ const sellPrice = it => Math.max(1, Math.round(it.val * 0.42));
 
 /* ---- 6b. MAGIC EQUIPMENT: robes trade defence for magic; an elemental staff supplies its rune ---- */
 const ROBE_TIERS = [
-  { k: 'wizard', n: 'Wizard', def: 1, mlv: 1, c: '#3b3f8a', c2: '#23264f', m: 1 }, { k: 'black', n: 'Black', def: 1, mlv: 1, c: '#2f2f36', c2: '#1a1a1f', m: 2 },
-  { k: 'mystic', n: 'Mystic', def: 20, mlv: 40, c: '#6a5ab0', c2: '#3e3470', m: 3 }
+  { k: 'wizard', n: 'Wizard', def: 1, mlv: 1, c: '#3b3f8a', c2: '#23264f', m: 0 }, { k: 'black', n: 'Black', def: 1, mlv: 1, c: '#2f2f36', c2: '#1a1a1f', m: 0 },
+  { k: 'mystic', n: 'Mystic', def: 20, mlv: 40, c: '#6a5ab0', c2: '#3e3470', m: 1 }
 ];
-const ROBE_PIECES = [['hat', 'hat', 'hat', 'head', 2, 2], ['robe_top', 'robe top', 'robe', 'body', 4, 3], ['robe_bottom', 'robe bottom', 'legs', 'legs', 3, 2],
-  ['gloves', 'gloves', 'glove', 'hands', 1, 1], ['boots', 'boots', 'boot', 'feet', 1, 1]].map(([k, n, g, slot, mag, def]) => ({ k, n, g, slot, mag, def }));
+/* mg: [wizard/black, mystic] — the wiki's magic bonuses; robes defend with the mind (melee def is zero on every piece) */
+const ROBE_PIECES = [['hat', 'hat', 'hat', 'head', [2, 4]], ['robe_top', 'robe top', 'robe', 'body', [3, 20]], ['robe_bottom', 'robe bottom', 'legs', 'legs', [0, 15]],
+  ['gloves', 'gloves', 'glove', 'hands', [1, 3]], ['boots', 'boots', 'boot', 'feet', [1, 3]]].map(([k, n, g, slot, mg]) => ({ k, n, g, slot, mg }));
 for (const t of ROBE_TIERS) for (const p of ROBE_PIECES) defWear({
-  id: t.k + '_' + p.k, name: t.n + ' ' + p.n, g: p.g, c: t.c, c2: t.c2, slot: p.slot, tier: 0, def: p.def * t.m, mag: p.mag * t.m,
-  req: { magic: t.mlv, defence: t.def }, val: Math.round((p.mag * 3 + p.def) * t.m * t.m * 3.2)
+  id: t.k + '_' + p.k, name: t.n + ' ' + p.n, g: p.g, c: t.c, c2: t.c2, slot: p.slot, tier: 0, def: 0, mag: p.mg[t.m],
+  req: { magic: t.mlv, defence: t.def }, val: Math.round((p.mg[t.m] * 3 + 2) * (t.m ? 12 : 4))
 });
 const ELEMS = [['air', '#cfd8e0', '#8f9aa6'], ['water', '#4f8fd0', '#2f5f92'], ['earth', '#8a6a3a', '#5b4524'], ['fire', '#d05a2a', '#8f3a16']]
   .map(([k, c, c2]) => ({ k, rune: k + '_rune', c, c2 }));
 const ELEM = Object.create(null); ELEMS.forEach(e => { ELEM[e.k] = e; });
 const STAFF_TIERS = [
-  { k: 'staff', n: 'Staff of', lv: 1, mag: 4, atk: 3, str: 3, m: 1 }, { k: 'battlestaff', n: 'Battlestaff of', lv: 30, mag: 9, atk: 8, str: 7, m: 3 },
-  { k: 'mystic', n: 'Mystic staff of', lv: 40, mag: 15, atk: 12, str: 9, m: 6 }
+  { k: 'staff', n: 'Staff of', lv: 1, mag: 10, atk: 7, str: 3, m: 1 }, { k: 'battlestaff', n: 'Battlestaff of', lv: 30, mag: 12, atk: 28, str: 35, m: 3 },
+  { k: 'mystic', n: 'Mystic staff of', lv: 40, mag: 14, atk: 40, str: 50, m: 6 }
 ];
 const defStaff = (id, name, c, c2, atk, str, mag, lv, val, gives, g) =>
   defWear({ id, name, g: g || 'staff', c, c2, slot: 'weapon', tier: 0, spd: g === 'wand' ? 4 : 5, atk, str, mag, gives, req: { magic: lv }, val });
-defStaff('staff', 'Staff', '#8a6438', '#d8c88a', 2, 2, 3, 1, 18);
+defStaff('staff', 'Staff', '#8a6438', '#d8c88a', 5, 2, 8, 1, 18);
 for (const t of STAFF_TIERS) for (const e of ELEMS)
   defStaff(t.k + '_of_' + e.k, t.n + ' ' + e.k, e.c, e.c2, t.atk, t.str, t.mag, t.lv, Math.round((t.mag * 6 + 20) * t.m * 1.6), e.rune);
-defStaff('battlestaff', 'Battlestaff', '#6b5334', '#c8b87a', 8, 7, 7, 30, 298);
-defStaff('mystic_staff', 'Mystic staff', '#6a5ab0', '#d8c88a', 12, 9, 12, 40, 883);
+defStaff('battlestaff', 'Battlestaff', '#6b5334', '#c8b87a', 28, 35, 12, 30, 298);
+defStaff('mystic_staff', 'Mystic staff', '#6a5ab0', '#d8c88a', 40, 50, 14, 40, 883);
 /* combination staves hand out both runes, at a 40% premium */
 const COMBOS = [['mud', 'water', 'earth'], ['lava', 'fire', 'earth'], ['steam', 'fire', 'water'], ['smoke', 'fire', 'air'], ['mist', 'water', 'air'], ['dust', 'earth', 'air']]
   .map(([k, a, b]) => ({ k, a, b }));
 for (const co of COMBOS) {
   const A = ELEM[co.a], B = ELEM[co.b], runes = [A.rune, B.rune];
-  defStaff(co.k + '_battlestaff', cap(co.k) + ' battlestaff', A.c, B.c, 8, 7, 9, 30, Math.round((9 * 6 + 20) * 3 * 1.6 * 1.4), runes);
-  defStaff('mystic_' + co.k + '_staff', 'Mystic ' + co.k + ' staff', A.c, B.c, 12, 9, 15, 40, Math.round((15 * 6 + 20) * 6 * 1.6 * 1.4), runes);
+  defStaff(co.k + '_battlestaff', cap(co.k) + ' battlestaff', A.c, B.c, 28, 35, 12, 30, Math.round((9 * 6 + 20) * 3 * 1.6 * 1.4), runes);
+  defStaff('mystic_' + co.k + '_staff', 'Mystic ' + co.k + ' staff', A.c, B.c, 40, 50, 14, 40, Math.round((15 * 6 + 20) * 6 * 1.6 * 1.4), runes);
 }
 /* wands: one-handed, so a mage can carry a shield */
-for (const [id, n, mag, lv, val, c, c2] of [['beginner_wand', 'Beginner wand', 4, 1, 60, '#8a6438', '#b9aee0'], ['apprentice_wand', 'Apprentice wand', 8, 20, 240, '#75767a', '#7ab9e0'],
-  ['teacher_wand', 'Teacher wand', 13, 40, 700, '#5c63b8', '#e0d47a'], ['master_wand', 'Master wand', 18, 60, 1600, '#3ab6c4', '#e07ad4']])
+for (const [id, n, mag, lv, val, c, c2] of [['beginner_wand', 'Beginner wand', 6, 1, 60, '#8a6438', '#b9aee0'], ['apprentice_wand', 'Apprentice wand', 10, 20, 240, '#75767a', '#7ab9e0'],
+  ['teacher_wand', 'Teacher wand', 15, 40, 700, '#5c63b8', '#e0d47a'], ['master_wand', 'Master wand', 20, 60, 1600, '#3ab6c4', '#e07ad4']])
   defStaff(id, n, c, c2, 0, 0, mag, lv, val, undefined, 'wand');
 const staffRune = () => { const g = eq.weapon && ITEMS[eq.weapon].gives; return g ? (Array.isArray(g) ? g : [g]) : []; };
 function spellReady(sp) {
@@ -3763,7 +3769,13 @@ function updateHeldTool() {
   shownTool = want;
   holdWeapon(avatar.parts.wep, want ? ITEMS[want] : (eq.weapon ? ITEMS[eq.weapon] : null));
 }
-function bonus(f) { let t = 0; for (const s of EQ_SLOTS) if (eq[s]) t += ITEMS[eq[s]][f] || 0; return t; }
+function bonus(f) {
+  let t = 0;
+  for (const s of EQ_SLOTS) if (eq[s]) t += ITEMS[eq[s]][f] || 0;
+  // a skillcape trims itself against a second 99 and grants the wiki's +4 prayer
+  if (f === 'pb' && eq.cape && ITEMS[eq.cape].req99 && SKILLS.reduce((n, s, i) => n + (!s.locked && lvl[i] >= 99 ? 1 : 0), 0) >= 2) t += 4;
+  return t;
+}
 function canEquip(it) {
   for (const k in it.req) if (it.req[k] && lvl[SK[k]] < it.req[k]) { say('You need ' + skName(SK[k]) + ' level ' + it.req[k] + ' to wear that.', 'bad'); return false; }
   if (it.req99 && lvl[SK[it.req99]] < 99) { say('Only a master of ' + skName(SK[it.req99]) + ' may wear that cape.', 'bad'); return false; }
@@ -8658,7 +8670,7 @@ defWear({ id: 'granite_maul', name: 'Granite maul', g: 'wham', c: '#7a7a80', c2:
 SPEC.granite_maul = { cost: 60, acc: 1, quick: 1 };         // Quick Smash: the next blow follows at once
 defWear({ id: 'dark_bow', name: 'Dark bow', g: 'bow', c: '#2a2430', c2: '#141018', slot: 'weapon', bow: 1, two: 1, spd: 9, rng: 10, rat: 95, req: { ranged: 60 }, val: 150000 });
 SPEC.dark_bow = { cost: 55, rng: 1, n: 2, dmg: 1.3 };       // Descent of Darkness
-defWear({ id: 'saradomin_sword', name: 'Saradomin sword', g: 'lsword', c: '#e8d44a', c2: '#3a5ac8', slot: 'weapon', two: 1, atk: 82, str: 84, spd: 4, req: { attack: 70 }, val: 90000 });
+defWear({ id: 'saradomin_sword', name: 'Saradomin sword', g: 'lsword', c: '#e8d44a', c2: '#3a5ac8', slot: 'weapon', two: 1, atk: 82, str: 82, spd: 4, pb: 2, req: { attack: 70 }, val: 90000 });
 SPEC.saradomin_sword = { cost: 100, acc: 1, bonus: [1, 16] };   // Saradomin's Lightning rides the blow
 defWear(Object.assign({}, ITEMS.dragon_dagger, { id: 'dragon_dagger_p', name: 'Dragon dagger (p++)', c2: '#3aa04a', psn: 6, val: ITEMS.dragon_dagger.val + 500 }));
 SPEC.dragon_dagger_p = SPEC.dragon_dagger;
@@ -8679,111 +8691,111 @@ recipe('weapon_poison', 'herblore', 60, 137.5, [['kwuarm', 1], ['dragon_scale_du
    mag/rat sit on this game's compressed ladders (mystic top 12, black d'hide 23). TODO-verify: armour means, set effects
    (barrows sets, sgs heal, tbow scaling, dhcb dragonbane, occult %, obsidian synergy are not modelled). No drops yet: dev-spawn only. */
 /* barrows: the four melee brothers share the smith's measures; Verac alone carries the god's favour */
-defWear({ id: 'dharoks_helm', name: "Dharok's helm", g: 'fhelm', c: '#494831', c2: '#252518', slot: 'head', def: 48, req: { defence: 70 }, val: 60000 });
+defWear({ id: 'dharoks_helm', name: "Dharok's helm", g: 'fhelm', c: '#494831', c2: '#252518', slot: 'head', def: 46, req: { defence: 70 }, val: 60000 });
 defWear({ id: 'dharoks_platebody', name: "Dharok's platebody", g: 'body', c: '#5b5940', c2: '#2f2e24', slot: 'body', def: 116, req: { defence: 70 }, val: 180000 });
-defWear({ id: 'dharoks_platelegs', name: "Dharok's platelegs", g: 'legs', c: '#787148', c2: '#2b2b18', slot: 'legs', def: 88, req: { defence: 70 }, val: 120000 });
+defWear({ id: 'dharoks_platelegs', name: "Dharok's platelegs", g: 'legs', c: '#787148', c2: '#2b2b18', slot: 'legs', def: 83, req: { defence: 70 }, val: 120000 });
 defWear({ id: 'dharoks_greataxe', name: "Dharok's greataxe", g: 'baxe', c: '#686659', c2: '#37352a', slot: 'weapon', two: 1, atk: 103, str: 105, spd: 7, req: { attack: 70, strength: 70 }, val: 150000 });
-defWear({ id: 'guthans_helm', name: "Guthan's helm", g: 'fhelm', c: '#6c6849', c2: '#242418', slot: 'head', def: 48, req: { defence: 70 }, val: 60000 });
+defWear({ id: 'guthans_helm', name: "Guthan's helm", g: 'fhelm', c: '#6c6849', c2: '#242418', slot: 'head', def: 56, req: { defence: 70 }, val: 60000 });
 defWear({ id: 'guthans_platebody', name: "Guthan's platebody", g: 'body', c: '#4c4b3a', c2: '#2f2e24', slot: 'body', def: 116, req: { defence: 70 }, val: 180000 });
-defWear({ id: 'guthans_chainskirt', name: "Guthan's chainskirt", g: 'skirt', c: '#5b553c', c2: '#2d2d1d', slot: 'legs', def: 82, req: { defence: 70 }, val: 110000 });
-defWear({ id: 'guthans_warspear', name: "Guthan's warspear", g: 'spear', c: '#4f5345', c2: '#2c2c1d', slot: 'weapon', two: 1, stab: 1, atk: 85, str: 75, spd: 5, req: { attack: 70 }, val: 130000 });
-defWear({ id: 'torags_helm', name: "Torag's helm", g: 'fhelm', c: '#6c6849', c2: '#27271b', slot: 'head', def: 48, req: { defence: 70 }, val: 60000 });
+defWear({ id: 'guthans_chainskirt', name: "Guthan's chainskirt", g: 'skirt', c: '#5b553c', c2: '#2d2d1d', slot: 'legs', def: 73, req: { defence: 70 }, val: 110000 });
+defWear({ id: 'guthans_warspear', name: "Guthan's warspear", g: 'spear', c: '#4f5345', c2: '#2c2c1d', slot: 'weapon', two: 1, stab: 1, atk: 75, str: 75, spd: 5, req: { attack: 70 }, val: 130000 });
+defWear({ id: 'torags_helm', name: "Torag's helm", g: 'fhelm', c: '#6c6849', c2: '#27271b', slot: 'head', def: 56, req: { defence: 70 }, val: 60000 });
 defWear({ id: 'torags_platebody', name: "Torag's platebody", g: 'body', c: '#5d583d', c2: '#2f2f24', slot: 'body', def: 116, req: { defence: 70 }, val: 180000 });
-defWear({ id: 'torags_platelegs', name: "Torag's platelegs", g: 'legs', c: '#515140', c2: '#2d2d24', slot: 'legs', def: 88, req: { defence: 70 }, val: 120000 });
+defWear({ id: 'torags_platelegs', name: "Torag's platelegs", g: 'legs', c: '#515140', c2: '#2d2d24', slot: 'legs', def: 83, req: { defence: 70 }, val: 120000 });
 defWear({ id: 'torags_hammers', name: "Torag's hammers", g: 'wham', c: '#646257', c2: '#2f2e28', slot: 'weapon', two: 1, atk: 85, str: 72, spd: 5, req: { attack: 70, strength: 70 }, val: 100000 });
-defWear({ id: 'veracs_helm', name: "Verac's helm", g: 'fhelm', c: '#454531', c2: '#242311', slot: 'head', def: 48, pb: 3, req: { defence: 70 }, val: 70000 });
-defWear({ id: 'veracs_brassard', name: "Verac's brassard", g: 'body', c: '#41412b', c2: '#24240d', slot: 'body', def: 98, pb: 3, req: { defence: 70 }, val: 170000 });
-defWear({ id: 'veracs_plateskirt', name: "Verac's plateskirt", g: 'skirt', c: '#43422e', c2: '#313021', slot: 'legs', def: 85, pb: 4, req: { defence: 70 }, val: 130000 });
+defWear({ id: 'veracs_helm', name: "Verac's helm", g: 'fhelm', c: '#454531', c2: '#242311', slot: 'head', def: 56, pb: 3, req: { defence: 70 }, val: 70000 });
+defWear({ id: 'veracs_brassard', name: "Verac's brassard", g: 'body', c: '#41412b', c2: '#24240d', slot: 'body', def: 87, pb: 5, req: { defence: 70 }, val: 170000 });
+defWear({ id: 'veracs_plateskirt', name: "Verac's plateskirt", g: 'skirt', c: '#43422e', c2: '#313021', slot: 'legs', def: 83, pb: 4, req: { defence: 70 }, val: 130000 });
 defWear({ id: 'veracs_flail', name: "Verac's flail", g: 'mace', c: '#626052', c2: '#383426', slot: 'weapon', two: 1, atk: 82, str: 72, spd: 5, pb: 6, req: { attack: 70 }, val: 120000 });
-defWear({ id: 'karils_coif', name: "Karil's coif", g: 'hat', c: '#494931', c2: '#292912', slot: 'head', def: 22, rat: 9, req: { ranged: 70, defence: 70 }, val: 50000 });
-defWear({ id: 'karils_leathertop', name: "Karil's leathertop", g: 'robe', c: '#4d4e3b', c2: '#2e2f21', slot: 'body', def: 66, rat: 25, req: { ranged: 70, defence: 70 }, val: 170000 });
-defWear({ id: 'karils_leatherskirt', name: "Karil's leatherskirt", g: 'legs', c: '#8f8e71', c2: '#252510', slot: 'legs', def: 52, rat: 15, req: { ranged: 70, defence: 70 }, val: 110000 });
+defWear({ id: 'karils_coif', name: "Karil's coif", g: 'hat', c: '#494931', c2: '#292912', slot: 'head', def: 9, rat: 7, req: { ranged: 70, defence: 70 }, val: 50000 });
+defWear({ id: 'karils_leathertop', name: "Karil's leathertop", g: 'robe', c: '#4d4e3b', c2: '#2e2f21', slot: 'body', def: 46, rat: 30, req: { ranged: 70, defence: 70 }, val: 170000 });
+defWear({ id: 'karils_leatherskirt', name: "Karil's leatherskirt", g: 'legs', c: '#8f8e71', c2: '#252510', slot: 'legs', def: 25, rat: 17, req: { ranged: 70, defence: 70 }, val: 110000 });
 defWear({ id: 'karils_crossbow', name: "Karil's crossbow", g: 'cbow', c: '#5a564f', c2: '#2c2c1e', slot: 'weapon', bow: 1, two: 1, ammoT: 'bolt', spd: 4, rng: 8, rat: 84, req: { ranged: 70 }, val: 140000 });
-defWear({ id: 'ahrims_hood', name: "Ahrim's hood", g: 'hat', c: '#4a4a32', c2: '#343422', slot: 'head', def: 17, mag: 7, req: { magic: 70, defence: 70 }, val: 50000 });
-defWear({ id: 'ahrims_robetop', name: "Ahrim's robetop", g: 'robe', c: '#474636', c2: '#353524', slot: 'body', def: 50, mag: 15, req: { magic: 70, defence: 70 }, val: 170000 });
-defWear({ id: 'ahrims_robeskirt', name: "Ahrim's robeskirt", g: 'skirt', c: '#484738', c2: '#373626', slot: 'legs', def: 40, mag: 11, req: { magic: 70, defence: 70 }, val: 110000 });
-defWear({ id: 'ahrims_staff', name: "Ahrim's staff", g: 'staff', c: '#45452e', c2: '#2c2b19', slot: 'weapon', two: 1, atk: 65, str: 65, mag: 15, spd: 5, req: { attack: 70, magic: 70 }, val: 130000 });
+defWear({ id: 'ahrims_hood', name: "Ahrim's hood", g: 'hat', c: '#4a4a32', c2: '#343422', slot: 'head', def: 15, mag: 6, req: { magic: 70, defence: 70 }, val: 50000 });
+defWear({ id: 'ahrims_robetop', name: "Ahrim's robetop", g: 'robe', c: '#474636', c2: '#353524', slot: 'body', def: 51, mag: 30, req: { magic: 70, defence: 70 }, val: 170000 });
+defWear({ id: 'ahrims_robeskirt', name: "Ahrim's robeskirt", g: 'skirt', c: '#484738', c2: '#373626', slot: 'legs', def: 33, mag: 22, req: { magic: 70, defence: 70 }, val: 110000 });
+defWear({ id: 'ahrims_staff', name: "Ahrim's staff", g: 'staff', c: '#45452e', c2: '#2c2b19', slot: 'weapon', two: 1, atk: 65, str: 68, mag: 15, spd: 6, req: { attack: 70, magic: 70 }, val: 130000 });
 /* the god wars: four blades of one hilt, and the generals' plate */
-defWear({ id: 'armadyl_godsword', name: 'Armadyl godsword', g: 'sword2h', c: '#777887', c2: '#323347', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, req: { attack: 75 }, val: 500000 });
+defWear({ id: 'armadyl_godsword', name: 'Armadyl godsword', g: 'sword2h', c: '#777887', c2: '#323347', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, pb: 8, req: { attack: 75 }, val: 500000 });
 SPEC.armadyl_godsword = { cost: 50, acc: 2, dmg: 1.375 };   // the Judgment
 SPEC.bandos_godsword = { cost: 50, acc: 2, dmg: 1.21, drainDef: 0.8 };   // Warstrike caves the guard in
 SPEC.saradomin_godsword = { cost: 50, acc: 2, dmg: 1.1 };   // Healing Blade (the healing itself is not modelled)
 SPEC.zamorak_godsword = { cost: 50, acc: 2, dmg: 1.1, stun: 20 };        // Ice Cleave, scaled from the wiki's 32 ticks
-defWear({ id: 'bandos_godsword', name: 'Bandos godsword', g: 'sword2h', c: '#77787f', c2: '#2e302f', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, req: { attack: 75 }, val: 350000 });
-defWear({ id: 'saradomin_godsword', name: 'Saradomin godsword', g: 'sword2h', c: '#888683', c2: '#2e2e32', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, req: { attack: 75 }, val: 300000 });
-defWear({ id: 'zamorak_godsword', name: 'Zamorak godsword', g: 'sword2h', c: '#7e7e87', c2: '#3c1d1a', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, req: { attack: 75 }, val: 280000 });
-defWear({ id: 'bandos_chestplate', name: 'Bandos chestplate', g: 'body', c: '#575049', c2: '#2d2927', slot: 'body', def: 79, str: 4, req: { defence: 65 }, val: 300000 });
-defWear({ id: 'bandos_tassets', name: 'Bandos tassets', g: 'legs', c: '#736b5e', c2: '#2e2929', slot: 'legs', def: 74, str: 2, req: { defence: 65 }, val: 280000 });
-defWear({ id: 'bandos_boots', name: 'Bandos boots', g: 'boot', c: '#605c58', c2: '#282424', slot: 'feet', def: 17, str: 1, req: { defence: 65 }, val: 40000 });
-defWear({ id: 'armadyl_helmet', name: 'Armadyl helmet', g: 'hat', c: '#6b6963', c2: '#313135', slot: 'head', def: 12, rat: 10, req: { ranged: 70, defence: 70 }, val: 300000 });
-defWear({ id: 'armadyl_chestplate', name: 'Armadyl chestplate', g: 'robe', c: '#7f7e7d', c2: '#2e2e32', slot: 'body', def: 42, rat: 28, req: { ranged: 70, defence: 70 }, val: 500000 });
-defWear({ id: 'armadyl_chainskirt', name: 'Armadyl chainskirt', g: 'skirt', c: '#747377', c2: '#201e1f', slot: 'legs', def: 38, rat: 21, req: { ranged: 70, defence: 70 }, val: 450000 });
+defWear({ id: 'bandos_godsword', name: 'Bandos godsword', g: 'sword2h', c: '#77787f', c2: '#2e302f', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, pb: 8, req: { attack: 75 }, val: 350000 });
+defWear({ id: 'saradomin_godsword', name: 'Saradomin godsword', g: 'sword2h', c: '#888683', c2: '#2e2e32', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, pb: 8, req: { attack: 75 }, val: 300000 });
+defWear({ id: 'zamorak_godsword', name: 'Zamorak godsword', g: 'sword2h', c: '#7e7e87', c2: '#3c1d1a', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, pb: 8, req: { attack: 75 }, val: 280000 });
+defWear({ id: 'bandos_chestplate', name: 'Bandos chestplate', g: 'body', c: '#575049', c2: '#2d2927', slot: 'body', def: 99, str: 4, pb: 1, req: { defence: 65 }, val: 300000 });
+defWear({ id: 'bandos_tassets', name: 'Bandos tassets', g: 'legs', c: '#736b5e', c2: '#2e2929', slot: 'legs', def: 67, str: 2, pb: 1, req: { defence: 65 }, val: 280000 });
+defWear({ id: 'bandos_boots', name: 'Bandos boots', g: 'boot', c: '#605c58', c2: '#282424', slot: 'feet', def: 18, str: 0, pb: 1, req: { defence: 65 }, val: 40000 });
+defWear({ id: 'armadyl_helmet', name: 'Armadyl helmet', g: 'hat', c: '#6b6963', c2: '#313135', slot: 'head', def: 8, rat: 10, pb: 1, req: { ranged: 70, defence: 70 }, val: 300000 });
+defWear({ id: 'armadyl_chestplate', name: 'Armadyl chestplate', g: 'robe', c: '#7f7e7d', c2: '#2e2e32', slot: 'body', def: 55, rat: 33, pb: 1, req: { ranged: 70, defence: 70 }, val: 500000 });
+defWear({ id: 'armadyl_chainskirt', name: 'Armadyl chainskirt', g: 'skirt', c: '#747377', c2: '#201e1f', slot: 'legs', def: 31, rat: 20, pb: 1, req: { ranged: 70, defence: 70 }, val: 450000 });
 /* the abyss, the volcano, and Zamorak's arsenal */
-defWear({ id: 'abyssal_dagger', name: 'Abyssal dagger', g: 'dagger', c: '#982011', c2: '#220b0a', slot: 'weapon', stab: 1, atk: 75, str: 75, spd: 4, req: { attack: 70 }, val: 90000 });
+defWear({ id: 'abyssal_dagger', name: 'Abyssal dagger', g: 'dagger', c: '#982011', c2: '#220b0a', slot: 'weapon', stab: 1, atk: 75, str: 75, spd: 4, mag: 1, req: { attack: 70 }, val: 90000 });
 SPEC.abyssal_dagger = { cost: 25, n: 2, acc: 1.25, dmg: 0.85 };
 defWear({ id: 'abyssal_bludgeon', name: 'Abyssal bludgeon', g: 'wham', c: '#887b6b', c2: '#271514', slot: 'weapon', two: 1, atk: 102, str: 85, spd: 4, req: { attack: 70, strength: 70 }, val: 200000 });
 defWear({ id: 'abyssal_tentacle', name: 'Abyssal tentacle', g: 'whip', c: '#615b1c', c2: '#383401', slot: 'weapon', atk: 90, str: 86, spd: 4, req: { attack: 75 }, val: 250000 });
 SPEC.abyssal_tentacle = SPEC.abyssal_whip;
-defWear({ id: 'zamorakian_spear', name: 'Zamorakian spear', g: 'spear', c: '#79655d', c2: '#483428', slot: 'weapon', two: 1, stab: 1, atk: 85, str: 75, spd: 4, req: { attack: 70 }, val: 180000 });
+defWear({ id: 'zamorakian_spear', name: 'Zamorakian spear', g: 'spear', c: '#79655d', c2: '#483428', slot: 'weapon', two: 1, stab: 1, atk: 85, str: 75, spd: 4, pb: 2, req: { attack: 70 }, val: 180000 });
 defWear({ id: 'toktz_xil_ak', name: 'Toktz-xil-ak', g: 'sword', c: '#524c4b', c2: '#201d1d', slot: 'weapon', stab: 1, atk: 47, str: 49, spd: 4, req: { attack: 60 }, val: 60000 });
 defWear({ id: 'tzhaar_ket_om', name: 'Tzhaar-ket-om', g: 'wham', c: '#5a5353', c2: '#282525', slot: 'weapon', two: 1, atk: 80, str: 85, spd: 7, req: { strength: 60 }, val: 75000 });
-defWear({ id: 'berserker_necklace', name: 'Berserker necklace', g: 'amulet', c: '#404045', c2: '#201e20', slot: 'neck', str: 7, val: 70000 });   // the obsidian synergy is not modelled
+defWear({ id: 'berserker_necklace', name: 'Berserker necklace', g: 'amulet', c: '#404045', c2: '#201e20', slot: 'neck', str: 7, def: -20, pb: 3, val: 70000 });   // the obsidian synergy is not modelled
 /* the treasure tiers: what the richest monsters and deepest vaults will one day pay out */
 defWear({ id: 'amulet_of_fury', name: 'Amulet of fury', g: 'amulet', c: '#444555', c2: '#2e2a33', slot: 'neck', atk: 10, str: 8, def: 15, mag: 10, rat: 10, pb: 5, val: 200000 });
-defWear({ id: 'amulet_of_torture', name: 'Amulet of torture', g: 'amulet', c: '#514040', c2: '#301e18', slot: 'neck', atk: 15, str: 10, val: 300000 });
-defWear({ id: 'necklace_of_anguish', name: 'Necklace of anguish', g: 'amulet', c: '#5e4534', c2: '#332017', slot: 'neck', rat: 15, val: 300000 });
-defWear({ id: 'occult_necklace', name: 'Occult necklace', g: 'amulet', c: '#2a3550', c2: '#14061c', slot: 'neck', mag: 12, val: 400000 });   // the 10% magic damage is not modelled
-defWear({ id: 'berserker_ring', name: 'Berserker ring', g: 'ring', c: '#8b8894', c2: '#402729', slot: 'ring', str: 4, def: 3, val: 120000 });
-defWear({ id: 'warrior_ring', name: 'Warrior ring', g: 'ring', c: '#999d65', c2: '#545638', slot: 'ring', atk: 4, def: 3, val: 60000 });
-defWear({ id: 'archers_ring', name: 'Archers ring', g: 'ring', c: '#93774b', c2: '#3d372d', slot: 'ring', rat: 4, def: 3, val: 100000 });
-defWear({ id: 'seers_ring', name: 'Seers ring', g: 'ring', c: '#af8f4f', c2: '#3f3216', slot: 'ring', mag: 6, def: 3, val: 80000 });
-defWear({ id: 'primordial_boots', name: 'Primordial boots', g: 'boot', c: '#5e4d52', c2: '#401511', slot: 'feet', def: 16, str: 5, req: { defence: 75 }, val: 300000 });
-defWear({ id: 'pegasian_boots', name: 'Pegasian boots', g: 'boot', c: '#515e24', c2: '#233109', slot: 'feet', def: 13, rat: 12, req: { ranged: 75, defence: 75 }, val: 350000 });
-defWear({ id: 'eternal_boots', name: 'Eternal boots', g: 'boot', c: '#5b5258', c2: '#24212e', slot: 'feet', def: 8, mag: 4, req: { magic: 75, defence: 75 }, val: 250000 });
+defWear({ id: 'amulet_of_torture', name: 'Amulet of torture', g: 'amulet', c: '#514040', c2: '#301e18', slot: 'neck', atk: 15, str: 10, pb: 2, val: 300000 });
+defWear({ id: 'necklace_of_anguish', name: 'Necklace of anguish', g: 'amulet', c: '#5e4534', c2: '#332017', slot: 'neck', rat: 15, pb: 2, val: 300000 });
+defWear({ id: 'occult_necklace', name: 'Occult necklace', g: 'amulet', c: '#2a3550', c2: '#14061c', slot: 'neck', mag: 12, pb: 2, val: 400000 });   // the 10% magic damage is not modelled
+defWear({ id: 'berserker_ring', name: 'Berserker ring', g: 'ring', c: '#8b8894', c2: '#402729', slot: 'ring', str: 4, def: 1, val: 120000 });
+defWear({ id: 'warrior_ring', name: 'Warrior ring', g: 'ring', c: '#999d65', c2: '#545638', slot: 'ring', atk: 4, def: 1, val: 60000 });
+defWear({ id: 'archers_ring', name: 'Archers ring', g: 'ring', c: '#93774b', c2: '#3d372d', slot: 'ring', rat: 4, def: 0, val: 100000 });
+defWear({ id: 'seers_ring', name: 'Seers ring', g: 'ring', c: '#af8f4f', c2: '#3f3216', slot: 'ring', mag: 6, def: 0, val: 80000 });
+defWear({ id: 'primordial_boots', name: 'Primordial boots', g: 'boot', c: '#5e4d52', c2: '#401511', slot: 'feet', def: 22, str: 5, atk: 2, req: { defence: 75 }, val: 300000 });
+defWear({ id: 'pegasian_boots', name: 'Pegasian boots', g: 'boot', c: '#515e24', c2: '#233109', slot: 'feet', def: 5, rat: 12, req: { ranged: 75, defence: 75 }, val: 350000 });
+defWear({ id: 'eternal_boots', name: 'Eternal boots', g: 'boot', c: '#5b5258', c2: '#24212e', slot: 'feet', def: 5, mag: 8, req: { magic: 75, defence: 75 }, val: 250000 });
 defWear({ id: 'ranger_boots', name: 'Ranger boots', g: 'boot', c: '#475d0a', c2: '#283c02', slot: 'feet', def: 3, rat: 8, req: { ranged: 40 }, val: 200000 });
-defWear({ id: 'fire_cape', name: 'Fire cape', g: 'cape', c: '#946935', c2: '#4c3409', slot: 'cape', atk: 1, str: 2, def: 11, val: 80000 });
-defWear({ id: 'avas_assembler', name: "Ava's assembler", g: 'cape', c: '#6e7c7e', c2: '#352912', slot: 'cape', rat: 8, save: 0.8, req: { ranged: 70 }, val: 90000 });
-defWear({ id: 'saradomin_cape', name: 'Saradomin cape', g: 'cape', c: '#b0ad75', c2: '#0d1383', slot: 'cape', mag: 8, req: { magic: 60 }, val: 20000 });
-defWear({ id: 'zamorak_cape', name: 'Zamorak cape', g: 'cape', c: '#3a1a14', c2: '#1a0c0a', slot: 'cape', mag: 8, req: { magic: 60 }, val: 20000 });
-defWear({ id: 'guthix_cape', name: 'Guthix cape', g: 'cape', c: '#09651c', c2: '#05380f', slot: 'cape', mag: 8, req: { magic: 60 }, val: 20000 });
+defWear({ id: 'fire_cape', name: 'Fire cape', g: 'cape', c: '#946935', c2: '#4c3409', slot: 'cape', atk: 1, str: 4, def: 11, mag: 1, rat: 1, pb: 2, val: 80000 });
+defWear({ id: 'avas_assembler', name: "Ava's assembler", g: 'cape', c: '#6e7c7e', c2: '#352912', slot: 'cape', rat: 8, save: 0.8, def: 1, req: { ranged: 70 }, val: 90000 });
+defWear({ id: 'saradomin_cape', name: 'Saradomin cape', g: 'cape', c: '#b0ad75', c2: '#0d1383', slot: 'cape', mag: 10, def: 1, req: { magic: 60 }, val: 20000 });
+defWear({ id: 'zamorak_cape', name: 'Zamorak cape', g: 'cape', c: '#3a1a14', c2: '#1a0c0a', slot: 'cape', mag: 10, def: 1, req: { magic: 60 }, val: 20000 });
+defWear({ id: 'guthix_cape', name: 'Guthix cape', g: 'cape', c: '#09651c', c2: '#05380f', slot: 'cape', mag: 10, def: 1, req: { magic: 60 }, val: 20000 });
 /* the far shore of ranged: what outranges the dark bow */
 defWear({ id: 'armadyl_crossbow', name: 'Armadyl crossbow', g: 'cbow', c: '#9f9550', c2: '#57522c', slot: 'weapon', bow: 1, ammoT: 'bolt', spd: 6, rng: 8, rat: 100, pb: 1, req: { ranged: 70 }, val: 600000 });
 defWear({ id: 'dragon_hunter_crossbow', name: 'Dragon hunter crossbow', g: 'cbow', c: '#78805d', c2: '#32331d', slot: 'weapon', bow: 1, ammoT: 'bolt', spd: 6, rng: 8, rat: 95, req: { ranged: 65 }, val: 500000 });   // the dragonbane bonus is not modelled
 defWear({ id: 'toxic_blowpipe', name: 'Toxic blowpipe', g: 'pipe', c: '#267186', c2: '#2e2768', slot: 'weapon', bow: 1, two: 1, selfAmmo: 1, spd: 3, rng: 7, rat: 30, rst: 35, req: { ranged: 75 }, val: 700000 });   // the darts are abstracted into the pipe
 SPEC.toxic_blowpipe = { cost: 50, dmg: 1.5 };
-defWear({ id: 'twisted_bow', name: 'Twisted bow', g: 'bow', c: '#6f733e', c2: '#272424', slot: 'weapon', bow: 1, two: 1, spd: 6, rng: 10, rat: 70, req: { ranged: 75 }, val: 1200000 });   // fires arrows flat: the magic-level scaling is not modelled
-defWear({ id: 'crystal_bow', name: 'Crystal bow', g: 'bow', c: '#6e7177', c2: '#3f3a3a', slot: 'weapon', bow: 1, two: 1, selfAmmo: 1, spd: 5, rng: 10, rat: 78, rst: 40, req: { ranged: 70 }, val: 350000 });
-defWear({ id: 'crystal_shield', name: 'Crystal shield', g: 'shield', c: '#5a6068', c2: '#32353a', slot: 'shield', def: 51, req: { defence: 70 }, val: 250000 });
+defWear({ id: 'twisted_bow', name: 'Twisted bow', g: 'bow', c: '#6f733e', c2: '#272424', slot: 'weapon', bow: 1, two: 1, spd: 6, rng: 10, rat: 70, rst: 20, req: { ranged: 75 }, val: 1200000 });   // fires arrows flat: the magic-level scaling is not modelled
+defWear({ id: 'crystal_bow', name: 'Crystal bow', g: 'bow', c: '#6e7177', c2: '#3f3a3a', slot: 'weapon', bow: 1, two: 1, selfAmmo: 1, spd: 5, rng: 10, rat: 100, rst: 78, req: { ranged: 70 }, val: 350000 });
+defWear({ id: 'crystal_shield', name: 'Crystal shield', g: 'shield', c: '#5a6068', c2: '#32353a', slot: 'shield', def: 53, req: { defence: 70 }, val: 250000 });
 /* the far shore of magic */
-defStaff('ancient_staff', 'Ancient staff', '#5c5555', '#400b3f', 10, 10, 13, 50, 90000);
-defWear({ id: 'staff_of_the_dead', name: 'Staff of the dead', g: 'staff', c: '#7b9073', c2: '#282f25', slot: 'weapon', atk: 70, str: 72, mag: 16, spd: 4, req: { magic: 75, attack: 75 }, val: 400000 });
-defWear({ id: 'toxic_staff_of_the_dead', name: 'Toxic staff of the dead', g: 'staff', c: '#6d7848', c2: '#201921', slot: 'weapon', atk: 70, str: 72, mag: 17, psn: 6, spd: 4, req: { magic: 75, attack: 75 }, val: 500000 });
-defStaff('kodai_wand', 'Kodai wand', '#654e98', '#3f179f', 0, 0, 20, 75, 800000, 'water_rune', 'wand');
-defStaff('trident_of_the_seas', 'Trident of the seas', '#6f694c', '#0b3f40', 5, 5, 16, 75, 300000, undefined, 'trident');
-defWear({ id: 'mages_book', name: "Mage's book", g: 'shield', c: '#a37f39', c2: '#5f1d17', slot: 'shield', mag: 12, req: { magic: 60 }, val: 120000 });
-defWear({ id: 'infinity_hat', name: 'Infinity hat', g: 'hat', c: '#8f4c4b', c2: '#501e30', slot: 'head', def: 6, mag: 7, req: { magic: 50, defence: 25 }, val: 120000 });
-defWear({ id: 'infinity_top', name: 'Infinity top', g: 'robe', c: '#874553', c2: '#4f1b54', slot: 'body', def: 9, mag: 14, req: { magic: 50, defence: 25 }, val: 300000 });
-defWear({ id: 'infinity_bottoms', name: 'Infinity bottoms', g: 'legs', c: '#923966', c2: '#4c1b57', slot: 'legs', def: 8, mag: 10, req: { magic: 50, defence: 25 }, val: 250000 });
-defWear({ id: 'infinity_boots', name: 'Infinity boots', g: 'boot', c: '#8e7523', c2: '#231e27', slot: 'feet', def: 3, mag: 4, req: { magic: 50, defence: 25 }, val: 80000 });
-defWear({ id: 'ancestral_hat', name: 'Ancestral hat', g: 'hat', c: '#857a6c', c2: '#333031', slot: 'head', def: 8, mag: 9, req: { magic: 75, defence: 65 }, val: 500000 });
-defWear({ id: 'ancestral_robe_top', name: 'Ancestral robe top', g: 'robe', c: '#706865', c2: '#292832', slot: 'body', def: 12, mag: 18, req: { magic: 75, defence: 65 }, val: 900000 });
-defWear({ id: 'ancestral_robe_bottom', name: 'Ancestral robe bottom', g: 'legs', c: '#726d79', c2: '#32324a', slot: 'legs', def: 10, mag: 14, req: { magic: 75, defence: 65 }, val: 800000 });
+defWear({ id: 'ancient_staff', name: 'Ancient staff', g: 'staff', c: '#5c5555', c2: '#400b3f', slot: 'weapon', atk: 40, str: 50, mag: 15, spd: 4, req: { magic: 50, attack: 50 }, val: 90000 });
+defWear({ id: 'staff_of_the_dead', name: 'Staff of the dead', g: 'staff', c: '#7b9073', c2: '#282f25', slot: 'weapon', atk: 70, str: 72, mag: 17, spd: 4, req: { magic: 75, attack: 75 }, val: 400000 });
+defWear({ id: 'toxic_staff_of_the_dead', name: 'Toxic staff of the dead', g: 'staff', c: '#6d7848', c2: '#201921', slot: 'weapon', atk: 70, str: 72, mag: 25, psn: 6, spd: 4, req: { magic: 75, attack: 75 }, val: 500000 });
+defStaff('kodai_wand', 'Kodai wand', '#654e98', '#3f179f', 0, 0, 28, 75, 800000, 'water_rune', 'wand');
+defWear({ id: 'trident_of_the_seas', name: 'Trident of the seas', g: 'trident', c: '#6f694c', c2: '#0b3f40', slot: 'weapon', mag: 15, spd: 4, req: { magic: 75 }, val: 300000 });
+defWear({ id: 'mages_book', name: "Mage's book", g: 'shield', c: '#a37f39', c2: '#5f1d17', slot: 'shield', mag: 15, req: { magic: 60 }, val: 120000 });
+defWear({ id: 'infinity_hat', name: 'Infinity hat', g: 'hat', c: '#8f4c4b', c2: '#501e30', slot: 'head', def: 0, mag: 6, req: { magic: 50, defence: 25 }, val: 120000 });
+defWear({ id: 'infinity_top', name: 'Infinity top', g: 'robe', c: '#874553', c2: '#4f1b54', slot: 'body', def: 0, mag: 22, req: { magic: 50, defence: 25 }, val: 300000 });
+defWear({ id: 'infinity_bottoms', name: 'Infinity bottoms', g: 'legs', c: '#923966', c2: '#4c1b57', slot: 'legs', def: 0, mag: 17, req: { magic: 50, defence: 25 }, val: 250000 });
+defWear({ id: 'infinity_boots', name: 'Infinity boots', g: 'boot', c: '#8e7523', c2: '#231e27', slot: 'feet', def: 0, mag: 5, req: { magic: 50, defence: 25 }, val: 80000 });
+defWear({ id: 'ancestral_hat', name: 'Ancestral hat', g: 'hat', c: '#857a6c', c2: '#333031', slot: 'head', def: 12, mag: 8, req: { magic: 75, defence: 65 }, val: 500000 });
+defWear({ id: 'ancestral_robe_top', name: 'Ancestral robe top', g: 'robe', c: '#706865', c2: '#292832', slot: 'body', def: 41, mag: 35, req: { magic: 75, defence: 65 }, val: 900000 });
+defWear({ id: 'ancestral_robe_bottom', name: 'Ancestral robe bottom', g: 'legs', c: '#726d79', c2: '#32324a', slot: 'legs', def: 27, mag: 26, req: { magic: 75, defence: 65 }, val: 800000 });
 /* 3rd age: the treasure trails' impossible metal, in all three disciplines */
-defWear({ id: 'third_age_full_helmet', name: '3rd age full helmet', g: 'fhelm', c: '#b3aaa9', c2: '#1a2626', slot: 'head', def: 45, req: { defence: 65 }, val: 500000 });
-defWear({ id: 'third_age_platebody', name: '3rd age platebody', g: 'body', c: '#867d7c', c2: '#1a2020', slot: 'body', def: 96, req: { defence: 65 }, val: 900000 });
-defWear({ id: 'third_age_platelegs', name: '3rd age platelegs', g: 'legs', c: '#8c8282', c2: '#111a1a', slot: 'legs', def: 72, req: { defence: 65 }, val: 700000 });
-defWear({ id: 'third_age_kiteshield', name: '3rd age kiteshield', g: 'shield', c: '#897f7f', c2: '#181e1b', slot: 'shield', def: 55, req: { defence: 65 }, val: 600000 });
-defWear({ id: 'third_age_longsword', name: '3rd age longsword', g: 'lsword', c: '#8c8382', c2: '#1a201b', slot: 'weapon', atk: 72, str: 71, spd: 4, req: { attack: 65 }, val: 800000 });
-defWear({ id: 'third_age_range_coif', name: '3rd age range coif', g: 'hat', c: '#5f5951', c2: '#303d36', slot: 'head', def: 12, rat: 9, req: { ranged: 65 }, val: 500000 });
-defWear({ id: 'third_age_range_top', name: '3rd age range top', g: 'robe', c: '#69615d', c2: '#33322d', slot: 'body', def: 30, rat: 26, req: { ranged: 65 }, val: 900000 });
-defWear({ id: 'third_age_range_legs', name: '3rd age range legs', g: 'legs', c: '#6b6964', c2: '#2a2f2a', slot: 'legs', def: 25, rat: 17, req: { ranged: 65 }, val: 700000 });
-defWear({ id: 'third_age_vambraces', name: '3rd age vambraces', g: 'glove', c: '#5f524b', c2: '#3d3430', slot: 'hands', def: 6, rat: 8, req: { ranged: 65 }, val: 400000 });
-defWear({ id: 'third_age_bow', name: '3rd age bow', g: 'bow', c: '#61615d', c2: '#303d36', slot: 'weapon', bow: 1, two: 1, spd: 5, rng: 9, rat: 72, req: { ranged: 65 }, val: 900000 });
-defWear({ id: 'third_age_mage_hat', name: '3rd age mage hat', g: 'hat', c: '#7e827a', c2: '#151111', slot: 'head', def: 10, mag: 9, req: { magic: 65 }, val: 500000 });
-defWear({ id: 'third_age_robe_top', name: '3rd age robe top', g: 'robe', c: '#6d7576', c2: '#171414', slot: 'body', def: 14, mag: 17, req: { magic: 65 }, val: 900000 });
-defWear({ id: 'third_age_robe', name: '3rd age robe', g: 'skirt', c: '#4c5a5c', c2: '#26292c', slot: 'legs', def: 12, mag: 13, req: { magic: 65 }, val: 800000 });
-defStaff('third_age_wand', '3rd age wand', '#6f7a7a', '#151111', 0, 0, 19, 65, 900000, undefined, 'wand');
-defWear({ id: 'third_age_amulet', name: '3rd age amulet', g: 'amulet', c: '#605023', c2: '#1a1411', slot: 'neck', mag: 12, def: 6, val: 600000 });
+defWear({ id: 'third_age_full_helmet', name: '3rd age full helmet', g: 'fhelm', c: '#b3aaa9', c2: '#1a2626', slot: 'head', def: 46, req: { defence: 65 }, val: 500000 });
+defWear({ id: 'third_age_platebody', name: '3rd age platebody', g: 'body', c: '#867d7c', c2: '#1a2020', slot: 'body', def: 106, req: { defence: 65 }, val: 900000 });
+defWear({ id: 'third_age_platelegs', name: '3rd age platelegs', g: 'legs', c: '#8c8282', c2: '#111a1a', slot: 'legs', def: 79, req: { defence: 65 }, val: 700000 });
+defWear({ id: 'third_age_kiteshield', name: '3rd age kiteshield', g: 'shield', c: '#897f7f', c2: '#181e1b', slot: 'shield', def: 63, req: { defence: 65 }, val: 600000 });
+defWear({ id: 'third_age_longsword', name: '3rd age longsword', g: 'lsword', c: '#8c8382', c2: '#1a201b', slot: 'weapon', atk: 72, str: 75, spd: 5, req: { attack: 65 }, val: 800000 });
+defWear({ id: 'third_age_range_coif', name: '3rd age range coif', g: 'hat', c: '#5f5951', c2: '#303d36', slot: 'head', def: 7, rat: 9, req: { ranged: 65 }, val: 500000 });
+defWear({ id: 'third_age_range_top', name: '3rd age range top', g: 'robe', c: '#69615d', c2: '#33322d', slot: 'body', def: 54, rat: 30, req: { ranged: 65 }, val: 900000 });
+defWear({ id: 'third_age_range_legs', name: '3rd age range legs', g: 'legs', c: '#6b6964', c2: '#2a2f2a', slot: 'legs', def: 30, rat: 17, req: { ranged: 65 }, val: 700000 });
+defWear({ id: 'third_age_vambraces', name: '3rd age vambraces', g: 'glove', c: '#5f524b', c2: '#3d3430', slot: 'hands', def: 6, rat: 11, req: { ranged: 65 }, val: 400000 });
+defWear({ id: 'third_age_bow', name: '3rd age bow', g: 'bow', c: '#61615d', c2: '#303d36', slot: 'weapon', bow: 1, two: 1, spd: 4, rng: 9, rat: 80, req: { ranged: 65 }, val: 900000 });
+defWear({ id: 'third_age_mage_hat', name: '3rd age mage hat', g: 'hat', c: '#7e827a', c2: '#151111', slot: 'head', def: 0, mag: 8, req: { magic: 65 }, val: 500000 });
+defWear({ id: 'third_age_robe_top', name: '3rd age robe top', g: 'robe', c: '#6d7576', c2: '#171414', slot: 'body', def: 0, mag: 24, req: { magic: 65 }, val: 900000 });
+defWear({ id: 'third_age_robe', name: '3rd age robe', g: 'skirt', c: '#4c5a5c', c2: '#26292c', slot: 'legs', def: 0, mag: 19, req: { magic: 65 }, val: 800000 });
+defStaff('third_age_wand', '3rd age wand', '#6f7a7a', '#151111', 0, 0, 20, 65, 900000, undefined, 'wand');
+defWear({ id: 'third_age_amulet', name: '3rd age amulet', g: 'amulet', c: '#605023', c2: '#1a1411', slot: 'neck', mag: 15, def: 0, val: 600000 });
 
 /* the baker's economy: wheat from the allotments, the windmill grinds at last, the range bakes */
 OBJ_OPTS[25] = ['Mill at', 'Windmill', o => openMake(25, o)];
@@ -8820,9 +8832,9 @@ SHOP_KINDS[0].base.push('wheat_seed', 'cheese', 'bucket_of_milk', 'grapes');
 LOOT.chicken.tert = (LOOT.chicken.tert || []).concat([['egg', 2]]);
 
 /* prayer finally rides the cloth: pb stretches every drain by a thirtieth per point */
-defWear({ id: 'monk_robe_top', name: "Monk's robe top", g: 'robe', c: '#a8493a', c2: '#6b2e24', slot: 'body', def: 4, pb: 6, val: 40 });      // TODO: verify — the top/bottom split of the pair
-defWear({ id: 'monk_robe_bottom', name: "Monk's robe bottom", g: 'skirt', c: '#a8493a', c2: '#6b2e24', slot: 'legs', def: 3, pb: 5, val: 32 });
-defWear({ id: 'holy_symbol', name: 'Holy symbol', g: 'amulet', c: '#e8e0c8', c2: '#8a8470', slot: 'neck', pb: 8, val: 120 });
+defWear({ id: 'monk_robe_top', name: "Monk's robe top", g: 'robe', c: '#a8493a', c2: '#6b2e24', slot: 'body', def: 0, pb: 6, val: 40 });      // TODO: verify — the top/bottom split of the pair
+defWear({ id: 'monk_robe_bottom', name: "Monk's robe bottom", g: 'skirt', c: '#a8493a', c2: '#6b2e24', slot: 'legs', def: 0, pb: 5, val: 32 });
+defWear({ id: 'holy_symbol', name: 'Holy symbol', g: 'amulet', c: '#e8e0c8', c2: '#8a8470', slot: 'neck', pb: 8, def: 2, val: 120 });
 defItem({ id: 'holy_mould', name: 'Holy mould', g: 'mould', c: '#9aa0a8', c2: '#5b5f66', val: 5 });
 SHOP_KINDS.filter(s2 => s2.k === 'craft')[0].base.push('holy_mould');
 recipe('holy_symbol', 'crafting', 16, 50, [['silver_bar', 1], ['ball_of_wool', 1]], { at: 3, tool: 'holy_mould', msg: 'You cast and string a holy symbol.' });
