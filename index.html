@@ -8146,7 +8146,9 @@ function claimHouse() {
     lo = Math.min(lo, y); hi = Math.max(hi, y);
   }
   if (hi - lo > 2.2) return say('The ground is too uneven to build on. Seek flatter land.', 'bad');
-  for (let a = 0; a < RS; a++) for (let b = 0; b < RS; b++) if (blocked.has(tk(x0 + a, z0 + b))) return say('Clear the trees and rocks here first.', 'bad');
+  let felled = 0;                                           // trees and stones make way for the deed: the chunk rebuild sweeps them off
+  for (let a = 0; a < RS; a++) for (let b = 0; b < RS; b++) if (blocked.has(tk(x0 + a, z0 + b))) felled++;
+  if (felled) say('The builders clear ' + felled + ' trees and stones as the walls rise.');
   invRemove('house_deed', 1);
   P.hs = { x: x0, z: z0, y: Math.round(hi * 4) / 4, rev: 1, rm: [[0, 0, 0, 0, []]] };
   applyHouse(hMe(), P.hs);
@@ -8170,10 +8172,13 @@ const hRefuse = (r, why) => {                              // a refused build ha
 function roomBuild(i, r) {
   const g = P.task && P.task.o;
   if (!g || g.gk !== 'room' || !P.hs || roomAt(P.hs, g.gx, g.gz) || P.hs.rm.length >= 9) return hRefuse(r);
+  let felled = 0;
   for (let a = 0; a < RS; a++) for (let b = 0; b < RS; b++) {
     const k = tk(P.hs.x + g.gx * RS + a, P.hs.z + g.gz * RS + b);
-    if (blocked.has(k) || (floorMap.has(k) && floorMap.get(k).house !== hMe())) return hRefuse(r, 'Clear the trees and rocks off that ground first.');
+    if (floorMap.has(k) && floorMap.get(k).house !== hMe()) return hRefuse(r, 'Something else already stands on that ground.');
+    if (blocked.has(k)) felled++;                            // trees and stones give way to the room; the rebuild clears them
   }
+  if (felled) say('The builders fell ' + felled + ' trees and stones to make room.');
   P.hs.rm.push([i, g.gx, g.gz, 0, []]);
   hFinish();
   return [];
