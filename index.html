@@ -4791,8 +4791,7 @@ function bury(id) {
 function eat(slotIdx) {
   const it = ITEMS[inv[slotIdx].id];
   if (it.blight && powerAt(P.tx, P.tz) < 1) return say('The blighted flesh only nourishes you in dangerous lands.', 'bad');   // the wilderness rule, in this world's terms
-  if (P.hp >= P.maxhp) return say("You don't need to eat that right now.");
-  if (P.foodT > tickN) return;                             // one bite per three ticks, and each bite delays the next swing
+  if (P.foodT > tickN) return;                             // one bite per three ticks, and each bite delays the next swing; a full belly still eats, as ever
   P.foodT = tickN + 3; P.actT += 3;
   invRemove(inv[slotIdx].id, 1);
   P.hp = Math.min(P.maxhp, P.hp + it.heal);
@@ -5269,7 +5268,8 @@ on(styleList, 'click', e => {
 });
 const spellGrid = el('spellGrid');
 function drawSpells() {
-  spellGrid.innerHTML = SPELLS.map(s => {
+  const book = [...SPELLS].sort((a, b) => ((a.max > 0 ? 0 : 1) - (b.max > 0 ? 0 : 1)) || (a.lv - b.lv));   // damage first, curses and holds after, each by level; data-sp keeps the wire index
+  spellGrid.innerHTML = book.map(s => {
     const ok = lvl[SK.magic] >= s.lv;
     return liRow('data-sp="' + s.i + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).join(', ') + '"', P.spell === s.i, !ok,
       drawIcon('rune', '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (ok ? (spellReady(s) ? 'ready' : 'no runes') : 'level ' + s.lv) + '</u>');
@@ -8671,19 +8671,20 @@ function enchant(i, t) {
   say('You enchant the ' + ITEMS[id].name.toLowerCase() + '.');
   return 1;
 }
-/* name, level, xp, runes, tint, glyph, what it does (the tooltip), cast(slot), item: wants a pack item */
+/* name, level, xp, runes, tint, glyph, what it does (the tooltip), cast(slot), item: wants a pack item, grp: book order —
+   0 enchants, 1 alchemy, 2 the grab, 3 bones, 4 teleports last with the free ride first */
 const USPELLS = [
-  ['Home Teleport', 1, 0, [], 0xd8e4ee, 'star', 'no runes, once every 30 minutes', homeTp],
-  ['Low Level Alchemy', 21, 31, [['nature_rune', 1], ['fire_rune', 3]], 0xe0b436, 'coins', 'an item → coins, 40% of its value', i => alch(i, 0.4), 1],
-  ['Village Teleport', 31, 41, [['law_rune', 1], ['earth_rune', 1], ['air_rune', 3]], 0x6a8ad8, 'star', 'the nearest settlement', villageTp],
-  ['Superheat Item', 43, 53, [['nature_rune', 1], ['fire_rune', 4]], 0xd05a2a, 'bar', 'an ore → its bar, coal and all', superheat, 1],
-  ['City Teleport', 45, 55.5, [['law_rune', 1], ['air_rune', 5]], 0x6a8ad8, 'star', 'the nearest city', cityTp],
-  ['High Level Alchemy', 55, 65, [['nature_rune', 1], ['fire_rune', 5]], 0xe0b436, 'coins', 'an item → coins, 60% of its value', i => alch(i, 0.6), 1],
-  ['Bones to Bananas', 15, 25, [['nature_rune', 1], ['water_rune', 2], ['earth_rune', 2]], 0xe8d44a, 'banana', 'every bone in the pack becomes a banana', () => b2fruit('banana')],
-  ['Telekinetic Grab', 33, 43, [['law_rune', 1], ['air_rune', 1]], 0x9a7ad0, 'coins', 'take a ground item from up to ten tiles away', teleArm],
-  ['Bones to Peaches', 60, 35.5, [['nature_rune', 2], ['water_rune', 4], ['earth_rune', 4]], 0xe8a05a, 'peach', 'every bone in the pack becomes a peach', () => b2fruit('peach')],
-  ...ENCH.map((e, t) => ['Lvl-' + (t + 1) + ' Enchant', e.lv, e.xp, e.need, parseInt(GEMS[t].c.slice(1), 16), e.ring ? 'ring' : 'amulet', e.g + ' jewellery or bolts', i => enchant(i, t), 1])
-].map(([n, lv, xp, need, tint, g, d, f, item]) => ({ n, lv, xp, need, tint, g, d, f, item })).sort((a, b) => a.lv - b.lv);
+  ['Home Teleport', 1, 0, [], 0xd8e4ee, 'star', 'no runes, once every 30 minutes', homeTp, 0, 4],
+  ['Greater Home Teleport', 31, 41, [['law_rune', 1], ['earth_rune', 1], ['air_rune', 3]], 0x6a8ad8, 'star', 'home at once, for runes, no waiting', () => tpTo(P.home.x, P.home.z, 'home'), 0, 4],
+  ['City Teleport', 45, 55.5, [['law_rune', 1], ['air_rune', 5]], 0x6a8ad8, 'star', 'the nearest city', cityTp, 0, 4],
+  ['Low Level Alchemy', 21, 31, [['nature_rune', 1], ['fire_rune', 3]], 0xe0b436, 'coins', 'an item → coins, 40% of its value', i => alch(i, 0.4), 1, 1],
+  ['Superheat Item', 43, 53, [['nature_rune', 1], ['fire_rune', 4]], 0xd05a2a, 'bar', 'an ore → its bar, coal and all', superheat, 1, 1],
+  ['High Level Alchemy', 55, 65, [['nature_rune', 1], ['fire_rune', 5]], 0xe0b436, 'coins', 'an item → coins, 60% of its value', i => alch(i, 0.6), 1, 1],
+  ['Bones to Bananas', 15, 25, [['nature_rune', 1], ['water_rune', 2], ['earth_rune', 2]], 0xe8d44a, 'banana', 'every bone in the pack becomes a banana', () => b2fruit('banana'), 0, 3],
+  ['Telekinetic Grab', 33, 43, [['law_rune', 1], ['air_rune', 1]], 0x9a7ad0, 'coins', 'take a ground item from up to ten tiles away', teleArm, 0, 2],
+  ['Bones to Peaches', 60, 35.5, [['nature_rune', 2], ['water_rune', 4], ['earth_rune', 4]], 0xe8a05a, 'peach', 'every bone in the pack becomes a peach', () => b2fruit('peach'), 0, 3],
+  ...ENCH.map((e, t) => ['Lvl-' + (t + 1) + ' Enchant', e.lv, e.xp, e.need, parseInt(GEMS[t].c.slice(1), 16), e.ring ? 'ring' : 'amulet', e.g + ' jewellery or bolts', i => enchant(i, t), 1, 0])
+].map(([n, lv, xp, need, tint, g, d, f, item, grp]) => ({ n, lv, xp, need, tint, g, d, f, item, grp })).sort((a, b) => (a.grp - b.grp) || (a.lv - b.lv));
 const usRow = s => liRow('data-us="' + USPELLS.indexOf(s) + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).concat(s.d).join(', ') + '"', P.uspell === s, lvl[SK.magic] < s.lv,
   drawIcon(s.g, '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (lvl[SK.magic] < s.lv ? 'level ' + s.lv : spellReady(s) ? 'ready' : 'no runes') + '</u>');
 function cast(s, i) {                                       // runes first; the effect burns them only when it lands
