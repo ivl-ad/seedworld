@@ -5268,7 +5268,8 @@ on(styleList, 'click', e => {
 });
 const spellGrid = el('spellGrid');
 function drawSpells() {
-  const book = [...SPELLS].sort((a, b) => ((a.max > 0 ? 0 : 1) - (b.max > 0 ? 0 : 1)) || (a.lv - b.lv));   // damage first, curses and holds after, each by level; data-sp keeps the wire index
+  const bk = s => s.max > 0 ? (s.undead ? 1 : 0) : 2;       // the elements by level, Crumble Undead closing the damage page, curses and holds after; data-sp keeps the wire index
+  const book = [...SPELLS].sort((a, b) => (bk(a) - bk(b)) || (a.lv - b.lv));
   spellGrid.innerHTML = book.map(s => {
     const ok = lvl[SK.magic] >= s.lv;
     return liRow('data-sp="' + s.i + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).join(', ') + '"', P.spell === s.i, !ok,
