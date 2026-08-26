@@ -8599,8 +8599,14 @@ tickHooks.push(() => {
   dunSkyOn = on;
   if (on) dunSky(); else { applyOpts(); P.dunRet = null; }
 });
-/* while below ground, anything that hunts for "the nearest" measures from the door you came in by */
-function tpFrom() { return inDunPlane(P.tz) && P.dunRet ? P.dunRet : { x: P.tx, z: P.tz }; }
+/* while below ground, anything that hunts for "the nearest" measures from the daylight side: the remembered door,
+   else the castle that owns this dungeon, else the mirrored surface — a teleport is never left without an origin */
+function tpFrom() {
+  if (!inDunPlane(P.tz)) return { x: P.tx, z: P.tz };
+  if (P.dunRet) return P.dunRet;
+  const d = dunFor(P.tx, P.tz);
+  return d ? { x: d.v.x, z: d.v.z } : { x: P.tx, z: P.tz - DUN_Z };
+}
 /* applyOpts predates houses and dungeons: teach it to refresh house roofs (the roofs toggle was leaving them stuck)
    and to re-assert the dark sky when settings change below ground */
 const applyOpts0 = applyOpts;
