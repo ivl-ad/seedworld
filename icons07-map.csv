@@ -997,6 +997,98 @@ item,rune_plateskirt_t,Rune plateskirt (t),i07/runePlateskirtT.png
 item,rune_plateskirt_g,Rune plateskirt (g),i07/runePlateskirtG.png
 item,rune_kiteshield_t,Rune kiteshield (t),i07/runeKiteshieldT.png
 item,rune_kiteshield_g,Rune kiteshield (g),i07/runeKiteshieldG.png
+item,dharoks_helm,Dharok's helm,i07/dharoksHelm.png
+item,dharoks_platebody,Dharok's platebody,i07/dharoksPlatebody.png
+item,dharoks_platelegs,Dharok's platelegs,i07/dharoksPlatelegs.png
+item,dharoks_greataxe,Dharok's greataxe,i07/dharoksGreataxe.png
+item,guthans_helm,Guthan's helm,i07/guthansHelm.png
+item,guthans_platebody,Guthan's platebody,i07/guthansPlatebody.png
+item,guthans_chainskirt,Guthan's chainskirt,i07/guthansChainskirt.png
+item,guthans_warspear,Guthan's warspear,i07/guthansWarspear.png
+item,torags_helm,Torag's helm,i07/toragsHelm.png
+item,torags_platebody,Torag's platebody,i07/toragsPlatebody.png
+item,torags_platelegs,Torag's platelegs,i07/toragsPlatelegs.png
+item,torags_hammers,Torag's hammers,i07/toragsHammers.png
+item,veracs_helm,Verac's helm,i07/veracsHelm.png
+item,veracs_brassard,Verac's brassard,i07/veracsBrassard.png
+item,veracs_plateskirt,Verac's plateskirt,i07/veracsPlateskirt.png
+item,veracs_flail,Verac's flail,i07/veracsFlail.png
+item,karils_coif,Karil's coif,i07/karilsCoif.png
+item,karils_leathertop,Karil's leathertop,i07/karilsLeathertop.png
+item,karils_leatherskirt,Karil's leatherskirt,i07/karilsLeatherskirt.png
+item,karils_crossbow,Karil's crossbow,i07/karilsCrossbow.png
+item,ahrims_hood,Ahrim's hood,i07/ahrimsHood.png
+item,ahrims_robetop,Ahrim's robetop,i07/ahrimsRobetop.png
+item,ahrims_robeskirt,Ahrim's robeskirt,i07/ahrimsRobeskirt.png
+item,ahrims_staff,Ahrim's staff,i07/ahrimsStaff.png
+item,armadyl_godsword,Armadyl godsword,i07/armadylGodsword.png
+item,bandos_godsword,Bandos godsword,i07/bandosGodsword.png
+item,saradomin_godsword,Saradomin godsword,i07/saradominGodsword.png
+item,zamorak_godsword,Zamorak godsword,i07/zamorakGodsword.png
+item,bandos_chestplate,Bandos chestplate,i07/bandosChestplate.png
+item,bandos_tassets,Bandos tassets,i07/bandosTassets.png
+item,bandos_boots,Bandos boots,i07/bandosBoots.png
+item,armadyl_helmet,Armadyl helmet,i07/armadylHelmet.png
+item,armadyl_chestplate,Armadyl chestplate,i07/armadylChestplate.png
+item,armadyl_chainskirt,Armadyl chainskirt,i07/armadylChainskirt.png
+item,abyssal_dagger,Abyssal dagger,i07/abyssalDagger.png
+item,abyssal_bludgeon,Abyssal bludgeon,i07/abyssalBludgeon.png
+item,abyssal_tentacle,Abyssal tentacle,i07/abyssalTentacle.png
+item,zamorakian_spear,Zamorakian spear,i07/zamorakianSpear.png
+item,toktz_xil_ak,Toktz-xil-ak,i07/toktzXilAk.png
+item,tzhaar_ket_om,Tzhaar-ket-om,i07/tzhaarKetOm.png
+item,amulet_of_fury,Amulet of fury,i07/amuletOfFury.png
+item,amulet_of_torture,Amulet of torture,i07/amuletOfTorture.png
+item,necklace_of_anguish,Necklace of anguish,i07/necklaceOfAnguish.png
+item,occult_necklace,Occult necklace,i07/occultNecklace.png
+item,berserker_necklace,Berserker necklace,i07/berserkerNecklace.png
+item,berserker_ring,Berserker ring,i07/berserkerRing.png
+item,warrior_ring,Warrior ring,i07/warriorRing.png
+item,archers_ring,Archers ring,i07/archersRing.png
+item,seers_ring,Seers ring,i07/seersRing.png
+item,primordial_boots,Primordial boots,i07/primordialBoots.png
+item,pegasian_boots,Pegasian boots,i07/pegasianBoots.png
+item,eternal_boots,Eternal boots,i07/eternalBoots.png
+item,ranger_boots,Ranger boots,i07/rangerBoots.png
+item,fire_cape,Fire cape,i07/fireCape.png
+item,avas_assembler,Ava's assembler,i07/avasAssembler.png
+item,saradomin_cape,Saradomin cape,i07/saradominCape.png
+item,zamorak_cape,Zamorak cape,i07/zamorakCape.png
+item,guthix_cape,Guthix cape,i07/guthixCape.png
+item,armadyl_crossbow,Armadyl crossbow,i07/armadylCrossbow.png
+item,dragon_hunter_crossbow,Dragon hunter crossbow,i07/dragonHunterCrossbow.png
+item,toxic_blowpipe,Toxic blowpipe,i07/toxicBlowpipe.png
+item,twisted_bow,Twisted bow,i07/twistedBow.png
+item,crystal_bow,Crystal bow,i07/crystalBow.png
+item,crystal_shield,Crystal shield,i07/crystalShield.png
+item,infinity_hat,Infinity hat,i07/infinityHat.png
+item,infinity_top,Infinity top,i07/infinityTop.png
+item,infinity_bottoms,Infinity bottoms,i07/infinityBottoms.png
+item,infinity_boots,Infinity boots,i07/infinityBoots.png
+item,ancestral_hat,Ancestral hat,i07/ancestralHat.png
+item,ancestral_robe_top,Ancestral robe top,i07/ancestralRobeTop.png
+item,ancestral_robe_bottom,Ancestral robe bottom,i07/ancestralRobeBottom.png
+item,ancient_staff,Ancient staff,i07/ancientStaff.png
+item,staff_of_the_dead,Staff of the dead,i07/staffOfTheDead.png
+item,toxic_staff_of_the_dead,Toxic staff of the dead,i07/toxicStaffOfTheDead.png
+item,kodai_wand,Kodai wand,i07/kodaiWand.png
+item,mages_book,Mage's book,i07/magesBook.png
+item,trident_of_the_seas,Trident of the seas,i07/tridentOfTheSeas.png
+item,third_age_full_helmet,3rd age full helmet,i07/_3rdAgeFullHelmet.png
+item,third_age_platebody,3rd age platebody,i07/_3rdAgePlatebody.png
+item,third_age_platelegs,3rd age platelegs,i07/_3rdAgePlatelegs.png
+item,third_age_kiteshield,3rd age kiteshield,i07/_3rdAgeKiteshield.png
+item,third_age_longsword,3rd age longsword,i07/_3rdAgeLongsword.png
+item,third_age_range_coif,3rd age range coif,i07/_3rdAgeRangeCoif.png
+item,third_age_range_top,3rd age range top,i07/_3rdAgeRangeTop.png
+item,third_age_range_legs,3rd age range legs,i07/_3rdAgeRangeLegs.png
+item,third_age_vambraces,3rd age vambraces,i07/_3rdAgeVambraces.png
+item,third_age_bow,3rd age bow,i07/_3rdAgeBow.png
+item,third_age_mage_hat,3rd age mage hat,i07/_3rdAgeMageHat.png
+item,third_age_robe_top,3rd age robe top,i07/_3rdAgeRobeTop.png
+item,third_age_robe,3rd age robe,i07/_3rdAgeRobe.png
+item,third_age_wand,3rd age wand,i07/_3rdAgeWand.png
+item,third_age_amulet,3rd age amulet,i07/_3rdAgeAmulet.png
 skill,attack,Attack,c07/attackIcon.png
 skill,strength,Strength,c07/strengthIcon.png
 skill,defence,Defence,c07/defenceIcon.png
