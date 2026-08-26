@@ -6,6 +6,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["C:/Users/RHV/AppData/Local/Temp/claude/C--Users-RHV-Documents-claude/884615c5-0909-45f4-9e72-5101ab0f1cc9/scratchpad/server.js"],
       "port": 8123
+    },
+    {
+      "name": "seed-mp",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/RHV/AppData/Local/Temp/claude/C--Users-RHV-Documents-claude/9a99302f-5e5b-43ac-8916-3a09ee88e593/scratchpad/server.js"],
+      "port": 8907
     }
   ]
 }

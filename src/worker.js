@@ -28,6 +28,11 @@ const MAXSAVE = 8192; // save blob ceiling, enforced here not client-side
 const MAXMSG = MAXSAVE + 2048;   // hard transport ceiling
 const MAXSMALL = 512;            // everything that is not a save
 
+/* The one distance test outside flush(): ops 11, 14 and 15 are delivered straight
+   to one socket by pid, bypassing interest management — unchecked, a trade request
+   or a pvp hit crossed the whole map. */
+const near = (a, b) => Math.abs(a.x - b.x) <= VIEW && Math.abs(a.z - b.z) <= VIEW;
+
 const encoder = new TextEncoder();
 const toHex = b => [...new Uint8Array(b)].map(v => v.toString(16).padStart(2, '0')).join('');
 const sha256 = async s => toHex(await crypto.subtle.digest('SHA-256', encoder.encode(s)));
@@ -146,7 +151,11 @@ export class World extends DurableObject {
     // savedSeed starts as what the players row already says, so a session in
     // the same world never rewrites it — that UPDATE used to fire once per
     // connection (and again after every hibernation wake) for nothing.
-    const rec = { pid, name, seed, x: 0, z: 0, face: 0, flags: 0, eq: [],
+    /* A reconnecting pid keeps its last known position and gear, and `pos` — has this
+       connection ever reported a position — rides the record so nobody is announced,
+       or seated at 0,0, before a real move arrives. */
+    const rec = { pid, name, seed, x: (old && old.x) | 0, z: (old && old.z) | 0,
+                  pos: (old && old.pos) ? 1 : 0, face: 0, flags: 0, eq: (old && old.eq) || [],
                   savedSeed: u.searchParams.get('last') || null };
     server.serializeAttachment(rec);
     this.players.set(pid, { ws: server, ...rec, seen: new Set(), n: 0, t0: 0 });
@@ -215,7 +224,7 @@ export class World extends DurableObject {
   saveAtt(ws, me) {
     try {
       ws.serializeAttachment({
-        pid: me.pid, name: me.name, seed: me.seed, x: me.x, z: me.z,
+        pid: me.pid, name: me.name, seed: me.seed, x: me.x, z: me.z, pos: me.pos ? 1 : 0,
         face: me.face, flags: me.flags, eq: me.eq, savedSeed: me.savedSeed || null
       });
     } catch {}
@@ -228,13 +237,19 @@ export class World extends DurableObject {
         const [, tick, x, z, face, flags] = m;
         if (!Number.isInteger(x) || !Number.isInteger(z)) return;
         if (Math.abs(x) > 1e6 || Math.abs(z) > 1e6) return;
-        me.x = x; me.z = z;
+        const jump = Math.abs(x - me.x) + Math.abs(z - me.z);
+        const first = !me.pos;
+        me.x = x; me.z = z; me.pos = 1;
         me.face = (face | 0) & 15;
         me.flags = (flags | 0) & 3;
         this.queue('1:' + me.pid, [1, [[me.pid, tick | 0, x, z, me.face, me.flags]]]);
-        // position across a hibernation wake needs no precision — the next move fixes
-        // it — so the attachment is refreshed every 16th step, not every step
-        if ((me.mvN = ((me.mvN || 0) + 1) & 15) === 0) this.saveAtt(ws, me);
+        /* The attachment refreshes every 16th step: a walk needs no precision across a
+           hibernation wake — the next move fixes it. A teleport is not a step: hibernate
+           before the next boundary and the object wakes holding the pre-respawn position,
+           and flush() hands out an enter for a player who is towns away (the ghost). So a
+           jump past a walk's reach, and the first move of a session, write through now. */
+        me.mvN = ((me.mvN || 0) + 1) & 15;
+        if (first || jump > VIEW || me.mvN === 0) this.saveAtt(ws, me);
         return;
       }
 
@@ -292,8 +307,10 @@ export class World extends DurableObject {
          party hears an offer, and only they can answer it. */
       case 14: {                                  // trade signal
         const other = this.players.get(String(m[1] || ''));
-        if (other) {
-          try { other.ws.send(JSON.stringify([[14, me.pid, me.name, (m[2] | 0) & 7]])); } catch {}
+        const act = (m[2] | 0) & 7;
+        // act 2 is "called off" and must always land, or the other party is stranded in an open trade window
+        if (other && (act === 2 || near(me, other))) {
+          try { other.ws.send(JSON.stringify([[14, me.pid, me.name, act]])); } catch {}
         }
         return;
       }
@@ -303,7 +320,7 @@ export class World extends DurableObject {
         const offer = Array.isArray(m[2]) ? m[2].slice(0, 28).map(it => [
           String((it && it[0]) || '').slice(0, 32), Math.max(0, (it && it[1] | 0) || 0)
         ]) : [];
-        if (other) {
+        if (other && near(me, other)) {
           try { other.ws.send(JSON.stringify([[15, me.pid, offer]])); } catch {}
         }
         return;
@@ -318,7 +335,7 @@ export class World extends DurableObject {
         if (now - (me.dmgT || 0) > 2400) { me.dmgT = now; me.dmgSum = 0; }
         if ((me.dmgSum = (me.dmgSum || 0) + d) > 110) return;
         const target = this.players.get(String(m[1] || ''));
-        if (target) {
+        if (target && near(me, target)) {
           try { target.ws.send(JSON.stringify([[11, me.pid, d, m[3] ? 1 : 0]])); } catch {}   // element 3 carries Smite
         }
         return;
@@ -510,7 +527,7 @@ export class World extends DurableObject {
         const cell = grid.get((bx + a) + ':' + (bz + b));
         if (!cell) continue;
         for (const q of cell) {
-          if (q.pid === p.pid || p.seen.has(q.pid)) continue;
+          if (q.pid === p.pid || p.seen.has(q.pid) || !q.pos) continue;   // an unreported position is not a location to announce
           if (Math.abs(q.x - p.x) <= VIEW && Math.abs(q.z - p.z) <= VIEW) {
             p.seen.add(q.pid);
             out.push([6, q.pid, q.name, q.x, q.z, q.eq]);

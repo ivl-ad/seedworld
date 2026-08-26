@@ -6122,7 +6122,7 @@ el('pvpTag').querySelector('img').src = drawIcon('skull', '#ff5a3a', '#ffd9c9');
 function gameTick() {
   tickN++;
   if (deathSpot && tickN - deathSpot.t > 1500) { deathSpot = null; deathMark.visible = false; wmDirty = 1; }
-  if (P.dead) return;
+  if (P.dead) { flushNet(); return; }                       // die() queues the op 12 loot spill; it must not sit in outQ for the 1500 ms respawn
   walkTick(); taskTick(); updateHeldTool();
   for (let i = npcs.length - 1; i >= 0; i--) npcTick(npcs[i]);
   respawnTick();
@@ -6713,7 +6713,7 @@ function onNet(m) {
     }
     case 19: { const R = ensureRemote(m[1]); if (R) shootArrow(R, aimAt(m[2] | 0, groundY(m[2] | 0, m[3] | 0), m[3] | 0), null, (m[4] | 0) || 0xc3c8d0); break; }
     case 18: { const R = ensureRemote(m[1]), sp = SPELLS[m[2] | 0]; if (R && sp) remoteBolt(R, sp, m[3] | 0, m[4] | 0); break; }
-    case 13: { const R = ensureRemote(m[1]); R.hp = m[2] | 0; R.maxhp = Math.max(1, m[3] | 0); R.hurt = tickN; if (R.hp < R.maxhp) healthBar(R, 2.0); break; }
+    case 13: { const R = ensureRemote(m[1]); if (!R) break; R.hp = m[2] | 0; R.maxhp = Math.max(1, m[3] | 0); R.hurt = tickN; if (R.hp < R.maxhp) healthBar(R, 2.0); break; }
     case 12: {                                              // a player died near us and spilled
       const R = remotes.get(m[1]);
       say((R ? R.name : 'Someone') + ' has been defeated.', 'lv');
@@ -6812,10 +6812,16 @@ function newRemote(pid, name, x, z, eqArr) {
     face: 0, faceT: 0, afloat: 0, moved: 0, run: 1, energy: 100, act: 0, acting: 0, actSpan: 2, eq: eqArr || [], eqDirty: 1, q: [], path: [],
     walkPhase: 0, bobPhase: 0, swingPhase: 0, g: null, parts: null, plate: null, bubble: '', bubbleT: 0, lastSeen: tickN, lod: -1 };
 }
-function ensureRemote(pid, x, z) {                          // a packet for a stranger conjures a placeholder: the server will not resend an enter
+/* Only a positioned packet (ops 1 and 6 carry x,z) may conjure a remote: `undefined | 0`
+   seated strangers at tile 0,0 — a phantom in your lap for anyone near the origin. Dropping
+   the packet is safe: flush() re-sends an enter within 40 ms if they are genuinely near. */
+function ensureRemote(pid, x, z) {
   if (pid === PID) return null;
   let R = remotes.get(pid);
-  if (!R) remotes.set(pid, R = newRemote(pid, null, x, z, null));
+  if (!R) {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+    remotes.set(pid, R = newRemote(pid, null, x, z, null));
+  }
   R.lastSeen = tickN;
   return R;
 }
