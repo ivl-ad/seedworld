@@ -13,7 +13,7 @@
   canvas{display:block}
   #app{position:fixed;inset:0}
   #hover,.plate,#ctx h3,#ctx a,.sk b,#compass,.tcell em,.slot em,.eqslot em,.xp,.hs,#chat div,#posr,.mini{text-shadow:1px 1px 0 #000}
-  img{image-rendering:pixelated}
+  img{image-rendering:pixelated;object-fit:contain}
   .panel{background:linear-gradient(180deg,rgba(72,62,46,.96),rgba(44,37,28,.96));border:2px solid var(--ink);
     box-shadow:inset 0 0 0 1px var(--bevel),0 6px 22px rgba(0,0,0,.5);border-radius:2px}
   /* shared form controls */
@@ -1437,7 +1437,6 @@ const qcurve = (g, pts, c, s) => {               // moveTo then quadratic segmen
 };
 const GLYPH = {
   sword(g, c, d) { poly(g, [16, 2, 19, 8, 19, 20, 13, 20, 13, 8], c, K); poly(g, [16, 2, 16, 20], null, d); fr(g, d, 9, 20, 14, 3); fr(g, WOODC, 14.5, 23, 3, 6); fr(g, d, 13, 28, 6, 2); },
-  dagger(g, c, d) { poly(g, [16, 5, 19, 11, 19, 19, 13, 19, 13, 11], c, K); fr(g, d, 10, 19, 12, 3); fr(g, WOODC, 14.5, 22, 3, 6); },
   scim(g, c, d) {
     qcurve(g, [7, 26, 6, 8, 24, 4, 16, 14, 12, 26], c, K);
     g.strokeStyle = d; g.beginPath(); g.moveTo(9, 24); g.quadraticCurveTo(9, 10, 22, 6); g.stroke();
@@ -1448,47 +1447,19 @@ const GLYPH = {
     poly(g, [9, 4, 22, 7, 24, 15, 12, 15, 8, 9], c, K); poly(g, [11, 6, 21, 8.5, 22, 13, 13, 13], d, null);
   },
   pick(g, c, d) { fr(g, WOODC, 14, 8, 4, 22); qcurve(g, [2, 12, 16, 2, 30, 12, 16, 7, 2, 12], c, K); fr(g, d, 12, 7, 8, 4); },
-  helm(g, c, d) {
-    g.beginPath(); g.arc(16, 16, 11, PI, 0); g.lineTo(27, 24); g.lineTo(5, 24); g.closePath(); paint(g, c, K);
-    fr(g, d, 14, 6, 4, 18); fr(g, '#1b1712', 7, 17, 6, 5); g.fillRect(19, 17, 6, 5);
-  },
   body(g, c, d) { poly(g, [10, 6, 22, 6, 27, 11, 24, 13, 24, 27, 8, 27, 8, 13, 5, 11], c, K); fr(g, d, 14, 7, 4, 20); poly(g, [10, 6, 22, 6, 20, 10, 12, 10], d, null); },
-  legs(g, c, d) { poly(g, [8, 5, 24, 5, 24, 28, 18, 28, 17, 15, 15, 15, 14, 28, 8, 28], c, K); fr(g, d, 8, 5, 16, 4); },
   shield(g, c, d) { poly(g, [16, 3, 26, 8, 23, 22, 16, 29, 9, 22, 6, 8], c, K); ln(g, d, 2, [16, 6, 16, 25], [9, 11, 23, 11]); },
   log(g, c, d) {
     ell(g, 16, 16, 13, 7, -0.35, c, K); ell(g, 21.5, 11.5, 4.4, 6.2, -0.35, d, K); ell(g, 21.5, 11.5, 2.2, 3.1, -0.35, null, c);
   },
-  ore(g, c, d) {
-    ell(g, 16, 19, 12, 9, 0, '#6a6258', K);
-    for (const p of [[11, 17, 4], [19, 15, 3.4], [16, 22, 3]]) circ(g, p[0], p[1], p[2], c, K);
-    circ(g, 10, 16, 1.6, d);
-  },
-  bar(g, c, d) { poly(g, [5, 21, 11, 13, 27, 13, 21, 21], c, K); poly(g, [11, 13, 27, 13, 27, 17, 21, 17], d, K); poly(g, [5, 21, 21, 21, 21, 25, 5, 25], d, K); },
   fish(g, c) {
     ell(g, 15, 16, 11, 6, -0.1, c, K); poly(g, [26, 10, 30, 16, 26, 22], c, K); circ(g, 8, 14, 1.3, K);
     ln(g, 'rgba(0,0,0,.35)', 1, [14, 11, 18, 16, 14, 21]);
   },
   cfish(g, c, d) { GLYPH.fish(g, c); ln(g, d, 1.6, [7, 13, 22, 19], [8, 20, 21, 12]); },
-  meat(g, c, d) { ell(g, 17, 17, 10.5, 7.5, -0.5, c, K); ell(g, 15, 15, 4.5, 3, -0.5, d); circ(g, 6.5, 25.5, 3, '#e8e0c8', K); },
   scroll(g, c, d) { fr(g, c, 8, 4, 16, 24); g.strokeStyle = K; g.strokeRect(8, 4, 16, 24); for (const y of [10, 14, 18, 22]) ln(g, d, 1, [11, y, 21, y]); ell(g, 16, 4, 8, 2.4, 0, d, K); ell(g, 16, 28, 8, 2.4, 0, d, K); },
-  casket(g, c, d) { rrect(g, 4, 13, 24, 14, 2, c, K); rrect(g, 4, 6, 24, 9, 3, d, K); fr(g, '#e0b436', 14, 13, 4, 5); g.strokeStyle = K; g.strokeRect(14, 13, 4, 5); },
-  spade(g, c, d) { fr(g, WOODC, 14.6, 4, 2.8, 15); fr(g, WOODC, 12, 2, 8, 3); poly(g, [9, 18, 23, 18, 23, 25, 16, 30, 9, 25], c, K); ln(g, d, 1, [16, 19, 16, 27]); },
-  bones(g, c, d) {
-    for (const a of [-0.5, 0.5]) {
-      g.save(); g.translate(16, 16); g.rotate(a);
-      rrect(g, -11, -2, 22, 4, 2, c, K);
-      for (const s of [-1, 1]) for (const t of [-1, 1]) circ(g, s * 11, t * 2.4, 2.6, c, K);
-      g.restore();
-    }
-  },
   coins(g, c, d) { for (const p of [[11, 21, 6], [21, 20, 5.4], [16, 13, 6.4]]) { circ(g, p[0], p[1], p[2], c, K); circ(g, p[0], p[1], p[2] * 0.45, d); } },
-  tinder(g, c, d) { fr(g, c, 6, 13, 20, 13); g.strokeStyle = K; g.strokeRect(6, 13, 20, 13); fr(g, d, 6, 13, 20, 4); GLYPH.flame(g, '#ff9b21', '#ffe08a', 20, 6, 0.55); },
   hammer(g, c, d) { fr(g, WOODC, 14, 12, 4, 18); fr(g, c, 6, 5, 20, 8); g.strokeStyle = K; g.strokeRect(6, 5, 20, 8); fr(g, d, 6, 5, 20, 3); },
-  rod(g, c, d) {
-    ln(g, c, 2.4, [5, 28, 25, 5]);
-    g.strokeStyle = d; g.beginPath(); g.moveTo(25, 5); g.quadraticCurveTo(28, 14, 22, 18); g.stroke();
-    circ(g, 22, 19, 1.6, null, d);
-  },
   net(g, c, d) {
     for (let i = 0; i <= 4; i++) { ln(g, c, 1.4, [5 + i * 5.5, 7, 7 + i * 4.4, 26]); ln(g, c, 1.4, [5, 7 + i * 4.8, 27, 7 + i * 4.8]); }
     g.strokeStyle = d; g.lineWidth = 2; g.strokeRect(5, 7, 22, 19); g.lineWidth = 1;
@@ -1545,56 +1516,6 @@ const GLYPH = {
     poly(g, [16, 2, 25, 23, 7, 23], c, K); fr(g, d, 4, 23, 24, 5); g.strokeStyle = K; g.strokeRect(4, 23, 24, 5);
     circ(g, 16, 15, 2.4, d); circ(g, 13, 9, 1.5, d);
   },
-  robe(g, c, d) { poly(g, [11, 5, 21, 5, 26, 28, 6, 28], c, K); fr(g, d, 14, 5, 4, 23); poly(g, [11, 5, 21, 5, 19, 10, 13, 10], d, null); ln(g, d, 1.6, [7, 25, 25, 25]); },
-  boat(g, c, d) { poly(g, [3, 16, 29, 16, 24, 25, 8, 25], c, K); fr(g, d, 15, 5, 2, 11); poly(g, [17, 6, 26, 14, 17, 14], d, K); },
-  lsword(g, c, d) {
-    poly(g, [16, 1, 18.5, 6, 18.5, 22, 13.5, 22, 13.5, 6], c, K); poly(g, [16, 1, 16, 22], null, d);
-    fr(g, d, 9, 22, 14, 2.6); fr(g, WOODC, 14.6, 24.6, 2.8, 5); fr(g, d, 13.5, 29.2, 5, 1.8);
-  },
-  sword2h(g, c, d) {
-    poly(g, [16, 1, 20.5, 7, 20.5, 20, 11.5, 20, 11.5, 7], c, K); poly(g, [16, 1, 16, 20], null, d);
-    fr(g, d, 7, 20, 18, 3); fr(g, WOODC, 14.5, 23, 3, 7); fr(g, d, 13, 29.4, 6, 2);
-  },
-  mace(g, c, d) {
-    fr(g, WOODC, 14.6, 12, 2.8, 18); circ(g, 16, 8.5, 5.4, c, K);
-    for (const a of [0, 1.05, 2.09, 3.14, 4.19, 5.24]) fr(g, d, 16 + Math.cos(a) * 6.4 - 1.1, 8.5 + Math.sin(a) * 6.4 - 1.1, 2.2, 2.2);
-  },
-  baxe(g, c, d) { poly(g, [20.4, 3.6, 23.6, 5.6, 11.4, 29.4, 8.2, 27.4], WOODC, K); poly(g, [7, 3, 24, 6, 26, 16, 12, 16, 6, 9], c, K); poly(g, [10, 5.4, 22, 7.6, 23.4, 14, 13.4, 14], d, null); },
-  wham(g, c, d) { fr(g, WOODC, 14.6, 10, 2.8, 20); poly(g, [8, 2, 24, 2, 24, 12, 8, 12], c, K); fr(g, d, 8, 5.4, 16, 3.2); },
-  claws(g, c, d) {
-    fr(g, d, 8, 24, 16, 3.4);
-    for (const x of [10.5, 16, 21.5]) qcurve(g, [x - 2.2, 24, x - 3, 12, x + 1.6, 5, x + 1.4, 14, x + 2.2, 24], c, K);
-    fr(g, WOODC, 9, 27.4, 14, 2.6);
-  },
-  halberd(g, c, d) {
-    fr(g, WOODC, 14.8, 3, 2.4, 27); poly(g, [16, 0.5, 18.6, 4.6, 16, 8, 13.4, 4.6], c, K);
-    poly(g, [17.2, 8, 26, 9.5, 27, 16, 17.2, 17.5], c, K); poly(g, [19, 10.4, 24.6, 11.4, 25.2, 14.4, 19, 15.4], d, null);
-  },
-  spear(g, c, d) { fr(g, WOODC, 14.8, 8, 2.4, 22); poly(g, [16, 1, 19.4, 7.6, 16, 12, 12.6, 7.6], c, K); fr(g, d, 13.4, 12, 5.2, 1.8); },
-  cbow(g, c, d) {
-    fr(g, WOODC, 14.4, 8, 3.2, 18); qcurve(g, [4, 12, 16, 3, 28, 12, 16, 8, 4, 12], c, K);
-    ln(g, '#efe4c4', 1, [4.5, 12, 16, 15, 27.5, 12]); fr(g, d, 13.4, 15, 5.2, 4);
-  },
-  bolt(g, c, d) { fr(g, '#8a6a4a', 14.8, 10, 2.4, 14); poly(g, [16, 4, 19, 11, 13, 11], c, K); poly(g, [13, 24, 19, 24, 16, 29], d, K); },
-  dart(g, c, d) { fr(g, '#8a6a4a', 15, 13, 2, 9); poly(g, [16, 4, 18.5, 13, 13.5, 13], c, K); poly(g, [11, 22, 16, 19, 21, 22, 16, 28], d, K); },
-  wand(g, c, d) { poly(g, [19.4, 9, 22, 11.6, 12, 28, 9.4, 25.4], c, K); circ(g, 22.5, 8.5, 3.4, d, K); fr(g, '#fff', 21.6, 7.6, 1.8, 1.8); },
-  fhelm(g, c, d) {
-    poly(g, [8, 12, 10, 6, 22, 6, 24, 12, 24, 26, 8, 26], c, K); fr(g, d, 8, 12, 16, 2.4);
-    fr(g, '#14100c', 10.4, 15.6, 4.6, 2.6); g.fillRect(17, 15.6, 4.6, 2.6); fr(g, d, 14.8, 14.6, 2.4, 11.4);
-  },
-  chain(g, c, d) {
-    poly(g, [9, 6, 23, 6, 26, 12, 24, 27, 8, 27, 6, 12], c, K); g.fillStyle = d;
-    for (let y = 9; y < 26; y += 3.4) for (let x = 9 + (y % 6.8 > 3.3 ? 1.7 : 0); x < 23; x += 3.4) g.fillRect(x, y, 1.6, 1.6);
-  },
-  skirt(g, c, d) { poly(g, [11, 5, 21, 5, 26, 28, 6, 28], c, K); fr(g, d, 11, 5, 10, 3); ln(g, d, 1, [13.5, 9, 11, 27], [18.5, 9, 21, 27]); },
-  sqshield(g, c, d) { poly(g, [8, 5, 24, 5, 24, 23, 16, 28, 8, 23], c, K); poly(g, [11, 8, 21, 8, 21, 21, 16, 24, 11, 21], d, null); },
-  defender(g, c, d) { poly(g, [12, 3, 20, 3, 22, 12, 16, 29, 10, 12], c, K); poly(g, [14, 6, 18, 6, 19.4, 12, 16, 24, 12.6, 12], d, null); },
-  glove(g, c, d) { poly(g, [11, 4, 21, 4, 22, 16, 25, 18, 24, 22, 20, 21, 20, 28, 12, 28, 10, 16], c, K); fr(g, d, 12, 24, 8, 2.2); ln(g, d, 1, [14, 5, 14, 14], [17, 5, 17, 14]); },
-  cape(g, c, d) { poly(g, [10, 4, 22, 4, 26, 27, 16, 24, 6, 27], c, K); fr(g, d, 10, 4, 12, 3); ln(g, d, 1, [12, 8, 10, 24], [20, 8, 22, 24]); },
-  amulet(g, c, d) {
-    g.lineWidth = 2; circ(g, 16, 12, 8.5, null, d, PI * 0.95, PI * 0.05); g.lineWidth = 1;
-    poly(g, [16, 17, 21, 22, 16, 28, 11, 22], c, K); poly(g, [16, 19.4, 18.8, 22, 16, 25.4, 13.2, 22], d, null);
-  }
 };
 /* memoised on (glyph, colours); '|' keys cannot collide with item ids or 'sk:' keys */
 function drawIcon(glyph, c, c2) {
@@ -1606,11 +1527,18 @@ function drawIcon(glyph, c, c2) {
   _iconCache.set(k, u = _ic.toDataURL());
   return u;
 }
+/* 07 icons: wiki-true sprites served from i07/ (items) and c07/ (UI); maps generated from icons07-map.csv by icons07-genmap.mjs; drawn glyphs remain only as the fallback for unmapped entries */
+/* ICON07-GEN start */
+const ICON07 = { bronze_hatchet: 'bronzeAxe', bronze_pickaxe: 'bronzePickaxe', bronze_dagger: 'bronzeDagger', bronze_sword: 'bronzeSword', bronze_scimitar: 'bronzeScimitar', bronze_longsword: 'bronzeLongsword', bronze_mace: 'bronzeMace', bronze_battleaxe: 'bronzeBattleaxe', bronze_warhammer: 'bronzeWarhammer', bronze_claws: 'bronzeClaws', bronze_2h_sword: 'bronze2hSword', bronze_halberd: 'bronzeHalberd', bronze_spear: 'bronzeSpear', bronze_hasta: 'bronzeHasta', bronze_med_helm: 'bronzeMedHelm', bronze_full_helm: 'bronzeFullHelm', bronze_platebody: 'bronzePlatebody', bronze_chainbody: 'bronzeChainbody', bronze_platelegs: 'bronzePlatelegs', bronze_plateskirt: 'bronzePlateskirt', bronze_kiteshield: 'bronzeKiteshield', bronze_sq_shield: 'bronzeSqShield', bronze_defender: 'bronzeDefender', bronze_gauntlets: 'bronzeGloves', iron_hatchet: 'ironAxe', iron_pickaxe: 'ironPickaxe', iron_dagger: 'ironDagger', iron_sword: 'ironSword', iron_scimitar: 'ironScimitar', iron_longsword: 'ironLongsword', iron_mace: 'ironMace', iron_battleaxe: 'ironBattleaxe', iron_warhammer: 'ironWarhammer', iron_claws: 'ironClaws', iron_2h_sword: 'iron2hSword', iron_halberd: 'ironHalberd', iron_spear: 'ironSpear', iron_hasta: 'ironHasta', iron_med_helm: 'ironMedHelm', iron_full_helm: 'ironFullHelm', iron_platebody: 'ironPlatebody', iron_chainbody: 'ironChainbody', iron_platelegs: 'ironPlatelegs', iron_plateskirt: 'ironPlateskirt', iron_kiteshield: 'ironKiteshield', iron_sq_shield: 'ironSqShield', iron_defender: 'ironDefender', iron_boots: 'ironBoots', iron_gauntlets: 'ironGloves', steel_hatchet: 'steelAxe', steel_pickaxe: 'steelPickaxe', steel_dagger: 'steelDagger', steel_sword: 'steelSword', steel_scimitar: 'steelScimitar', steel_longsword: 'steelLongsword', steel_mace: 'steelMace', steel_battleaxe: 'steelBattleaxe', steel_warhammer: 'steelWarhammer', steel_claws: 'steelClaws', steel_2h_sword: 'steel2hSword', steel_halberd: 'steelHalberd', steel_spear: 'steelSpear', steel_hasta: 'steelHasta', steel_med_helm: 'steelMedHelm', steel_full_helm: 'steelFullHelm', steel_platebody: 'steelPlatebody', steel_chainbody: 'steelChainbody', steel_platelegs: 'steelPlatelegs', steel_plateskirt: 'steelPlateskirt', steel_kiteshield: 'steelKiteshield', steel_sq_shield: 'steelSqShield', steel_defender: 'steelDefender', steel_boots: 'steelBoots', steel_gauntlets: 'steelGauntlets', black_hatchet: 'blackAxe', black_dagger: 'blackDagger', black_sword: 'blackSword', black_scimitar: 'blackScimitar', black_longsword: 'blackLongsword', black_mace: 'blackMace', black_battleaxe: 'blackBattleaxe', black_warhammer: 'blackWarhammer', black_claws: 'blackClaws', black_2h_sword: 'black2hSword', black_halberd: 'blackHalberd', black_spear: 'blackSpear', black_med_helm: 'blackMedHelm', black_full_helm: 'blackFullHelm', black_platebody: 'blackPlatebody', black_chainbody: 'blackChainbody', black_platelegs: 'blackPlatelegs', black_plateskirt: 'blackPlateskirt', black_kiteshield: 'blackKiteshield', black_sq_shield: 'blackSqShield', black_defender: 'blackDefender', black_boots: 'blackBoots', black_gauntlets: 'blackGloves', mithril_hatchet: 'mithrilAxe', mithril_pickaxe: 'mithrilPickaxe', mithril_dagger: 'mithrilDagger', mithril_sword: 'mithrilSword', mithril_scimitar: 'mithrilScimitar', mithril_longsword: 'mithrilLongsword', mithril_mace: 'mithrilMace', mithril_battleaxe: 'mithrilBattleaxe', mithril_warhammer: 'mithrilWarhammer', mithril_claws: 'mithrilClaws', mithril_2h_sword: 'mithril2hSword', mithril_halberd: 'mithrilHalberd', mithril_spear: 'mithrilSpear', mithril_hasta: 'mithrilHasta', mithril_med_helm: 'mithrilMedHelm', mithril_full_helm: 'mithrilFullHelm', mithril_platebody: 'mithrilPlatebody', mithril_chainbody: 'mithrilChainbody', mithril_platelegs: 'mithrilPlatelegs', mithril_plateskirt: 'mithrilPlateskirt', mithril_kiteshield: 'mithrilKiteshield', mithril_sq_shield: 'mithrilSqShield', mithril_defender: 'mithrilDefender', mithril_boots: 'mithrilBoots', mithril_gauntlets: 'mithrilGloves', adamant_hatchet: 'adamantAxe', adamant_pickaxe: 'adamantPickaxe', adamant_dagger: 'adamantDagger', adamant_sword: 'adamantSword', adamant_scimitar: 'adamantScimitar', adamant_longsword: 'adamantLongsword', adamant_mace: 'adamantMace', adamant_battleaxe: 'adamantBattleaxe', adamant_warhammer: 'adamantWarhammer', adamant_claws: 'adamantClaws', adamant_2h_sword: 'adamant2hSword', adamant_halberd: 'adamantHalberd', adamant_spear: 'adamantSpear', adamant_hasta: 'adamantHasta', adamant_med_helm: 'adamantMedHelm', adamant_full_helm: 'adamantFullHelm', adamant_platebody: 'adamantPlatebody', adamant_chainbody: 'adamantChainbody', adamant_platelegs: 'adamantPlatelegs', adamant_plateskirt: 'adamantPlateskirt', adamant_kiteshield: 'adamantKiteshield', adamant_sq_shield: 'adamantSqShield', adamant_defender: 'adamantDefender', adamant_boots: 'adamantBoots', adamant_gauntlets: 'adamantGloves', rune_hatchet: 'runeAxe', rune_pickaxe: 'runePickaxe', rune_dagger: 'runeDagger', rune_sword: 'runeSword', rune_scimitar: 'runeScimitar', rune_longsword: 'runeLongsword', rune_mace: 'runeMace', rune_battleaxe: 'runeBattleaxe', rune_warhammer: 'runeWarhammer', rune_claws: 'runeClaws', rune_2h_sword: 'rune2hSword', rune_halberd: 'runeHalberd', rune_spear: 'runeSpear', rune_hasta: 'runeHasta', rune_med_helm: 'runeMedHelm', rune_full_helm: 'runeFullHelm', rune_platebody: 'runePlatebody', rune_chainbody: 'runeChainbody', rune_platelegs: 'runePlatelegs', rune_plateskirt: 'runePlateskirt', rune_kiteshield: 'runeKiteshield', rune_sq_shield: 'runeSqShield', rune_defender: 'runeDefender', rune_boots: 'runeBoots', rune_gauntlets: 'runeGloves', white_med_helm: 'whiteMedHelm', white_full_helm: 'whiteFullHelm', white_platebody: 'whitePlatebody', white_chainbody: 'whiteChainbody', white_platelegs: 'whitePlatelegs', white_plateskirt: 'whitePlateskirt', white_kiteshield: 'whiteKiteshield', white_sq_shield: 'whiteSqShield', white_boots: 'whiteBoots', white_gauntlets: 'whiteGloves', dragon_hatchet: 'dragonAxe', dragon_pickaxe: 'dragonPickaxe', dragon_dagger: 'dragonDagger', dragon_sword: 'dragonSword', dragon_scimitar: 'dragonScimitar', dragon_longsword: 'dragonLongsword', dragon_mace: 'dragonMace', dragon_battleaxe: 'dragonBattleaxe', dragon_warhammer: 'dragonWarhammer', dragon_claws: 'dragonClaws', dragon_2h_sword: 'dragon2hSword', dragon_halberd: 'dragonHalberd', dragon_spear: 'dragonSpear', dragon_hasta: 'dragonHasta', dragon_med_helm: 'dragonMedHelm', dragon_full_helm: 'dragonFullHelm', dragon_platebody: 'dragonPlatebody', dragon_chainbody: 'dragonChainbody', dragon_platelegs: 'dragonPlatelegs', dragon_plateskirt: 'dragonPlateskirt', dragon_kiteshield: 'dragonKiteshield', dragon_sq_shield: 'dragonSqShield', dragon_defender: 'dragonDefender', dragon_boots: 'dragonBoots', dragon_gauntlets: 'dragonGloves', shortbow: 'shortbow', longbow: 'longbow', oak_shortbow: 'oakShortbow', oak_longbow: 'oakLongbow', willow_shortbow: 'willowShortbow', willow_longbow: 'willowLongbow', maple_shortbow: 'mapleShortbow', maple_longbow: 'mapleLongbow', yew_shortbow: 'yewShortbow', yew_longbow: 'yewLongbow', magic_shortbow: 'magicShortbow', magic_longbow: 'magicLongbow', bronze_crossbow: 'bronzeCrossbow', iron_crossbow: 'ironCrossbow', steel_crossbow: 'steelCrossbow', mithril_crossbow: 'mithrilCrossbow', adamant_crossbow: 'adamantCrossbow', rune_crossbow: 'runeCrossbow', dragon_crossbow: 'dragonCrossbow', bronze_arrow: 'bronzeArrow5', iron_arrow: 'ironArrow5', steel_arrow: 'steelArrow5', mithril_arrow: 'mithrilArrow5', adamant_arrow: 'adamantArrow5', rune_arrow: 'runeArrow5', amethyst_arrow: 'amethystArrow5', dragon_arrow: 'dragonArrow5', bronze_bolts: 'bronzeBolts5', iron_bolts: 'ironBolts5', steel_bolts: 'steelBolts5', mithril_bolts: 'mithrilBolts5', adamant_bolts: 'adamantBolts5', rune_bolts: 'runiteBolts5', dragon_bolts: 'dragonBolts5', diamond_bolts_e: 'diamondBoltsE5', bronze_knife: 'bronzeKnife', bronze_dart: 'bronzeDart', bronze_thrownaxe: 'bronzeThrownaxe', bronze_javelin: 'bronzeJavelin', iron_knife: 'ironKnife', iron_dart: 'ironDart', iron_thrownaxe: 'ironThrownaxe', iron_javelin: 'ironJavelin', steel_knife: 'steelKnife', steel_dart: 'steelDart', steel_thrownaxe: 'steelThrownaxe', steel_javelin: 'steelJavelin', black_knife: 'blackKnife', black_dart: 'blackDart', mithril_knife: 'mithrilKnife', mithril_dart: 'mithrilDart', mithril_thrownaxe: 'mithrilThrownaxe', mithril_javelin: 'mithrilJavelin', adamant_knife: 'adamantKnife', adamant_dart: 'adamantDart', adamant_thrownaxe: 'adamantThrownaxe', adamant_javelin: 'adamantJavelin', rune_knife: 'runeKnife', rune_dart: 'runeDart', rune_thrownaxe: 'runeThrownaxe', rune_javelin: 'runeJavelin', dragon_knife: 'dragonKnife', dragon_dart: 'dragonDart', dragon_thrownaxe: 'dragonThrownaxe', dragon_javelin: 'dragonJavelin', chinchompa: 'chinchompa', red_chinchompa: 'redChinchompa', bronze_arrowtips: 'bronzeArrowtips', iron_arrowtips: 'ironArrowtips', steel_arrowtips: 'steelArrowtips', mithril_arrowtips: 'mithrilArrowtips', adamant_arrowtips: 'adamantArrowtips', rune_arrowtips: 'runeArrowtips', dragon_arrowtips: 'dragonArrowtips', bronze_bolts_u: 'bronzeBoltsUnf5', iron_bolts_u: 'ironBoltsUnf5', steel_bolts_u: 'steelBoltsUnf5', mithril_bolts_u: 'mithrilBoltsUnf5', adamant_bolts_u: 'adamantBoltsunf5', rune_bolts_u: 'runiteBoltsUnf5', dragon_bolts_u: 'dragonBoltsUnf5', bronze_dart_tips: 'bronzeDartTip', iron_dart_tips: 'ironDartTip', steel_dart_tips: 'steelDartTip', black_dart_tips: 'blackDart', mithril_dart_tips: 'mithrilDartTip', adamant_dart_tips: 'adamantDartTip', rune_dart_tips: 'runeDartTip', dragon_dart_tips: 'dragonDartTip', leather_coif: 'coif', leather_body: 'leatherBody', leather_chaps: 'leatherChaps', leather_vambraces: 'leatherVambraces', studded_coif: 'coif', studded_body: 'studdedBody', studded_chaps: 'studdedChaps', studded_vambraces: 'spikyVambraces', green_dhide_coif: 'coif', green_dhide_body: 'greenDhideBody', green_dhide_chaps: 'greenDhideChaps', green_dhide_vambraces: 'greenDhideVambraces', blue_dhide_coif: 'coif', blue_dhide_body: 'blueDhideBody', blue_dhide_chaps: 'blueDhideChaps', blue_dhide_vambraces: 'blueDhideVambraces', red_dhide_coif: 'coif', red_dhide_body: 'redDhideBody', red_dhide_chaps: 'redDhideChaps', red_dhide_vambraces: 'redDhideVambraces', black_dhide_coif: 'coif', black_dhide_body: 'blackDhideBody', black_dhide_chaps: 'blackDhideChaps', black_dhide_vambraces: 'blackDhideVambraces', logs: 'logs', oak_logs: 'oakLogs', willow_logs: 'willowLogs', maple_logs: 'mapleLogs', yew_logs: 'yewLogs', magic_logs: 'magicLogs', mahogany_logs: 'mahoganyLogs', copper_ore: 'copperOre', tin_ore: 'tinOre', iron_ore: 'ironOre', coal: 'coal', mithril_ore: 'mithrilOre', adamantite_ore: 'adamantiteOre', runite_ore: 'runiteOre', silver_ore: 'silverOre', gold_ore: 'goldOre', rune_essence: 'runeEssence', bronze_bar: 'bronzeBar', iron_bar: 'ironBar', steel_bar: 'steelBar', mithril_bar: 'mithrilBar', adamant_bar: 'adamantiteBar', rune_bar: 'runiteBar', silver_bar: 'silverBar', gold_bar: 'goldBar', bronze_nails: 'bronzeNails', iron_nails: 'ironNails', steel_nails: 'steelNails', mithril_nails: 'mithrilNails', adamant_nails: 'adamantiteNails', rune_nails: 'runeNails', raw_shrimps: 'rawShrimps', shrimps: 'shrimps', burnt_shrimps: 'burntFishAnchovies', raw_sardine: 'rawSardine', sardine: 'sardine', burnt_sardine: 'burntFishSardine', raw_herring: 'rawHerring', herring: 'herring', burnt_herring: 'burntFishHerring', raw_anchovies: 'rawAnchovies', anchovies: 'anchovies', burnt_anchovies: 'burntFishAnchovies', raw_trout: 'rawTrout', trout: 'trout', burnt_trout: 'burntFishTrout', raw_pike: 'rawPike', pike: 'pike', burnt_pike: 'burntFishTrout', raw_salmon: 'rawSalmon', salmon: 'salmon', burnt_salmon: 'burntFishTrout', raw_tuna: 'rawTuna', tuna: 'tuna', burnt_tuna: 'burntFishTuna', raw_lobster: 'rawLobster', lobster: 'lobster', burnt_lobster: 'burntLobster', raw_bass: 'rawBass', bass: 'bass', burnt_bass: 'burntFishTuna', raw_swordfish: 'rawSwordfish', swordfish: 'swordfish', burnt_swordfish: 'burntSwordfish', raw_monkfish: 'rawMonkfish', monkfish: 'monkfish', burnt_monkfish: 'burntMonkfish', raw_shark: 'rawShark', shark: 'shark', burnt_shark: 'burntShark', raw_anglerfish: 'rawAnglerfish', anglerfish: 'anglerfish', burnt_anglerfish: 'burntAnglerfish', raw_dark_crab: 'rawDarkCrab', dark_crab: 'darkCrab', burnt_dark_crab: 'burntDarkCrab', raw_beef: 'rawBeef', cooked_meat: 'cookedMeat', burnt_meat: 'burntMeat', raw_chicken: 'rawChicken', cooked_chicken: 'cookedChicken', burnt_chicken: 'burntChicken', gilded_hatchet: 'gildedAxe', gilded_pickaxe: 'gildedPickaxe', leather_gloves: 'leatherGloves', leather_boots: 'leatherBoots', anti_dragon_shield: 'antiDragonShield', snakeskin_boots: 'snakeskinBoots', avas_attractor: 'avasAttractor', avas_accumulator: 'avasAccumulator', team_cape: 'team1Cape', amulet_of_magic: 'amuletOfMagic', amulet_of_defence: 'amuletOfDefence', amulet_of_strength: 'amuletOfStrength', amulet_of_power: 'amuletOfPower', amulet_of_glory: 'amuletOfGlory', ring_of_recoil: 'ringOfRecoil', ring_of_life: 'ringOfLife', ring_of_wealth: 'ringOfWealth', tinderbox: 'tinderbox', hammer: 'hammer', fishing_rod: 'fishingRod', small_net: 'smallFishingNet', harpoon: 'harpoon', coins: 'coins10000', bones: 'bones', big_bones: 'bigBones', dragon_bones: 'dragonBones', air_rune: 'airRune', mind_rune: 'mindRune', water_rune: 'waterRune', earth_rune: 'earthRune', fire_rune: 'fireRune', body_rune: 'bodyRune', cosmic_rune: 'cosmicRune', chaos_rune: 'chaosRune', nature_rune: 'natureRune', law_rune: 'lawRune', death_rune: 'deathRune', blood_rune: 'bloodRune', soul_rune: 'soulRune', pure_essence: 'pureEssence', tiara: 'tiara', air_talisman: 'airTalisman', air_tiara: 'airTiara', mind_talisman: 'mindTalisman', mind_tiara: 'mindTiara', water_talisman: 'waterTalisman', water_tiara: 'waterTiara', earth_talisman: 'earthTalisman', earth_tiara: 'earthTiara', fire_talisman: 'fireTalisman', fire_tiara: 'fireTiara', body_talisman: 'bodyTalisman', body_tiara: 'bodyTiara', cosmic_talisman: 'cosmicTalisman', cosmic_tiara: 'cosmicTiara', chaos_talisman: 'chaosTalisman', chaos_tiara: 'chaosTiara', nature_talisman: 'natureTalisman', nature_tiara: 'natureTiara', law_talisman: 'lawTalisman', law_tiara: 'lawTiara', death_talisman: 'deathTalisman', death_tiara: 'deathTiara', blood_talisman: 'bloodTalisman', blood_tiara: 'bloodTiara', soul_talisman: 'soulTalisman', soul_tiara: 'soulTiara', uncut_sapphire: 'uncutSapphire', sapphire: 'sapphire', uncut_emerald: 'uncutEmerald', emerald: 'emerald', uncut_ruby: 'uncutRuby', ruby: 'ruby', uncut_diamond: 'uncutDiamond', diamond: 'diamond', uncut_dragonstone: 'uncutDragonstone', dragonstone: 'dragonstone', uncut_onyx: 'uncutOnyx', onyx: 'onyx', gold_ring: 'goldRing', sapphire_ring: 'sapphireRing', emerald_ring: 'emeraldRing', ruby_ring: 'rubyRing', diamond_ring: 'diamondRing', dragonstone_ring: 'dragonstoneRing', onyx_ring: 'onyxRing', gold_necklace: 'goldNecklace', sapphire_necklace: 'sapphireNecklace', emerald_necklace: 'emeraldNecklace', ruby_necklace: 'rubyNecklace', diamond_necklace: 'diamondNecklace', dragonstone_necklace: 'dragonNecklace', onyx_necklace: 'onyxNecklace', gold_amulet: 'goldAmulet', sapphire_amulet: 'sapphireAmulet', emerald_amulet: 'emeraldAmulet', ruby_amulet: 'rubyAmulet', diamond_amulet: 'diamondAmulet', dragonstone_amulet: 'dragonstoneAmulet', onyx_amulet: 'onyxAmulet', grimy_guam: 'grimyGuamLeaf', guam: 'guamLeaf', grimy_marrentill: 'grimyMarrentill', marrentill: 'marrentill', grimy_tarromin: 'grimyTarromin', tarromin: 'tarromin', grimy_harralander: 'grimyHarralander', harralander: 'harralander', grimy_ranarr: 'grimyRanarrWeed', ranarr: 'ranarrWeed', grimy_toadflax: 'grimyToadflax', toadflax: 'toadflax', grimy_irit: 'grimyIritLeaf', irit: 'iritLeaf', grimy_avantoe: 'grimyAvantoe', avantoe: 'avantoe', grimy_kwuarm: 'grimyKwuarm', kwuarm: 'kwuarm', grimy_snapdragon: 'grimySnapdragon', snapdragon: 'snapdragon', grimy_cadantine: 'grimyCadantine', cadantine: 'cadantine', grimy_lantadyme: 'grimyLantadyme', lantadyme: 'lantadyme', grimy_dwarf_weed: 'grimyDwarfWeed', dwarf_weed: 'dwarfWeed', grimy_torstol: 'grimyTorstol', torstol: 'torstol', potato: 'potato', onion: 'onion', cabbage: 'cabbage', tomato: 'tomato', sweetcorn: 'sweetcorn', strawberry: 'strawberry', watermelon: 'watermelon', potato_seed: 'potatoSeed5', onion_seed: 'onionSeed5', cabbage_seed: 'cabbageSeed5', tomato_seed: 'tomatoSeed5', sweetcorn_seed: 'sweetcornSeed5', strawberry_seed: 'strawberrySeed5', watermelon_seed: 'watermelonSeed5', guam_seed: 'guamSeed5', marrentill_seed: 'marrentillSeed5', tarromin_seed: 'tarrominSeed5', harralander_seed: 'harralanderSeed5', ranarr_seed: 'ranarrSeed5', toadflax_seed: 'toadflaxSeed5', irit_seed: 'iritSeed5', avantoe_seed: 'avantoeSeed5', kwuarm_seed: 'kwuarmSeed5', snapdragon_seed: 'snapdragonSeed5', cadantine_seed: 'cadantineSeed5', lantadyme_seed: 'lantadymeSeed5', dwarf_weed_seed: 'dwarfWeedSeed5', torstol_seed: 'torstolSeed5', acorn: 'acorn1', willow_seed: 'willowSeed5', maple_seed: 'mapleSeed5', yew_seed: 'yewSeed5', magic_seed: 'magicSeed5', mahogany_seed: 'mahoganySeed5', wheat_seed: 'seeds', feather: 'feather', flax: 'flax', bow_string: 'bowString', wool: 'wool', ball_of_wool: 'ballOfWool', cowhide: 'cowhide', leather: 'leather', hard_leather: 'hardLeather', green_dragonhide: 'greenDragonhide', green_dragon_leather: 'greenDragonLeather', blue_dragonhide: 'blueDragonhide', blue_dragon_leather: 'blueDragonLeather', red_dragonhide: 'redDragonhide', red_dragon_leather: 'redDragonLeather', black_dragonhide: 'blackDragonhide', black_dragon_leather: 'blackDragonLeather', needle: 'needle', thread: 'thread', chisel: 'chisel', knife: 'knife', shears: 'shears', ring_mould: 'ringMould', necklace_mould: 'necklaceMould', amulet_mould: 'amuletMould', tiara_mould: 'tiaraMould', wizard_hat: 'wizardHat', wizard_robe_top: 'blueWizardRobe', wizard_robe_bottom: 'blueSkirt', wizard_gloves: 'iceGloves', wizard_boots: 'wizardBoots', black_hat: 'blackWizardHatG', black_robe_top: 'blackRobe', black_robe_bottom: 'blackSkirt', black_gloves: 'blackGloves', mystic_hat: 'mysticHat', mystic_robe_top: 'mysticRobeTop', mystic_robe_bottom: 'mysticRobeBottom', mystic_gloves: 'mysticGloves', mystic_boots: 'mysticBoots', staff: 'staff', staff_of_air: 'staffOfAir', staff_of_water: 'staffOfWater', staff_of_earth: 'staffOfEarth', staff_of_fire: 'staffOfFire', battlestaff_of_air: 'airBattlestaff', battlestaff_of_water: 'waterBattlestaff', battlestaff_of_earth: 'earthBattlestaff', battlestaff_of_fire: 'fireBattlestaff', mystic_of_air: 'mysticAirStaff', mystic_of_water: 'mysticWaterStaff', mystic_of_earth: 'mysticEarthStaff', mystic_of_fire: 'mysticFireStaff', battlestaff: 'battlestaff', mystic_staff: 'mysticAirStaff', mud_battlestaff: 'mudBattlestaff', mystic_mud_staff: 'mysticMudStaff', lava_battlestaff: 'lavaBattlestaff', mystic_lava_staff: 'mysticLavaStaff', steam_battlestaff: 'steamBattlestaff', mystic_steam_staff: 'mysticSteamStaff', smoke_battlestaff: 'smokeBattlestaff', mystic_smoke_staff: 'mysticSmokeStaff', mist_battlestaff: 'mistBattlestaff', mystic_mist_staff: 'mysticMistStaff', dust_battlestaff: 'dustBattlestaff', mystic_dust_staff: 'mysticDustStaff', beginner_wand: 'beginnerWand', apprentice_wand: 'apprenticeWand', teacher_wand: 'teacherWand', master_wand: 'masterWand', skillcape_attack: 'attackCape', skillcape_strength: 'strengthCape', skillcape_defence: 'defenceCape', skillcape_ranged: 'rangingCape', skillcape_prayer: 'prayerCape', skillcape_magic: 'magicCape', skillcape_runecraft: 'runecraftCape', skillcape_construction: 'constructCape', skillcape_hitpoints: 'hitpointsCape', skillcape_agility: 'agilityCape', skillcape_herblore: 'herbloreCape', skillcape_thieving: 'thievingCape', skillcape_crafting: 'craftingCape', skillcape_fletching: 'fletchingCape', skillcape_slayer: 'slayerCape', skillcape_hunter: 'hunterCape', skillcape_mining: 'miningCape', skillcape_smithing: 'smithingCape', skillcape_fishing: 'fishingCape', skillcape_cooking: 'cookingCape', skillcape_firemaking: 'firemakingCape', skillcape_woodcutting: 'woodcuttingCape', skillcape_farming: 'farmingCape', skillcape_sailing: 'sailingCape', bread: 'bread', silk: 'silk', fur: 'fur', spice: 'spice', hardleather_body: 'hardleatherBody', arrow_shaft: 'arrowShaft5', headless_arrow: 'headlessArrow', shortbow_u: 'shortbowU', longbow_u: 'longbowU', oak_shortbow_u: 'oakShortbowU', oak_longbow_u: 'oakLongbowU', willow_shortbow_u: 'willowShortbowU', willow_longbow_u: 'willowLongbowU', maple_shortbow_u: 'mapleShortbowU', maple_longbow_u: 'mapleLongbowU', yew_shortbow_u: 'yewShortbowU', yew_longbow_u: 'yewLongbowU', magic_shortbow_u: 'magicShortbowU', magic_longbow_u: 'magicLongbowU', vial_of_water: 'vialOfWater', eye_of_newt: 'eyeOfNewt', unicorn_horn: 'unicornHorn', limpwurt_root: 'limpwurtRoot', red_spiders_eggs: 'redSpidersEggs', white_berries: 'whiteBerries', snape_grass: 'snapeGrass', mort_myre_fungus: 'mortMyreFungus', wine_of_zamorak: 'wineOfZamorak', potato_cactus: 'potatoCactus', dragon_scale_dust: 'dragonScaleDust', coconut: 'coconut', supercompost: 'supercompost', steel_cannonball: 'steelCannonball', onyx_bolt_tips: 'onyxBoltTips5', blighted_anglerfish: 'blightedAnglerfish', onyx_bolts: 'onyxBolts5', goat_horn: 'goatHorn', egg: 'egg', guam_potion_u: 'guamPotionUnf', attack_4: 'attackPotion4', attack_3: 'attackPotion3', attack_2: 'attackPotion2', attack_1: 'attackPotion1', marrentill_potion_u: 'marrentillPotionUnf', antipoison_4: 'antipoison4', antipoison_3: 'antipoison3', antipoison_2: 'antipoison2', antipoison_1: 'antipoison1', tarromin_potion_u: 'tarrominPotionUnf', strength_4: 'strengthPotion4', strength_3: 'strengthPotion3', strength_2: 'strengthPotion2', strength_1: 'strengthPotion1', harralander_potion_u: 'harralanderPotionUnf', restore_4: 'restorePotion4', restore_3: 'restorePotion3', restore_2: 'restorePotion2', restore_1: 'restorePotion1', energy_4: 'energyPotion4', energy_3: 'energyPotion3', energy_2: 'energyPotion2', energy_1: 'energyPotion1', ranarr_potion_u: 'ranarrPotionUnf', defence_4: 'defencePotion4', defence_3: 'defencePotion3', defence_2: 'defencePotion2', defence_1: 'defencePotion1', prayer_4: 'prayerPotion4', prayer_3: 'prayerPotion3', prayer_2: 'prayerPotion2', prayer_1: 'prayerPotion1', irit_potion_u: 'iritPotionUnf', super_attack_4: 'superAttack4', super_attack_3: 'superAttack3', super_attack_2: 'superAttack2', super_attack_1: 'superAttack1', avantoe_potion_u: 'avantoePotionUnf', super_energy_4: 'superEnergy4', super_energy_3: 'superEnergy3', super_energy_2: 'superEnergy2', super_energy_1: 'superEnergy1', kwuarm_potion_u: 'kwuarmPotionUnf', super_strength_4: 'superStrength4', super_strength_3: 'superStrength3', super_strength_2: 'superStrength2', super_strength_1: 'superStrength1', snapdragon_potion_u: 'snapdragonPotionUnf', super_restore_4: 'superRestore4', super_restore_3: 'superRestore3', super_restore_2: 'superRestore2', super_restore_1: 'superRestore1', sanfew_4: 'sanfewSerum4', sanfew_3: 'sanfewSerum3', sanfew_2: 'sanfewSerum2', sanfew_1: 'sanfewSerum1', cadantine_potion_u: 'cadantinePotionUnf', super_defence_4: 'superDefence4', super_defence_3: 'superDefence3', super_defence_2: 'superDefence2', super_defence_1: 'superDefence1', lantadyme_potion_u: 'lantadymePotionUnf', antifire_4: 'antifirePotion4', antifire_3: 'antifirePotion3', antifire_2: 'antifirePotion2', antifire_1: 'antifirePotion1', dwarf_weed_potion_u: 'dwarfWeedPotionUnf', ranging_4: 'rangingPotion4', ranging_3: 'rangingPotion3', ranging_2: 'rangingPotion2', ranging_1: 'rangingPotion1', magic_4: 'magicPotion4', magic_3: 'magicPotion3', magic_2: 'magicPotion2', magic_1: 'magicPotion1', combat_4: 'combatPotion4', combat_3: 'combatPotion3', combat_2: 'combatPotion2', combat_1: 'combatPotion1', super_antipoison_4: 'superantipoison4', super_antipoison_3: 'superantipoison3', super_antipoison_2: 'superantipoison2', super_antipoison_1: 'superantipoison1', toadflax_potion_u: 'toadflaxPotionUnf', antidote_p_4: 'antidoteplus4', antidote_p_3: 'antidoteplus3', antidote_p_2: 'antidoteplus2', antidote_p_1: 'antidoteplus1', stamina_4: 'staminaPotion4', stamina_3: 'staminaPotion3', stamina_2: 'staminaPotion2', stamina_1: 'staminaPotion1', torstol_potion_u: 'torstolPotionUnf', zamorak_brew_4: 'zamorakBrew4', zamorak_brew_3: 'zamorakBrew3', zamorak_brew_2: 'zamorakBrew2', zamorak_brew_1: 'zamorakBrew1', antidote_pp_4: 'antidoteplusplus4', antidote_pp_3: 'antidoteplusplus3', antidote_pp_2: 'antidoteplusplus2', antidote_pp_1: 'antidoteplusplus1', saradomin_brew_4: 'saradominBrew4', saradomin_brew_3: 'saradominBrew3', saradomin_brew_2: 'saradominBrew2', saradomin_brew_1: 'saradominBrew1', bird_snare: 'birdSnare', box_trap: 'boxTrap', ferret: 'ferret', kebbit_fur: 'commonKebbitFur', plank: 'plank', oak_plank: 'oakPlank', mahogany_plank: 'mahoganyPlank', firepit: 'c07/firemakingIcon', workbench: 'c07/workshopIcon', camp_altar: 'c07/altarIcon', crude_chair: 'crudeChairFlatpack', wooden_bookcase: 'bookcaseFlatpack', wooden_chair: 'woodenChairFlatpack', oak_chair: 'oakChairFlatpack', oak_table: 'oakDiningTableFlatpack', oak_bookcase: 'oakBookcaseFlatpack', oak_larder: 'c07/oakCupboardIcon', saw: 'saw', house_deed: 'deed', bolt_of_cloth: 'boltOfCloth', limestone_brick: 'limestoneBrick', gold_leaf: 'goldLeaf', marble_block: 'marbleBlock', magic_stone: 'magicStone', rocking_chair: 'rockingChairFlatpack', oak_armchair: 'oakArmchairFlatpack', mahogany_armchair: 'mahoganyArmchairFlatpack', mahogany_bookcase: 'mahoganyBookcaseFlatpack', stone_fireplace: 'limestoneBrick', marble_fireplace: 'marbleBlock', brown_rug: 'armageddonRug', rug: 'armageddonRug', opulent_rug: 'armageddonRug', wooden_larder: 'c07/woodenCupboardIcon', small_oven: 'c07/cookingRangeIcon', large_oven: 'c07/cookingRangeIcon', steel_range: 'c07/cookingRangeIcon', fancy_range: 'c07/cookingRangeIcon', kitchen_table: 'kitchenTableFlatpack', oak_kitchen_table: 'oakKitchenTableFlatpack', wooden_shelves: 'c07/woodenCupboardIcon', pump_and_drain: 'vacuumPump', pump_and_tub: 'rubberTube', sink: 'sinkPlug', beer_barrel: 'beerBarrelFlatpack', wood_dining_table: 'woodDiningTableFlatpack', carved_oak_table: 'carvedOakTableFlatpack', mahogany_table: 'mahoganyTableFlatpack', opulent_table: 'opulentTableFlatpack', wooden_bench: 'woodenBenchFlatpack', oak_bench: 'oakBenchFlatpack', carved_oak_bench: 'carvedOakBenchFlatpack', mahogany_bench: 'mahoganyBenchFlatpack', gilded_bench: 'gildedBenchFlatpack', oak_decoration: 'oakShield', gilded_decoration: 'gildedTotem', wooden_bed: 'woodenBedFlatpack', oak_bed: 'oakBedFlatpack', large_oak_bed: 'largeOakBedFlatpack', four_poster: 'fourPosterBedFlatpack', gilded_four_poster: 'gildedFourPosterFlatpack', shoe_box: 'shoeBoxFlatpack', oak_drawers: 'oakDrawersFlatpack', oak_wardrobe: 'oakWardrobeFlatpack', mahogany_wardrobe: 'mahoganyWardrobeFlatpack', gilded_wardrobe: 'gildedWardrobeFlatpack', oak_lectern: 'oakLecternFlatpack', eagle_lectern: 'eagleLecternFlatpack', mahogany_eagle_lectern: 'mahoganyEagleFlatpack', marble_lectern: 'marbleBlock', globe: 'globeFlatpack', armillary_sphere: 'armillarySphereFlatpack', small_orrery: 'smallOrreryFlatpack', large_orrery: 'largeOrreryFlatpack', alchemical_chart: 'alchemicalNotes', astronomical_chart: 'chart', infernal_chart: 'chart', oak_altar: 'c07/oakAltarIcon', mahogany_altar: 'c07/mahoganyAltarIcon', limestone_altar: 'c07/limestoneAltarIcon', marble_altar: 'c07/marbleAltarIcon', gilded_altar: 'c07/gildedAltarIcon', oak_burners: 'incenseBurnerOakIcon', mahogany_burners: 'incenseBurnerMahoganyIcon', marble_burners: 'incenseBurnerMarbleIcon', small_statue: 'stoneStatuette', medium_statue: 'greenmanStatue', large_statue: 'guardianStatue', wooden_workbench: 'c07/workshopIcon', oak_workbench: 'c07/workshopIcon', steel_framed_bench: 'c07/workshopIcon', bench_with_vice: 'c07/workshopIcon', bench_with_lathe: 'c07/workshopIcon', repair_bench: 'repairKit', whetstone: 'toolkit', armour_stand: 'c07/anvilIcon', tool_store: 'c07/toolStore1Icon', room_parlour: 'parlourInterfaceItem', room_kitchen: 'kitchenInterfaceItem', room_dining: 'diningRoomInterfaceItem', room_workshop: 'workshopInterfaceItem', room_bedroom: 'bedroomInterfaceItem', room_study: 'studyInterfaceItem', room_chapel: 'chapelInterfaceItem', ring_of_dueling: 'ringOfDueling', banana: 'banana', peach: 'peach', sapphire_bolt_tips: 'sapphireBoltTips5', sapphire_bolts: 'sapphireBolts5', sapphire_bolts_e: 'sapphireBoltsE5', emerald_bolt_tips: 'emeraldBoltTips5', emerald_bolts: 'emeraldBolts5', emerald_bolts_e: 'emeraldBoltsE5', ruby_bolt_tips: 'rubyBoltTips5', ruby_bolts: 'rubyBolts5', ruby_bolts_e: 'rubyBoltsE5', diamond_bolt_tips: 'diamondBoltTips5', diamond_bolts: 'diamondBolts5', dragonstone_bolt_tips: 'dragonstoneBoltTips5', dragonstone_bolts: 'dragonstoneBolts5', dragonstone_bolts_e: 'dragonstoneBoltsE5', onyx_bolts_e: 'onyxBoltsE5', abyssal_whip: 'abyssalWhip', granite_maul: 'graniteMaul', dark_bow: 'darkBow', saradomin_sword: 'saradominSword', dragon_dagger_p: 'dragonDaggerp', weapon_poison: 'weaponPoison', grain: 'grain', flour: 'potOfFlour', bucket_of_milk: 'bucketOfMilk', cheese: 'cheese', grapes: 'grapes', bread_dough: 'breadDough', pastry_dough: 'pastryDough', meat_pie: 'meatPie', stew: 'stew', garden_pie: 'gardenPie', wine: 'jugOfWine', plain_pizza: 'plainPizza', cake: 'cake', meat_pizza: 'meatPizza', fish_pie: 'fishPie', anchovy_pizza: 'anchovyPizza', admiral_pie: 'admiralPie', summer_pie: 'summerPie', monk_robe_top: 'monksRobeTop', monk_robe_bottom: 'monksRobe', holy_symbol: 'holySymbol', holy_mould: 'holyMould', pet_elvarg: 'elvargsHead', pet_obor: 'hillGiantClub', pet_slashbash: 'zogreBones', pet_bktitan: 'blackKnightHelm', pet_trollking: 'rockGolem', pet_bryophyta: 'tangleroot', pet_evilchicken: 'evilChickensEgg', pet_scurrius: 'scurry', pet_scorpia: 'scorpiasOffspring', pet_eldric: 'iceDiamond', pet_branda: 'fireOrb', pet_kbd: 'princeBlackDragon', pet_sarachnis: 'sraracha', pet_skotizo: 'skotos', pet_kalphitequeen: 'kalphitePrincess', pet_vorkath: 'vorki', pet_vetion: 'vetionJr', pet_venenatis: 'venenatisSpiderling', pet_callisto: 'callistoCub', pet_galvek: 'vorki', pet_graardor: 'petGeneralGraardor', pet_kril: 'petKrilTsutsaroth', town_cloak_1: 'ardougneCloak1', town_cloak_2: 'ardougneCloak2', town_cloak_3: 'ardougneCloak3', genie_lamp: 'lamp', clue_0: 'clueScrollEasy', casket_0: 'rewardCasketEasy', clue_1: 'clueScrollMedium', casket_1: 'rewardCasketMedium', clue_2: 'clueScrollHard', casket_2: 'rewardCasketHard', spade: 'spade', rune_full_helm_t: 'runeFullHelmT', rune_full_helm_g: 'runeFullHelmG', rune_platebody_t: 'runePlatebodyT', rune_platebody_g: 'runePlatebodyG', rune_platelegs_t: 'runePlatelegsT', rune_platelegs_g: 'runePlatelegsG', rune_plateskirt_t: 'runePlateskirtT', rune_plateskirt_g: 'runePlateskirtG', rune_kiteshield_t: 'runeKiteshieldT', rune_kiteshield_g: 'runeKiteshieldG' };
+const SK07 = { attack: 'attackIcon', strength: 'strengthIcon', defence: 'defenceIcon', ranged: 'rangedIcon', prayer: 'prayerIcon', magic: 'magicIcon', runecraft: 'runecraftIcon', construction: 'constructionIcon', hitpoints: 'hitpointsIcon', agility: 'agilityIcon', herblore: 'herbloreIcon', thieving: 'thievingIcon', crafting: 'craftingIcon', fletching: 'fletchingIcon', slayer: 'slayerIcon', hunter: 'hunterIcon', mining: 'miningIcon', smithing: 'smithingIcon', fishing: 'fishingIcon', cooking: 'cookingIcon', firemaking: 'firemakingIcon', woodcutting: 'woodcuttingIcon', farming: 'farmingIcon', sailing: 'sailing' }, PR07 = { thick_skin: 'thickSkin', burst_str: 'burstOfStrength', clarity: 'clarityOfThought', rock_skin: 'rockSkin', superhuman: 'superhumanStrength', improved_refl: 'improvedReflexes', steel_skin: 'steelSkin', ultimate_str: 'ultimateStrength', rapid_heal: 'rapidHeal', prot_magic: 'protectFromMagic', prot_missiles: 'protectFromMissiles', prot_melee: 'protectFromMelee', eagle_eye: 'eagleEye', mystic_might: 'mysticMight', sharp_eye: 'sharpEye', mystic_will: 'mysticWill', rapid_restore: 'rapidRestore', prot_item: 'protectItem', hawk_eye: 'hawkEye', mystic_lore: 'mysticLore', incredible_refl: 'incredibleReflexes', retribution: 'retribution', redemption: 'redemption', preserve: 'preserve', chivalry: 'chivalry', piety: 'piety', rigour: 'rigour', augury: 'augury', smite: 'smite' }, SP07 = { wind_strike: 'windStrike', water_strike: 'waterStrike', earth_strike: 'earthStrike', fire_strike: 'fireStrike', wind_bolt: 'windBolt', water_bolt: 'waterBolt', earth_bolt: 'earthBolt', fire_bolt: 'fireBolt', wind_blast: 'windBlast', water_blast: 'waterBlast', earth_blast: 'earthBlast', fire_blast: 'fireBlast', wind_wave: 'windWave', water_wave: 'waterWave', earth_wave: 'earthWave', fire_wave: 'fireWave', confuse: 'confuse', weaken: 'weaken', curse: 'curse', crumble_undead: 'crumbleUndead', bind: 'bind', snare: 'snare', entangle: 'entangle' };
+const US07 = { 'Lvl-1 Enchant': 'lvl1Enchant', 'Lvl-2 Enchant': 'lvl2Enchant', 'Lvl-3 Enchant': 'lvl3Enchant', 'Lvl-4 Enchant': 'lvl4Enchant', 'Lvl-5 Enchant': 'lvl5Enchant', 'Lvl-6 Enchant': 'lvl6Enchant', 'Low Level Alchemy': 'lowLevelAlchemy', 'Superheat Item': 'superheatItem', 'High Level Alchemy': 'highLevelAlchemy', 'Telekinetic Grab': 'telekineticGrab', 'Bones to Bananas': 'bonesToBananas', 'Bones to Peaches': 'bonesToPeaches', 'Home Teleport': 'lumbridgeHomeTeleport', 'Greater Home Teleport': 'edgevilleHomeTeleport', 'City Teleport': 'varrockTeleport' }, MK07 = { 3: 'furnaceIcon', 4: 'anvilIcon', 6: 'cookingRangeIcon', 11: 'runecraftIcon', 12: 'slayerMasterIcon', 13: 'sawmillIcon', 14: 'generalStoreIcon', 15: 'farmingPatchIcon', 16: 'agilityShortcutIcon', 23: 'dungeonIcon', 25: 'windmillIcon', 26: 'petShopIcon', 27: 'pohNoticeboardIcon', bank: 'bankIcon', ge: 'grandExchangeIcon', barber: 'hairdresserIcon', altar: 'altarIcon' };
+/* ICON07-GEN end */
+const i07p = f => (f.indexOf('/') < 0 ? 'i07/' + f : f) + '.png', c07p = n => 'c07/' + n + '.png';
 function icon(id) {
   let u = _iconCache.get(id);
   if (u) return u;
-  const it = ITEMS[id];
-  _iconCache.set(id, u = it ? drawIcon(it.g, it.c, it.c2) : drawIcon('lock', '#6a6258', '#3a3630'));
+  const it = ITEMS[id], f = ICON07[id];
+  _iconCache.set(id, u = f ? i07p(f) : it ? drawIcon(it.g, it.c, it.c2) : drawIcon('lock', '#6a6258', '#3a3630'));
   return u;
 }
 const SK_C = ['#c9453a', '#3f9a4a', '#4a72c9', '#7a9a3a', '#d8c86a', '#4a8ad8', '#a07ad8', '#a3794a', '#c9453a', '#4a9ad8', '#4faa4a', '#a05ad0',
@@ -1619,9 +1547,9 @@ const SK_C = ['#c9453a', '#3f9a4a', '#4a72c9', '#7a9a3a', '#d8c86a', '#4a8ad8', 
 /* skillcapes: the 2007 price, and the only requirement that matters */
 SKILLS.forEach((s, i) => { if (!s.locked) defWear({ id: 'skillcape_' + s.k, name: s.f + ' cape', g: 'cape', c: SK_C[i], c2: '#2a2620', slot: 'cape', def: 9, req99: s.k, val: 99000 }); });
 function skIcon(i) {
-  const key = 'sk:' + i;
+  const key = 'sk:' + i, s = SKILLS[i];
   let u = _iconCache.get(key);
-  if (!u) _iconCache.set(key, u = drawIcon(SKILLS[i].g, SK_C[i], '#f0e6c8'));
+  if (!u) _iconCache.set(key, u = SK07[s.k] ? c07p(SK07[s.k]) : drawIcon(s.g, SK_C[i], '#f0e6c8'));
   return u;
 }
 const hexInt = h => parseInt(h.slice(1), 16);
@@ -5273,7 +5201,7 @@ function drawSpells() {
   spellGrid.innerHTML = book.map(s => {
     const ok = lvl[SK.magic] >= s.lv;
     return liRow('data-sp="' + s.i + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).join(', ') + '"', P.spell === s.i, !ok,
-      drawIcon('rune', '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (ok ? (spellReady(s) ? 'ready' : 'no runes') : 'level ' + s.lv) + '</u>');
+      SP07[s.k] ? c07p(SP07[s.k]) : drawIcon('rune', '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (ok ? (spellReady(s) ? 'ready' : 'no runes') : 'level ' + s.lv) + '</u>');
   }).join('');
   el('mgHint').textContent = P.spell === null ? 'Select a spell, then click a target.' : 'Casting ' + SPELLS[P.spell].n + '. Click a target, or pick it again to stop.';
   spellGrid.innerHTML += USPELLS.map(usRow).join(''); if (P.uspell) el('mgHint').textContent = 'Casting ' + P.uspell.n + '. Choose an item in your pack, or pick it again to stop.';
@@ -5289,7 +5217,7 @@ on(spellGrid, 'click', e => {
 const prayList = el('prayList');
 function drawPrayers() {
   prayList.innerHTML = PRAYERS.slice().sort((a, b) => a.lv - b.lv).map(p => { const ok = lvl[SK.prayer] >= p.lv && lvl[SK.defence] >= p.dl;
-    return liRow('data-pr="' + p.k + '"', P.prayers & p.bit, !ok, drawIcon(p.g, '#c9b45a', '#efe4c4'), p.n, '', '<u>' + (ok ? 'level ' + p.lv : 'needs level ' + p.lv) + (p.dl ? ', Defence ' + p.dl : '') + '</u>'); }).join('');
+    return liRow('data-pr="' + p.k + '"', P.prayers & p.bit, !ok, PR07[p.k] ? c07p(PR07[p.k]) : drawIcon(p.g, '#c9b45a', '#efe4c4'), p.n, '', '<u>' + (ok ? 'level ' + p.lv : 'needs level ' + p.lv) + (p.dl ? ', Defence ' + p.dl : '') + '</u>'); }).join('');
   el('prPts').textContent = Math.ceil(P.pray) + '/' + P.maxpray;
 }
 on(prayList, 'click', e => {
@@ -6876,8 +6804,9 @@ function markHtml(o) {
   const key = o.t === 5 ? 't5.' + o.k : 't' + o.t;
   let h = _markCache.get(key);
   if (h) return h;
-  const a = o.t === 5 ? [SHOP_KINDS[o.k].g, SHOP_KINDS[o.k].c, '#f0e6c8'] : MK_ART[o.t] || MK_ART[o.t === 7 ? 'bank' : o.t === 9 ? 'barber' : o.t === 10 ? 'ge' : 'altar'];
-  _markCache.set(key, h = '<img src="' + drawIcon(a[0], a[1], a[2]) + '" alt="">');
+  const mk = o.t === 5 ? null : MK_ART[o.t] ? o.t : o.t === 7 ? 'bank' : o.t === 9 ? 'barber' : o.t === 10 ? 'ge' : 'altar';
+  const a = o.t === 5 ? [SHOP_KINDS[o.k].g, SHOP_KINDS[o.k].c, '#f0e6c8'] : MK_ART[mk];
+  _markCache.set(key, h = '<img src="' + (mk !== null && MK07[mk] ? c07p(MK07[mk]) : drawIcon(a[0], a[1], a[2])) + '" alt="">');
   return h;
 }
 function labelsBegin() { for (const g of allRigs) g.userData.claim = 0; for (const q of platePool) q.claim = 0; }
@@ -7325,74 +7254,12 @@ async function pollPopulation() {                           // only while the se
 /* ---- ICONS for the skill items, in the 6c voice: 32x32, 1px K outlines, c primary, d shade ---- */
 const hoop = (g, x, y, rx, ry, rot, w, c) => { for (const [lw, s] of [[w + 2, K], [w, c]]) { g.lineWidth = lw; ell(g, x, y, rx, ry, rot, null, s); } g.lineWidth = 1; };   // outlined ring
 Object.assign(GLYPH, {
-  tiara(g, c, d) {
-    hoop(g, 16, 20, 12, 6.5, 0, 3, '#d8d8e0'); poly(g, [16, 5, 23, 23, 16, 27, 9, 23], '#d8d8e0', K); poly(g, [16, 5, 16, 27, 9, 23], '#a4a4b2');
-    poly(g, [16, 9, 20.8, 14.5, 16, 20, 11.2, 14.5], c, K); poly(g, [11.2, 14.5, 20.8, 14.5, 16, 20], d);
-  },
-  talisman(g, c, d) { hoop(g, 16, 6.5, 3.2, 3.2, 0, 1.6, '#8a6a4a'); circ(g, 16, 18.5, 10.5, c, K); ln(g, d, 2, [16, 12.5, 16, 24.5], [16, 14, 21, 17.5], [16, 18, 21, 21.5]); },
-  gem(g, c, d) {
-    poly(g, [10, 6, 22, 6, 28, 13, 16, 28, 4, 13], c, K); ln(g, d, 1, [4, 13, 28, 13], [10, 6, 11, 13, 16, 28], [22, 6, 21, 13, 16, 28], [16, 6, 16, 13]);
-    poly(g, [10, 6, 16, 6, 11, 13, 6, 13], 'rgba(255,255,255,.3)');
-  },
-  herb(g, c, d) {
-    g.strokeStyle = d; g.lineWidth = 1.8; g.beginPath(); g.moveTo(15, 30); g.quadraticCurveTo(13, 18, 19, 5); g.stroke(); g.lineWidth = 1;
-    for (const [x, y, rx, a] of [[9.5, 23, 5.6, -0.55], [20.5, 18.5, 5.6, 0.45], [12, 13, 5, -0.6], [20, 9, 4.2, -0.5]]) ell(g, x, y, rx, 2.6, a, c, K);
-  },
-  seed(g, c, d) { rrect(g, 8, 5, 16, 22, 2, d, K); ln(g, K, 1, [8, 10, 24, 10]); for (const [x, y, a] of [[12.5, 17, 0.5], [19.5, 17, -0.5], [16, 22.5, 0]]) ell(g, x, y, 2.4, 3.2, a, c, K); },
-  crop(g, c, d) {
-    for (const [x, y, a] of [[11.5, 8, -0.9], [20.5, 8, 0.9], [16, 6.5, 1.57]]) ell(g, x, y, 4.4, 2, a, d, K);
-    circ(g, 16, 19, 10, c, K); circ(g, 12, 15, 2.4, 'rgba(255,255,255,.3)');
-  },
-  feather(g, c, d) {
-    qcurve(g, [7, 26, 8, 6, 27, 4, 26, 20, 7, 26], c, K); ln(g, 'rgba(0,0,0,.25)', 1, [13, 10, 16, 16], [18, 8, 21, 13]);
-    g.strokeStyle = d; g.lineWidth = 1.4; g.beginPath(); g.moveTo(5, 29); g.quadraticCurveTo(14, 18, 27, 4); g.stroke(); g.lineWidth = 1;
-  },
-  string(g, c, d) { for (const y of [11, 15.5, 20]) hoop(g, 16, y, 10, 4.6, 0, 2.2, c); rrect(g, 3.5, 12.5, 4, 11, 1, d, K); },   // a coiled hank, tied
-  wool(g, c, d) {                                           // K strokes under c fills: one outline round the union
-    const B = [[11, 13, 6], [21, 13, 6], [9, 21, 5.4], [23, 21, 5.4], [16, 22, 6.6], [16, 11, 5]];
-    g.lineWidth = 2; for (const [x, y, r] of B) circ(g, x, y, r, null, K); g.lineWidth = 1; for (const [x, y, r] of B) circ(g, x, y, r, c);
-    g.lineWidth = 1.4; circ(g, 16, 22, 4.6, null, d, 0.4, 2.4); circ(g, 21, 13, 4.2, null, d, -0.3, 1.2); g.lineWidth = 1;
-  },
-  hide(g, c, d) {
-    const p = [8, 4, 12, 9, 20, 9, 24, 4, 28, 7, 25, 14, 26, 22, 29, 27, 25, 29, 20, 24, 12, 24, 7, 29, 3, 27, 6, 22, 7, 14, 4, 7];
-    poly(g, p, d, K); g.save(); g.translate(16, 16.5); g.scale(0.72, 0.72); g.translate(-16, -16.5); poly(g, p, c); g.restore();
-  },
-  needle(g, c, d) {
-    g.strokeStyle = d; g.lineWidth = 1.4; g.beginPath(); g.moveTo(24, 9); g.quadraticCurveTo(32, 13, 27, 21); g.quadraticCurveTo(22, 29, 11, 28); g.stroke(); g.lineWidth = 1;
-    poly(g, [4, 28, 7.5, 26.5, 27, 7, 25, 5, 5.5, 24.5], c, K); ell(g, 23.5, 8.5, 2.4, 0.9, -0.785, d);
-  },
-  chisel(g, c, d) {
-    rrect(g, 12, 3, 8, 13, 3, WOODC, K); fr(g, d, 11.5, 15, 9, 3); g.strokeStyle = K; g.strokeRect(11.5, 15, 9, 3);
-    poly(g, [13.5, 18, 18.5, 18, 18.5, 26, 16, 30, 13.5, 26], c, K); poly(g, [16, 26, 18.5, 26, 16, 30], d);
-  },
-  knife(g, c, d) {
-    poly(g, [2, 17, 8, 10, 19, 10, 19, 18], c, K); ln(g, d, 1, [4, 16, 18, 16]);
-    fr(g, d, 18.5, 8.5, 2, 10.5); g.strokeStyle = K; g.strokeRect(18.5, 8.5, 2, 10.5); rrect(g, 20.5, 9.5, 9.5, 8, 2, WOODC, K); circ(g, 25.5, 13.5, 1, d);
-  },
-  mould(g, c, d) { rrect(g, 4, 7, 24, 18, 2, d, K); hoop(g, 16, 16.5, 5.5, 5.5, 0, 3, c); fr(g, c, 15, 7.5, 2, 4); },
-  vial(g, c, d, f) {                                      // the glass clips the liquid, poured to a fraction f of its height (full unless told otherwise)
-    const glass = () => { g.beginPath(); g.moveTo(13, 5); g.lineTo(13, 12.5); g.arc(16, 21, 9, 4.3726, -1.231, true); g.lineTo(19, 5); g.closePath(); };
-    g.save(); glass(); g.clip(); fr(g, c, 4, 30 - (f || 1) * 24, 24, 30); g.restore();
-    glass(); paint(g, 'rgba(255,255,255,.2)', K);
-    rrect(g, 12, 2, 8, 5, 1, d, K); ln(g, 'rgba(255,255,255,.5)', 1.2, [10.5, 18, 10.5, 24]);
-  },
   plank(g, c, d) {
     g.save(); g.translate(16, 16); g.rotate(-0.35);
     fr(g, c, -14, -5, 28, 10); fr(g, d, 10.5, -5, 3.5, 10); ln(g, d, 1, [-12, -2, 9, -1.2], [-12, 2.2, 5, 1.6]); g.strokeStyle = K; g.strokeRect(-14, -5, 28, 10);
     g.restore();
   },
-  trap(g, c, d) {
-    ln(g, d, 1.4, [10.5, 10, 10.5, 25], [16, 10, 16, 25], [21.5, 10, 21.5, 25]);
-    for (const [w, s] of [[3.6, K], [1.6, d]]) { g.lineWidth = w; g.strokeStyle = s; g.strokeRect(5, 8, 22, 18); } g.lineWidth = 1;
-    g.save(); g.translate(16, 17); g.rotate(-0.6); fr(g, c, -9, -1.3, 18, 2.6); g.strokeStyle = K; g.strokeRect(-9, -1.3, 18, 2.6); g.restore();
-  },
-  fur(g, c, d) {
-    const pt = (a, r) => [16 + Math.cos(a) * r, 17 + Math.sin(a) * r * 0.75], p = [30, 17];   // ten uneven tufts round an ellipse
-    for (let i = 1; i <= 10; i++) p.push(...pt(i * 0.6283 - 0.3142, i & 1 ? 17 : 20), ...pt(i * 0.6283, 14));
-    qcurve(g, p, c, K); for (const [x, y, a] of [[10, 13, 0.6], [21, 11, -0.5], [17, 19, 0.2], [9, 21, -0.9], [24, 21, 0.9]]) ell(g, x, y, 2.8, 1.6, a, d);
-  }
 });
-for (let q = 1; q <= 4; q++) GLYPH['vial' + q] = (g, c, d) => GLYPH.vial(g, c, d, q / 4);   // a dose a glyph, so the icon cache tells them apart
 
 /* RUNECRAFT: a ruin per 192-tile lattice cell (half of them; deeper runes on dangerous ground) holds one rune altar; wizard's towers keep three
    essence rocks; the matching talisman or tiara opens the stones and every essence carried is bound at once */
@@ -7577,7 +7444,7 @@ const slayPool = m => NPC_TYPES.filter(t => !t.boss && !t.town && !t.flee && t.l
 const plural = (s, n) => n === 1 ? s : s.replace(/^(.*?)( of .*)?$/, (_, w, of) => (/[mM]an$/.test(w) ? w.slice(0, -2) + 'en' : /f$/.test(w) ? w.slice(0, -1) + 'ves' : w + (/s$/.test(w) ? 'es' : 's')) + (of || ''));
 let slayO = null;                                          // the master whose window is open
 function slayerTalk(o) {
-  const m = MASTERS[o.k], s = P.slay, ico = drawIcon(...MK_ART[12]);
+  const m = MASTERS[o.k], s = P.slay, ico = MK07[12] ? c07p(MK07[12]) : drawIcon(...MK_ART[12]);
   const why = s ? 'Finish or give up the task you have before asking for another.' : combatLevel() < m.cb ? m.n + ' only assigns fighters of combat level ' + m.cb + ' or more.' : '';
   slayO = o;
   showModal(m.n + ', Slayer Master', stRow('Task', s ? 'Kill ' + s.n + ' more ' + plural(NPC_BY[s.k].n, s.n) + '.' : 'No task assigned.') +
@@ -8693,7 +8560,7 @@ const USPELLS = [
   ...ENCH.map((e, t) => ['Lvl-' + (t + 1) + ' Enchant', e.lv, e.xp, e.need, parseInt(GEMS[t].c.slice(1), 16), e.ring ? 'ring' : 'amulet', e.g + ' jewellery or bolts', i => enchant(i, t), 1, 0])
 ].map(([n, lv, xp, need, tint, g, d, f, item, grp]) => ({ n, lv, xp, need, tint, g, d, f, item, grp })).sort((a, b) => (a.grp - b.grp) || (a.lv - b.lv));
 const usRow = s => liRow('data-us="' + USPELLS.indexOf(s) + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).concat(s.d).join(', ') + '"', P.uspell === s, lvl[SK.magic] < s.lv,
-  drawIcon(s.g, '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (lvl[SK.magic] < s.lv ? 'level ' + s.lv : spellReady(s) ? 'ready' : 'no runes') + '</u>');
+  US07[s.n] ? c07p(US07[s.n]) : drawIcon(s.g, '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (lvl[SK.magic] < s.lv ? 'level ' + s.lv : spellReady(s) ? 'ready' : 'no runes') + '</u>');
 function cast(s, i) {                                       // runes first; the effect burns them only when it lands
   if (P.dead || P.stun > 0) return;
   if (!spellReady(s)) return say('You do not have the runes for that spell.', 'bad');
@@ -8716,23 +8583,7 @@ on(spellGrid, 'click', e => {                               // runs after the co
 
 /* ---- THE OLD BOOK'S MISSING PAGES: holds and grabs, gem bolts, the famous weapons, the baker's economy, prayer on the cloth ---- */
 /* the new faces, drawn like the rest */
-GLYPH.banana = (g, c, d) => { qcurve(g, [7, 10, 16, 26, 25, 10, 18, 20, 9, 12, 7, 10], c, d); fr(g, d, 6, 8, 3, 4); };
-GLYPH.peach = (g, c, d) => { poly(g, [16, 8, 22, 9, 26, 15, 24, 23, 16, 26, 8, 23, 6, 15, 10, 9], c, K); poly(g, [16, 9, 16, 25], null, d); qcurve(g, [16, 8, 20, 3, 24, 6, 17, 9, 16, 8], '#4a8a3a', K); };
-GLYPH.whip = (g, c, d) => { fr(g, d, 8, 4, 6, 7); qcurve(g, [11, 11, 4, 22, 16, 28, 27, 22, 20, 14], null, c); qcurve(g, [20, 14, 24, 18, 20, 22], null, c); };
-GLYPH.bread = (g, c, d) => { poly(g, [6, 14, 10, 9, 22, 9, 26, 14, 26, 23, 6, 23], c, K); for (const x of [10, 15, 20]) poly(g, [x, 11, x + 3, 14], null, d); };
-GLYPH.pie = (g, c, d) => { poly(g, [4, 18, 28, 18, 26, 24, 6, 24], d, K); poly(g, [7, 18, 9, 13, 16, 11, 23, 13, 25, 18], c, K); for (const x of [11, 16, 21]) fr(g, d, x, 14, 2, 2); };
-GLYPH.cake = (g, c, d) => { fr(g, c, 7, 14, 18, 9); fr(g, '#e8dcc8', 7, 12, 18, 4); for (const x of [10, 15, 20]) { fr(g, d, x + 1, 8, 2, 4); fr(g, '#e8a03a', x + 1, 6, 2, 2); } };
-GLYPH.pizza = (g, c, d) => { poly(g, [16, 4, 28, 26, 4, 26], c, K); poly(g, [16, 8, 25, 24, 7, 24], '#e8c86a', null); for (const [x, y] of [[14, 15], [18, 20], [11, 22]]) fr(g, d, x, y, 3, 3); };
-GLYPH.bowl = (g, c, d) => { poly(g, [5, 14, 27, 14, 24, 24, 8, 24], d, K); poly(g, [7, 14, 25, 14, 24, 17, 8, 17], c, null); fr(g, '#c8a060', 20, 8, 3, 7); };
-GLYPH.wine = (g, c, d) => { poly(g, [10, 5, 22, 5, 21, 13, 16, 16, 11, 13], c, K); fr(g, d, 15, 16, 2, 8); fr(g, d, 11, 25, 10, 2); };
 GLYPH.wheat = (g, c, d) => { for (const x of [10, 16, 22]) { poly(g, [x, 28, x, 12], null, d); for (let y = 6; y < 14; y += 3) { poly(g, [x, y + 4, x - 3, y], null, c); poly(g, [x, y + 4, x + 3, y], null, c); } } };
-GLYPH.sack = (g, c, d) => { poly(g, [9, 10, 23, 10, 26, 26, 6, 26], c, K); fr(g, d, 12, 6, 8, 5); poly(g, [10, 16, 22, 16], null, d); };
-GLYPH.cheese = (g, c, d) => { poly(g, [5, 22, 27, 22, 27, 14, 16, 8, 5, 14], c, K); for (const [x, y, r] of [[12, 15, 2], [20, 17, 3], [9, 19, 1.5]]) { g.fillStyle = d; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill(); } };
-GLYPH.egg = (g, c, d) => { g.fillStyle = c; g.strokeStyle = K; g.beginPath(); g.ellipse(16, 17, 8, 10, 0, 0, TAU); g.fill(); g.stroke(); g.fillStyle = d; g.beginPath(); g.ellipse(13, 13, 2.5, 3.5, 0.5, 0, TAU); g.fill(); };
-GLYPH.horn = (g, c, d) => { qcurve(g, [8, 26, 6, 10, 18, 4, 14, 14, 12, 26, 8, 26], c, K); qcurve(g, [9, 22, 8, 12, 15, 7], null, d); };
-GLYPH.grapes = (g, c, d) => { fr(g, '#6b4e22', 15, 4, 2, 6); for (const [x, y] of [[12, 12], [20, 12], [16, 15], [10, 18], [16, 21], [22, 18], [13, 25], [19, 25]]) { g.fillStyle = c; g.strokeStyle = d; g.beginPath(); g.arc(x, y, 3.6, 0, TAU); g.fill(); g.stroke(); } };
-GLYPH.bucket = (g, c, d) => { poly(g, [8, 12, 24, 12, 22, 26, 10, 26], c, K); qcurve(g, [9, 12, 16, 5, 23, 12], null, d); fr(g, '#f0ece4', 10, 13, 12, 3); };
-
 /* the risen dead, marked so Crumble Undead and the like know their own */
 for (const k of ['skeleton', 'skelwarrior', 'giantskeleton', 'zombie', 'ghost', 'shade', 'ghoul', 'banshee', 'spectre', 'revenant', 'vetion']) if (NPC_BY[k]) NPC_BY[k].undead = 1;
 
@@ -8860,7 +8711,6 @@ LOOT.monk.den = 128; LOOT.monk.main = [['monk_robe_top', 8], ['monk_robe_bottom'
 
 /* ---- THE LONG GAME: boss pets, the collection log, combat feats, town diaries, and the world's small surprises ---- */
 GLYPH.paw = (g, c, d) => { for (const [x, y2, r] of [[10, 10, 3], [16, 8, 3], [22, 10, 3], [7, 16, 2.6], [25, 16, 2.6]]) { g.fillStyle = c; g.strokeStyle = d; g.beginPath(); g.arc(x, y2, r, 0, TAU); g.fill(); g.stroke(); } g.fillStyle = c; g.strokeStyle = d; g.beginPath(); g.ellipse(16, 21, 7, 6, 0, 0, TAU); g.fill(); g.stroke(); };
-GLYPH.lamp = (g, c, d) => { poly(g, [8, 18, 24, 18, 21, 25, 11, 25], c, K); qcurve(g, [24, 18, 30, 14, 26, 11, 24, 17, 24, 18], c, K); fr(g, d, 13, 14, 6, 3); fr(g, c, 14, 11, 4, 3); qcurve(g, [10, 25, 16, 28, 22, 25], null, d); };
 let devRandMul = 1;
 P.pet = null; P.ins = []; P.petLost = []; P.cl = new Set(); P.dy = {}; P.ca = {};
 
