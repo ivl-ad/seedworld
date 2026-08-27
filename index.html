@@ -1846,7 +1846,7 @@ function boltFrame(dt) {
       b.m.visible = false; b.m.scale.setScalar(1);
       if (!b.arw) spellBurst(tx, ty, tz, b.sp.tint);
       if (!b.arw && b.sp.k && !b.sp.drain) sfxAt(b.dmg === 0 ? 227 : spellSnd(b.sp, 1), tx, tz);   // splash or strike, where it lands
-      if (b.dmg !== null) { hitsplat(tx, o.ry + 1.5, tz, b.dmg); if (!o.dead) healthBar(o); }
+      if (b.dmg !== null) { hitsplat(tx, o.ry + 1.5, tz, b.dmg); healthBar(o); }   // a killing bolt still draws the bar; fxFrame lets it linger empty
       bolts.splice(i, 1);
     }
   }
@@ -4285,7 +4285,7 @@ const chebDist = (ax, az, bx, bz) => Math.max(Math.abs(ax - bx), Math.abs(az - b
 function npcTick(n) {
   if (n.dead) return;
   n.px = n.tx; n.pz = n.tz;
-  if (n.owner && n.owner !== PID) { if (tickN - n.lastNet > 5) leash(n); return; }   // someone else's fight; fall back if frames stop
+  if (n.owner && n.owner !== PID) { if (tickN - n.lastNet > 5) { n.owner = null; n.dest = { x: n.home.x, z: n.home.z }; } return; }   // owner's frames stopped: orphan it wounds intact — only a deliberate release leashes and heals
   const near = chebDist(n.tx, n.tz, P.tx, P.tz);
   if (n.target && (near > 12 || P.dead)) { n.target = null; releaseMon(n); }
   // 2007 aggression: the mean ones start it within a few tiles, unless outgrown or overstayed; the deep wilds never get used to you
@@ -4331,7 +4331,7 @@ function npcTick(n) {
         cast ? Math.floor(0.7 * Math.floor(eff('magic') * prayerMul('mag')) + 0.3 * defLevel()) + 8 : defLevel() + 8, cast ? bonus('mag') : bonus('def'));
       // dragonfire ignores armour: a shield or an antifire draught each count one (prayer a half); two is immunity, one leaves a max of 10.
       // unprotected it hits up to 50 as in 2007 (fmax overrides where the wiki differs, e.g. the KBD)
-      const fire = st === 'g' && n.t.fire, pr = fire && (eq.shield === 'anti_dragon_shield') + (P.afire > tickN) + (prayHas('prot', 'g') ? 0.5 : 0);
+      const fire = st === 'g' && n.t.fire, pr = fire && (eq.shield === 'anti_dragon_shield' || eq.shield === 'dragonfire_shield') + (P.afire > tickN) + (prayHas('prot', 'g') ? 0.5 : 0);
       const dealt = fire ? roll(1, pr >= 2 ? 0 : pr ? 10 : (n.t.fmax || 50)) : prayHas('prot', st) ? 0 : roll(c, mx);
       if (fire && pr < 2) say(pr ? 'Your protection absorbs most of the dragonfire.' : 'You are horribly burnt by the dragonfire!', 'bad');
       if (dealt > 0 && n.t.psn && !P.psn && tickN > P.psnImm && Math.random() < 0.25) { P.psn = n.t.psn; P.psnN = 0; P.psnT = tickN + 30; say('You have been poisoned!', 'bad'); }
@@ -4367,7 +4367,8 @@ function npcTick(n) {
 const RARE_DROPS = [['nature_rune', 3, 67], ['adamant_javelin', 2, 20], ['death_rune', 2, 45], ['law_rune', 2, 45], ['rune_arrow', 2, 42], ['steel_arrow', 2, 150],
   ['rune_2h_sword', 3], ['rune_battleaxe', 3], ['rune_sq_shield', 2], ['dragon_med_helm', 1], ['rune_kiteshield', 1], ['coins', 21, 3000],
   ['rune_bar', 5], ['dragonstone', 2], ['silver_ore', 2, 100], ['gem', 20], ['mega', 15]], RARE_W = 128;
-const MEGA_DROPS = [['rune_spear', 8], ['dragon_spear', 3], ['crystal_bow', 2], ['crystal_shield', 1]], MEGA_W = 128;   // the crystal pieces ride the mega-rare slot: no elves in this world
+const MEGA_DROPS = [['rune_spear', 8], ['dragon_spear', 3], ['crystal_bow', 2], ['crystal_shield', 1],
+  ['partyhat', 1], ['santa_hat', 1], ['hween_mask', 1]], MEGA_W = 128;   // the crystal pieces ride the mega-rare slot: no elves in this world; the holidays never came, so their hats ride it too
 const GEM_DROPS = [['uncut_sapphire', 32], ['uncut_emerald', 16], ['uncut_ruby', 8], ['chaos_talisman', 3], ['nature_talisman', 3], ['uncut_diamond', 2],
   ['rune_javelin', 1, 5], ['mega', 1]], GEM_W = 128;
 const HERB_SUB = [['grimy_guam', 32], ['grimy_marrentill', 24], ['grimy_tarromin', 18], ['grimy_harralander', 14], ['grimy_ranarr', 11], ['grimy_irit', 8],
@@ -4542,6 +4543,10 @@ function startTask(o, kind) {
 }
 const fail = msg => { say(msg, 'bad'); P.task = null; };
 const needLv = (sk, lv) => { if (lvl[SK[sk]] < lv) { fail('You need ' + skName(SK[sk]) + ' level ' + lv + ' for this.'); return 1; } return 0; };
+/* the mask, the salve and the void: flat amplifiers the 2007 way — the best mask effect (never stacked), times the set */
+const slayMask = () => eq.head === 'black_mask' || eq.head === 'slayer_helmet';
+const voidSet = k => eq.head === 'void_' + k + '_helm' && eq.body === 'void_knight_top' && eq.legs === 'void_knight_robe' && eq.hands === 'void_knight_gloves';
+const meleeAmp = o => (slayMask() && onTask(o) ? 7 / 6 : eq.neck === 'salve_amulet' && o.npc && (o.t.base || o.t).undead ? 7 / 6 : 1) * (voidSet('melee') ? 1.1 : 1);
 /* one swing at o (a monster or another player): ranged, a readied spell, or melee; returns the damage dealt, or -1 when nothing was thrown */
 function swing(o) {
   const sp = P.spell !== null ? SPELLS[P.spell] : null, ps = !sp && pstaffOn() ? { k: 'trident', xp: 0, max: pstaffMax(), tint: 0x35c8b8 } : null, rng = sp || ps ? 0 : bowRange();
@@ -4553,8 +4558,9 @@ function swing(o) {
   let dmg, xps = null;
   if (rng) {
     const st = RSTYLES[P.rstyle], spc = P.specArm && SPEC[eq.weapon] && SPEC[eq.weapon].rng ? SPEC[eq.weapon] : null;
-    const ch = hitChance((Math.floor(eff('ranged') * prayerMul('rng')) + st.acc + 8) * (spc && spc.acc || 1), bonus('rat'), dl, db);
-    const M = Math.floor(rangedMax() * (spc && spc.dmg || 1));
+    const rv = voidSet('ranger') ? 1.1 : 1;                 // TODO-verify: the vintage void ranged rate
+    const ch = hitChance((Math.floor(eff('ranged') * prayerMul('rng')) + st.acc + 8) * (spc && spc.acc || 1) * rv, bonus('rat'), dl, db);
+    const M = Math.floor(rangedMax() * (spc && spc.dmg || 1) * rv);
     if (spc) { P.specArm = 0; P.spec = Math.max(0, P.spec - spc.cost); drawStyles(); }
     dmg = 0;
     for (let h = 0, hn = spc && spc.n || 1; h < hn; h++) { dmg += roll(ch, M); if (h && P.ammoN > 0) spendArrow(); }
@@ -4589,7 +4595,7 @@ function swing(o) {
       // gear buys accuracy, and mdmg gear a share of damage; a monster defends a spell with its Magic level and magic defence bonus
       const spl = sp || ps;
       const [ml, mb] = o.npc ? [o.t.mag * (o.defDr > tickN ? 0.95 : 1) + 9, o.t.mdb] : [dl, db];
-      dmg = roll(hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), ml, mb), mdmgMax(spl.max)); castFx(o, spl, dmg); sfx(spellSnd(spl));
+      dmg = roll(hitChance((Math.floor(eff('magic') * prayerMul('mag')) + 8) * (voidSet('mage') ? 1.3 : 1), bonus('mag'), ml, mb), mdmgMax(spl.max)); castFx(o, spl, dmg); sfx(spellSnd(spl));   // TODO-verify: the vintage void magic rate
       if (dmg > 0 && o.npc && barrowsSet('ahrim') && Math.random() < 0.25) { o.strDr = tickN + 100; say("Ahrim's curse saps its strength."); }
       if (P.cstyle) { gainXp('magic', spl.xp + dmg * 4 / 3); if (dmg > 0) gainXp('defence', dmg); }   // defensive casting splits the 2007 way
       else gainXp('magic', spl.xp + dmg * 2);
@@ -4598,7 +4604,7 @@ function swing(o) {
     else wsSend([19, o.tx, o.tz, ps.tint]);               // a trident's bolt rides the arrow op, teal
   } else {
     const st = STYLES[P.style], spc = P.specArm && SPEC[eq.weapon] && !SPEC[eq.weapon].rng ? SPEC[eq.weapon] : null;
-    const bm = eq.head === 'black_mask' && onTask(o) ? 7 / 6 : 1;   // the black mask bites a sixth harder on assignment
+    const bm = meleeAmp(o);                                 // the mask on assignment, the salve on the risen dead, the void as a set
     const aEff = (Math.floor(eff('attack') * prayerMul('atk')) + st.acc + 8) * (spc && spc.acc || 1) * bm;
     if (spc) {
       P.specArm = 0; P.spec = Math.max(0, P.spec - spc.cost);
@@ -4799,8 +4805,9 @@ const angHeal = () => { const L = lvl[SK.hitpoints];
 function eat(slotIdx) {
   const it = ITEMS[inv[slotIdx].id];
   if (it.blight && powerAt(P.tx, P.tz) < 1) return say('The blighted flesh only nourishes you in dangerous lands.', 'bad');   // the wilderness rule, in this world's terms
-  if (P.foodT > tickN) return;                             // one bite per three ticks, and each bite delays the next swing; a full belly still eats, as ever
-  P.foodT = tickN + 3; P.actT += 3;
+  const gate = it.combo ? 'foodT2' : 'foodT';              // a karambwan rides its own clock: it combos past ordinary food, as ever
+  if (P[gate] > tickN) return;                             // one bite per three ticks, and each bite delays the next swing; a full belly still eats, as ever
+  P[gate] = tickN + 3; P.actT += 3;
   invRemove(inv[slotIdx].id, 1); sfx(2393);
   const heal = it.ang ? angHeal() : it.heal;
   P.hp = it.ang ? Math.min(P.maxhp + heal, P.hp + heal) : Math.min(P.maxhp, P.hp + heal);   // an anglerfish alone feeds past full, to max + its own heal
@@ -5392,8 +5399,10 @@ function fxFrame(dt) {
   }
   for (let i = bars.length - 1; i >= 0; i--) {
     const b = bars[i], t = b.target; b.t -= dt;
-    const p = (b.t <= 0 || t.dead || t.hp <= 0) ? null : project(t.rx, t.ry + b.h, t.rz);
+    if ((t.dead || t.hp <= 0) && b.t > 0.8) b.t = 0.8;      // the killing blow leaves an empty bar for a beat, as 2007 did
+    const p = b.t <= 0 ? null : project(t.rx, t.ry + b.h, t.rz) || project(t.rx, t.ry + 0.9, t.rz);   // a giant's crown can leave the frame: fall back to its chest
     if (!p) { fxFree(b.f); t._bar = null; bars.splice(i, 1); continue; }
+    p[1] = Math.max(8, p[1]);                               // pinned to the top edge rather than lost above it
     place(b.f.el, p); b.f.el.firstChild.style.width = Math.max(0, t.hp / t.maxhp * 100) + '%';
   }
 }
@@ -6578,18 +6587,21 @@ function packSave() {
     cl: [...P.cl], pet: P.pet || 0, ins: P.ins, pl: P.petLost, dy: P.dy, ca: P.ca,
     dr: P.dunRet || 0, cs: P.cstyle, bs: Array.from(bst) };
 }
+/* renames must not eat a save: an old id folds into its new name here before the ITEMS checks discard it */
+const OLD_IDS = Object.create(null);                       // old id -> current id; add a row with any rename, forever
+const idOf = id => OLD_IDS[id] || id;
 function applySave(b) {
   if (!b || b.v !== 1) return 0;
   const xs = b.xp || [];
   for (let i = 0; i < NSK; i++) { xp[i] = +xs[i] || 0; lvl[i] = levelFor(xp[i]); }
   inv.fill(null);
-  for (const row of (b.inv || [])) { const i = row[0] | 0; if (i >= 0 && i < INV_N && ITEMS[row[1]]) inv[i] = { id: row[1], n: Math.max(1, row[2] | 0) }; }
-  bank = (b.bank || []).filter(r => ITEMS[r[0]] && (r[1] | 0) > 0).slice(0, BANK_N).map(r => ({ id: r[0], n: r[1] | 0 }));
+  for (const row of (b.inv || [])) { const i = row[0] | 0, id = idOf(row[1]); if (i >= 0 && i < INV_N && ITEMS[id]) inv[i] = { id, n: Math.max(1, row[2] | 0) }; }
+  bank = (b.bank || []).map(r => [idOf(r[0]), r[1] | 0]).filter(r => ITEMS[r[0]] && r[1] > 0).slice(0, BANK_N).map(r => ({ id: r[0], n: r[1] }));
   const lk = b.look || [];
   P.look.skin = clamp(lk[0] | 0, 0, SKINS.length - 1); P.look.shirt = clamp(lk[1] | 0, 0, SHIRTS.length - 1);
   P.look.legs = clamp(lk[2] | 0, 0, LEGSC.length - 1); P.look.face = clamp(lk[3] | 0, 0, FACES.length - 1);
   const e = b.eq || [];
-  EQ_SLOTS.forEach((s, i) => { eq[s] = ITEMS[e[i]] ? e[i] : null; });
+  EQ_SLOTS.forEach((s, i) => { const id = e[i] && idOf(e[i]); eq[s] = ITEMS[id] ? id : null; });
   P.maxhp = b.maxhp || lvl[SK.hitpoints]; P.hp = Math.min(Math.floor(P.maxhp * 1.15), b.hp || P.maxhp);   // a brew's overheal survives the reload
   P.maxpray = b.maxpray || lvl[SK.prayer]; P.pray = Math.min(P.maxpray, b.pray ?? P.maxpray);
   P.energy = b.energy ?? 100; P.run = b.run ?? 1; P.style = b.style | 0; P.prayers = b.prayers | 0; P.rstyle = Math.min(2, Math.max(0, b.rstyle | 0)); P.cstyle = b.cs ? 1 : 0;
@@ -6600,13 +6612,14 @@ function applySave(b) {
   for (const [k, c, t] of (b.farm || [])) if (CROPS[c] && t > 0) P.farm[k] = [c | 0, t | 0];
   P.clue = b.clue && b.clue.length === 3 ? b.clue.map(v => v | 0) : null;
   for (const [k, t] of (b.bd || [])) if (typeof k === 'string' && k[0] === 'b' && (t | 0) > tickN) npcDead.set(k, t | 0);
-  P.hs = b.hs && Array.isArray(b.hs.rm) && b.hs.rm.length ? b.hs : null;
+  P.hs = b.hs && hValid(b.hs) ? b.hs : null;
+  if (P.hs) for (const r of P.hs.rm) r[4] = r[4].map(f => f && idOf(f));   // renamed furniture folds in too
   applyHouse(hMe(), P.hs);
   if (P.hs && !OFFLINE && srvBuild >= 6) wsSend([23, P.hs]);   // the room may hold a staler copy of this house
-  P.cl = new Set((b.cl || []).filter(id => ITEMS[id]));
-  P.pet = b.pet && ITEMS[b.pet] ? b.pet : null;
-  P.ins = (b.ins || []).filter(id => ITEMS[id]);
-  P.petLost = (b.pl || []).filter(id => ITEMS[id]);
+  P.cl = new Set((b.cl || []).map(idOf).filter(id => ITEMS[id]));
+  P.pet = b.pet && ITEMS[idOf(b.pet)] ? idOf(b.pet) : null;
+  P.ins = (b.ins || []).map(idOf).filter(id => ITEMS[id]);
+  P.petLost = (b.pl || []).map(idOf).filter(id => ITEMS[id]);
   P.dy = b.dy && typeof b.dy === 'object' ? b.dy : {};
   P.ca = b.ca && typeof b.ca === 'object' ? b.ca : {};
   P.dunRet = b.dr && isFinite(b.dr.x) ? { x: b.dr.x | 0, z: b.dr.z | 0 } : null;
@@ -6642,7 +6655,7 @@ let worldSync = 0, srvBuild = 0;                            // build >= 4: rooms
 const outQ = [];
 const wsSend = m => {
   if (!ws || ws.readyState !== 1) return;
-  if (srvBuild < 5 || m[0] === 8 || m[0] === 9 || m[0] === 14 || m[0] === 15) { try { ws.send(JSON.stringify(m)); } catch {} }
+  if (srvBuild < 5 || m[0] === 8 || m[0] === 9 || m[0] === 14 || m[0] === 15 || m[0] === 23) { try { ws.send(JSON.stringify(m)); } catch {} }   // 23 goes alone: a furnished house would burst the batch lane
   else outQ.push(m);
 };
 const flushNet = () => { if (!outQ.length) return; try { if (ws && ws.readyState === 1) ws.send(JSON.stringify(outQ.length === 1 ? outQ[0] : outQ)); } catch {} outQ.length = 0; };
@@ -6674,6 +6687,7 @@ function flushSave(force) {
 }
 on(document, 'visibilitychange', () => { if (document.hidden) markDirty(2); });
 on(window, 'pagehide beforeunload', () => markDirty(2));
+on(window, 'blur', () => { if (saveDirty) flushSave(); });   // a second window is often next: put the pending save on the wire before it can kick us
 
 /* ---- 38. THE SOCKET: everything degrades to single player ---- */
 let ws = null, wsWant = 0, wsTries = 0, wsTimer = 0, pingTimer = 0, netOK = 0, everConnected = 0;
@@ -6771,6 +6785,9 @@ function onNet(m) {
       applyHouse(pid, h && Array.isArray(h.rm) && h.rm.length <= 12 ? h : null);
       break;
     }
+    case 24:                                                // the room could not carry our house record
+      say('The world cannot carry your house as built (' + (m[1] | 0) + ' bytes): others will see its last shape. It is safe in your own save.', 'bad');
+      break;
     case 7:                                                 // the server could not store it: stop writing into a hole
       saveArmed = 0;
       trouble('Seedworld could not save your character. Your progress this session will not be kept.', 'server refused save: ' + (m[1] || 'unknown'));
@@ -8112,6 +8129,11 @@ const rotMask = (m, r) => { for (let i = 0; i < (r & 3); i++) m = ((m >> 1) | ((
 const rotL = (lx, lz, r) => { for (let i = 0; i < (r & 3); i++) { const t = lx; lx = RS - 1 - lz; lz = t; } return [lx, lz]; };
 const SIDE = [[H_N, 0, 1], [H_E, 1, 0], [H_S, 0, -1], [H_W, -1, 0]];
 const roomAt = (h, gx, gz) => h.rm.find(r => r[1] === gx && r[2] === gz);
+/* a house record from the wire or an old save must be sound before it renders: one bad row would throw mid-frame for everyone */
+const hValid = h => Number.isFinite(h.x) && Number.isFinite(h.z) && Number.isFinite(h.y) && Math.abs(h.y) <= 1000 &&
+  Array.isArray(h.rm) && h.rm.length >= 1 && h.rm.length <= 12 &&
+  h.rm.every(r => Array.isArray(r) && Number.isInteger(r[0]) && ROOMS[r[0]] && Number.isInteger(r[1]) && Math.abs(r[1]) <= 2 &&
+    Number.isInteger(r[2]) && Math.abs(r[2]) <= 2 && Number.isInteger(r[3]) && r[3] >= 0 && r[3] <= 3 && Array.isArray(r[4]));
 const NOBLOCK = { rug: 1, chart: 1, decor: 1 };            // flat or wall-hung: walked over
 function clearHouse(pid) {
   const r = housesReg.get(pid);
@@ -8137,7 +8159,7 @@ function dirtyLot(h) {
   nearDirty = 1;
 }
 function applyHouse(pid, h) {
-  if (h && h.z > DUN_MIN) h = null;                          // no holding stands below: a claim down there is a bad record, not a house
+  if (h && (h.z > DUN_MIN || !hValid(h))) h = null;          // no holding stands below, and a malformed record is no house at all
   const old = housesReg.get(pid), oldSig = old && old.sig, oldH = old && old.h;
   clearHouse(pid);
   if (!h || !h.rm || !h.rm.length) { if (oldH) dirtyLot(oldH); if (pid === hMe()) refreshGhosts(); return; }
@@ -8225,6 +8247,7 @@ function claimHouse() {
   applyHouse(hMe(), P.hs);
   houseSync();
   say('The land is yours. A parlour rises around you — step outside and press Build to extend it.', 'lv');
+  if (OFFLINE || !AUTH || !saveArmed) say('Built on sand: nothing is being saved this session, so the house will not survive a reload.', 'bad');
 }
 function houseSync() { markDirty(1); if (!OFFLINE && srvBuild >= 6) wsSend([23, P.hs || 0]); }
 function hFinish() { P.hs.rev = (P.hs.rev || 0) + 1; applyHouse(hMe(), P.hs); houseSync(); P.task = null; }
@@ -8866,7 +8889,7 @@ recipe('weapon_poison', 'herblore', 60, 137.5, [['kwuarm', 1], ['dragon_scale_du
 /* ---- ARMOURY II: beyond rune. Barrows, the god wars, and the treasure tiers. Icons ship from i07/ (icons07-map.csv);
    worn tints are sampled from those sprites. Weapon atk/str follow the wiki's best style, armour def its melee mean.
    Drops are wired in the ARMOURY II DROPS block below; barrows set effects, mdmg gear and the trident's own spell are live.
-   Still unmodelled by choice: sgs heal, tbow scaling, dhcb dragonbane, obsidian synergy. */
+   Still unmodelled by choice: tbow scaling, dhcb dragonbane, obsidian synergy. */
 /* barrows: the four melee brothers share the smith's measures; Verac alone carries the god's favour */
 defWear({ id: 'dharoks_helm', name: "Dharok's helm", g: 'fhelm', c: '#494831', c2: '#252518', slot: 'head', def: 46, req: { defence: 70 }, val: 60000 });
 defWear({ id: 'dharoks_platebody', name: "Dharok's platebody", g: 'body', c: '#5b5940', c2: '#2f2e24', slot: 'body', def: 116, req: { defence: 70 }, val: 180000 });
@@ -9022,6 +9045,70 @@ for (const ck of ['lava', 'steam', 'smoke', 'mist', 'dust', 'mud']) if (ITEMS['m
   recipe('mystic_' + ck + '_staff', 'magic', 40, 0, [[ck + '_battlestaff', 1], ['coins', 40000]], { at: 3, msg: 'The furnace-smith refits your battlestaff in mystic fashion.' });
 /* onyx jewellery joins the gold bench (67/82/90 crafting, per the wiki); Lvl-6 Enchant turns amulet and necklace into the fury and the berserker */
 ENCH[5].amu = 'amulet_of_fury'; ENCH[5].neck = 'berserker_necklace';
+
+/* ---- ARMOURY III: the remaining famous absences. Stats follow the wiki where the page is certain and carry a
+   TODO-verify where recalled; absent owners borrow the nearest kin, as ARMOURY II does (each commented).
+   Icons fall back to drawn glyphs until the 07-icon pass maps these ids — the dead-code sweep took the slots
+   these items wear, so their eight draw fns return here (referenced again = no longer dead). ---- */
+GLYPH.helm = (g, c, d) => { poly(g, [16, 5, 25, 12, 25, 18, 7, 18, 7, 12], c, K); fr(g, d, 6, 18, 20, 3); fr(g, d, 14, 8, 4, 10); };
+GLYPH.fhelm = (g, c, d) => { poly(g, [16, 3, 25, 9, 25, 26, 20, 28, 12, 28, 7, 26, 7, 9], c, K); fr(g, d, 10, 14, 12, 3); fr(g, d, 14, 17, 4, 9); };
+GLYPH.robe = (g, c, d) => { poly(g, [12, 5, 20, 5, 26, 10, 24, 15, 22, 13, 22, 27, 10, 27, 10, 13, 8, 15, 6, 10], c, K); fr(g, d, 10, 22, 12, 2); };
+GLYPH.skirt = (g, c, d) => { poly(g, [11, 6, 21, 6, 25, 27, 7, 27], c, K); fr(g, d, 11, 6, 10, 3); ln(g, d, 1, [16, 10, 16, 26]); };
+GLYPH.legs = (g, c, d) => { poly(g, [10, 5, 22, 5, 23, 28, 18, 28, 16, 14, 14, 28, 9, 28], c, K); fr(g, d, 10, 5, 12, 3); };
+GLYPH.glove = (g, c, d) => { poly(g, [12, 8, 20, 8, 22, 18, 25, 14, 27, 16, 22, 24, 12, 24], c, K); fr(g, d, 12, 8, 8, 3); };
+GLYPH.cape = (g, c, d) => { poly(g, [10, 4, 22, 4, 26, 28, 16, 24, 6, 28], c, K); fr(g, d, 10, 4, 12, 3); };
+GLYPH.amulet = (g, c, d) => { circ(g, 16, 11, 7, null, K); poly(g, [16, 17, 21, 23, 16, 29, 11, 23], c, K); fr(g, d, 14, 21, 4, 4); };
+/* the dragonfire shield: the old shield takes the fallen dragon's face at the anvil; it counts as the anti-dragon shield against breath */
+defItem({ id: 'draconic_visage', name: 'Draconic visage', g: 'shield', c: '#a02c1e', c2: '#6b1a10', val: 700000 });
+defWear({ id: 'dragonfire_shield', name: 'Dragonfire shield', g: 'shield', c: '#7a3a28', c2: '#3a1a10', slot: 'shield', def: 70, req: { defence: 75 }, val: 900000 });   // TODO-verify: the wiki's melee mean; its breath charge is not modelled
+recipe('dragonfire_shield', 'smithing', 90, 2000, [['anti_dragon_shield', 1], ['draconic_visage', 1]], { at: 4, tool: 'hammer', msg: 'You rivet the visage to the shield; it stirs with heat.' });
+bossTert('kbd', ['draconic_visage', 5000]); bossTert('vorkath', ['draconic_visage', 5000]);   // the wiki's own 1/5000 heads
+/* the slayer's helmet: mask and helm forged into one — its bite is the mask's, read by the same swing */
+defWear({ id: 'slayer_helmet', name: 'Slayer helmet', g: 'skull', c: '#5a5248', c2: '#2a2620', slot: 'head', def: 30, req: { defence: 10 }, val: 50000 });   // TODO-verify: the wiki's melee mean
+recipe('slayer_helmet', 'crafting', 55, 55, [['black_mask', 1], ['steel_full_helm', 1], ['leather', 2]], { tk: 2, msg: 'You fit the mask to the helm: the slayer helmet glowers back.' });   // game-economy: the four protective masks fold into the forging
+/* the void knights' kit: no pest control here — the great pest herself yields it. The set speaks in swing() */
+for (const [id, name, g, slot, def2, val] of [['void_melee_helm', 'Void melee helm', 'helm', 'head', 6, 45000], ['void_ranger_helm', 'Void ranger helm', 'helm', 'head', 6, 45000],
+  ['void_mage_helm', 'Void mage helm', 'helm', 'head', 6, 45000], ['void_knight_top', 'Void knight top', 'robe', 'body', 45, 120000],
+  ['void_knight_robe', 'Void knight robe', 'skirt', 'legs', 30, 100000], ['void_knight_gloves', 'Void knight gloves', 'glove', 'hands', 6, 40000]]) {
+  defWear({ id, name, g, c: '#4a4038', c2: '#241f1a', slot, def: def2, req: { defence: 42 }, val });   // TODO-verify: piece defences; one 42 gate stands in for the 42-wide requirement
+  bossTert('kalphitequeen', [id, 64]);                      // game-economy: the great pest pays the pest-hunters' kit
+}
+/* granite: the maul's kin. TODO-verify: the wiki's melee means */
+defWear({ id: 'granite_shield', name: 'Granite shield', g: 'shield', c: '#7a7a80', c2: '#4a4a50', slot: 'shield', def: 50, req: { defence: 50 }, val: 55000 });
+defWear({ id: 'granite_body', name: 'Granite body', g: 'body', c: '#7a7a80', c2: '#4a4a50', slot: 'body', def: 84, req: { defence: 50, strength: 50 }, val: 95000 });
+defWear({ id: 'granite_legs', name: 'Granite legs', g: 'legs', c: '#7a7a80', c2: '#4a4a50', slot: 'legs', def: 53, req: { defence: 50, strength: 50 }, val: 60000 });
+bossTert('trollgeneral', ['granite_shield', 128], ['granite_legs', 128], ['granite_body', 256]);   // game-economy: the general keeps his quarry's plate beside his maul
+/* the volcano's remainder */
+defWear({ id: 'toktz_ket_xil', name: 'Toktz-ket-xil', g: 'shield', c: '#524c4b', c2: '#201d1d', slot: 'shield', def: 42, req: { defence: 60 }, val: 65000 });   // TODO-verify
+defWear({ id: 'obsidian_cape', name: 'Obsidian cape', g: 'cape', c: '#38322f', c2: '#191614', slot: 'cape', def: 9, val: 90000 });
+defWear({ id: 'toktz_mej_tal', name: 'Toktz-mej-tal', g: 'staff', c: '#524c4b', c2: '#201d1d', slot: 'weapon', two: 1, atk: 45, str: 52, mag: 10, spd: 6, req: { attack: 60 }, val: 70000 });   // TODO-verify
+bossTert('branda', ['toktz_ket_xil', 128], ['obsidian_cape', 128], ['toktz_mej_tal', 200]);
+/* the salve amulet: a sixth harder against the risen dead, read in swing() beside the mask — the two never stack */
+defWear({ id: 'salve_amulet', name: 'Salve amulet', g: 'amulet', c: '#5aa04a', c2: '#2f6a28', slot: 'neck', val: 40000 });
+bossTert('shade', ['salve_amulet', 128]); bossTert('revenant', ['salve_amulet', 64]);   // game-economy: no haunted mine — the dead themselves surrender its crystal
+/* the god books, completed: a shield-hand blessing for the faithful */
+for (const [id, name, c, c2, src] of [['holy_book', 'Holy book', '#3a5ac8', '#22355e', 'paladin'], ['unholy_book', 'Unholy book', '#8a1a24', '#4a0a10', 'darkwizard'],
+  ['book_of_balance', 'Book of balance', '#09651c', '#05380f', 'druid']]) {
+  defWear({ id, name, g: 'shield', c, c2, slot: 'shield', def: 5, pb: 5, val: 30000 });   // TODO-verify: the completed books' spread
+  bossTert(src, [id, 200]);                                 // game-economy: each faith's wanderers carry their own word
+}
+/* the fighters' plate */
+defWear({ id: 'fighter_torso', name: 'Fighter torso', g: 'body', c: '#8a5a3a', c2: '#452c16', slot: 'body', def: 61, str: 4, req: { defence: 40 }, val: 120000 });   // TODO-verify mean
+bossTert('bktitan', ['fighter_torso', 256]);               // game-economy: no barbarian assault — the titan's honour guard yields it
+/* the temple knights' prayer plate, initiate then proselyte. TODO-verify: means and prayer spread */
+for (const [pre, nm, dfm, pbs, rq, w, ex] of [['initiate', 'Initiate', [17, 45, 30], [3, 6, 5], { defence: 20, prayer: 10 }, 64, 0],
+  ['proselyte', 'Proselyte', [19, 52, 36], [4, 8, 6], { defence: 30, prayer: 20 }, 128, 12000]])
+  [['sallet', 'fhelm', 'head'], ['hauberk', 'body', 'body'], ['cuisse', 'legs', 'legs']].forEach(([p, g, slot], i) => {
+    defWear({ id: pre + '_' + p, name: nm + ' ' + p, g, c: '#d9dde3', c2: '#6a7078', slot, def: dfm[i], pb: pbs[i], req: rq, val: 9000 + i * 9000 + ex });
+    bossTert('paladin', [pre + '_' + p, w]);                // game-economy: the god's paragons wear it under their tabards
+  });
+/* the karambwan: eaten alongside ordinary food, on its own bite clock */
+defStack('cooked_karambwan', 'Cooked karambwan', 'cfish', '#b06a4a', '#6a3a2a', 160, { heal: 18, combo: 1 });
+SHOP_KINDS[4].base.push('cooked_karambwan');               // game-economy: the fishmonger keeps the exotic shelf until its spots exist
+/* the holidays that never came: pure vanity, alch-worthless; their rows ride MEGA_DROPS */
+defWear({ id: 'partyhat', name: 'Blue partyhat', g: 'hat', c: '#4a72d0', c2: '#2a4485', slot: 'head', val: 1 });
+defWear({ id: 'santa_hat', name: 'Santa hat', g: 'hat', c: '#d03a3a', c2: '#f0f0f0', slot: 'head', val: 1 });
+defWear({ id: 'hween_mask', name: "Green h'ween mask", g: 'skull', c: '#3f9a4a', c2: '#25622c', slot: 'head', val: 1 });
 
 /* the baker's economy: wheat from the allotments, the windmill grinds at last, the range bakes */
 OBJ_OPTS[25] = ['Mill at', 'Windmill', o => openMake(25, o)];

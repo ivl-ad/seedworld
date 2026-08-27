@@ -43,7 +43,7 @@ const cleanSeed = s => (String(s || '').trim().toLowerCase().slice(0, 32)) || 'l
    invisible from the browser: assets update instantly and the Worker does not,
    so the game looks new while the server is months old and silently dropping
    everything it does not understand. */
-const BUILD = 6;   // 6: player houses (op 23)
+const BUILD = 7;   // 6: player houses (op 23); 7: wider house lane, size refusal echoed as op 24
 
 /* The spawn-table revision this deployment expects, echoed in the socket hello
    (element 6). A client whose own SPAWN_REV differs keeps its world private
@@ -214,7 +214,7 @@ export class World extends DurableObject {
     const batch = Array.isArray(m[0]);
     const msgs = batch ? m.slice(0, 16) : [m];
     if ((me.n += msgs.length) > RATE) return;
-    if (m[0] !== 8 && m[0] !== 23 && raw.length > (batch ? MAXSMALL * 4 : MAXSMALL)) {   // 23 has its own 1600-byte lane in handle()
+    if (m[0] !== 8 && m[0] !== 23 && raw.length > (batch ? MAXSMALL * 4 : MAXSMALL)) {   // 23 has its own 4000-byte lane in handle()
       console.log('oversize', batch ? 'batch' : m[0], raw.length, me.pid);
       return;
     }
@@ -417,7 +417,8 @@ export class World extends DurableObject {
         else {
           if (!Number.isInteger(h.x) || !Number.isInteger(h.z) || Math.abs(h.x) > 1e6 || Math.abs(h.z) > 1e6 || !Array.isArray(h.rm)) return;
           let d; try { d = JSON.stringify(h); } catch { return; }
-          if (d.length > 1600 || h.rm.length > 12) return;
+          /* a refusal must never be silent: the owner keeps seeing their own copy and would never learn the world holds a stale one */
+          if (d.length > 4000 || h.rm.length > 12) { try { ws.send(JSON.stringify([[24, d.length]])); } catch {} return; }
           this.houses.set(me.pid, { x: h.x, z: h.z, d: h });
         }
         this.hDirty.add(me.pid);

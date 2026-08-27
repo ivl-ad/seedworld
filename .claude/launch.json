@@ -12,6 +12,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["C:/Users/RHV/AppData/Local/Temp/claude/C--Users-RHV-Documents-claude/9a99302f-5e5b-43ac-8916-3a09ee88e593/scratchpad/server.js"],
       "port": 8907
+    },
+    {
+      "name": "see-check",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/RHV/AppData/Local/Temp/claude/C--Users-RHV-Documents-claude/56b2c319-7c32-4ea3-b293-6bf1e11bfe77/scratchpad/server.js"],
+      "port": 8931
     }
   ]
 }
