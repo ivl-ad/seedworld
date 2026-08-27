@@ -1197,3 +1197,13 @@ marker,mkbank,Bank,c07/bankIcon.png
 marker,mkge,Grand Exchange,c07/grandExchangeIcon.png
 marker,mkbarber,Barber,c07/hairdresserIcon.png
 marker,mkaltar,Altar,c07/altarIcon.png
+marker,mkshop_general,General Store,c07/generalStoreIcon.png
+marker,mkshop_smith,Smithing Supply,c07/axeShopIcon.png
+marker,mkshop_weapon,Sword Shop,c07/swordShopIcon.png
+marker,mkshop_armour,Armour Shop,c07/platebodyShopIcon.png
+marker,mkshop_food,Fishing Shop,c07/fishingShopIcon.png
+marker,mkshop_magic,Magic Guild,c07/magicShopIcon.png
+marker,mkshop_archery,Archery Shop,c07/archeryShopIcon.png
+marker,mkshop_craft,Crafting Shop,c07/craftingShopIcon.png
+marker,mkhouse,Your house,c07/housePortalIcon.png
+marker,mkskull,Where you fell,c07/mapIconSkull.png
