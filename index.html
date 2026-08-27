@@ -855,7 +855,7 @@ function biomeName(h, x, z) {
 const MAXL = 99;
 const XP_TABLE = new Float64Array(MAXL + 2);
 for (let L = 2, s = 0; L <= MAXL + 1; L++) { s += Math.floor((L - 1) + 300 * Math.pow(2, (L - 1) / 7)); XP_TABLE[L] = Math.floor(s / 4); }
-const XP_RATE = 4;                                      // prototype pacing: 4x the 2007 rates
+const XP_RATE = 1;                                      // the 2007 rates, exactly
 const levelFor = x => { let L = 1; while (L < MAXL && x >= XP_TABLE[L + 1]) L++; return L; };
 /* 28 slots: 24 named, 4 reserved */
 const SKILLS = [
@@ -1001,11 +1001,11 @@ const ARROWS = [['bronze', 1, 7], ['iron', 1, 10], ['steel', 5, 16], ['mithril',
 const BOLTS = [['bronze', 1, 10], ['iron', 26, 46], ['steel', 31, 64], ['mithril', 36, 82], ['adamant', 46, 100], ['rune', 61, 115], ['dragon', 64, 122]]
   .map(([k, lv, rs]) => ({ k, lv, rs }));
 const defAmmo = (a, suffix, g, aT, pm) => { const t = TIER[a.k]; defWear({ id: a.k + suffix, name: (a.n || t.n) + (aT ? ' bolts' : ' arrow'), g,
-  c: a.c || t.c, c2: a.c2 || t.c2, slot: 'ammo', stack: 1, ammo: 1, aT, rst: a.rs, rat: Math.round(a.rs * 0.45), req: { ranged: a.lv }, val: Math.max(1, Math.round(a.rs * pm)) }); };
+  c: a.c || t.c, c2: a.c2 || t.c2, slot: 'ammo', stack: 1, ammo: 1, aT, rst: a.rs, rat: 0, req: { ranged: a.lv }, val: Math.max(1, Math.round(a.rs * pm)) }); };   // wiki: arrows and bolts buy strength only, never accuracy
 for (const a of ARROWS) defAmmo(a, '_arrow', 'arrow', undefined, 0.9);
 for (const a of BOLTS) defAmmo(a, '_bolts', 'bolt', 'bolt', 1.1);
 /* diamond-tipped adamant bolts, enchanted: drop-only — no enchant-bolt spell exists here, and ENCH stays jewellery-only */
-defWear({ id: 'diamond_bolts_e', name: 'Diamond bolts (e)', g: 'bolt', c: '#e8f0f8', c2: '#8a98a8', slot: 'ammo', stack: 1, ammo: 1, aT: 'bolt', rst: 105, rat: 47, req: { ranged: 46 }, val: 800 });
+defWear({ id: 'diamond_bolts_e', name: 'Diamond bolts (e)', g: 'bolt', c: '#e8f0f8', c2: '#8a98a8', slot: 'ammo', stack: 1, ammo: 1, aT: 'bolt', rst: 105, rat: 0, req: { ranged: 46 }, val: 800 });
 /* thrown weapons: ammunition that is its own launcher (bow: 1 so the ranged code reads its speed and range); knives and darts come off the anvil,
    axes and javelins from the archery shop, chinchompas from box traps. [kind, glyph, speed, range, strength per metal: bronze iron steel black mithril adamant rune dragon] */
 const THROWN = [['knife', 'knife', 3, 4, [3, 4, 7, 8, 10, 14, 24, 28]], ['dart', 'dart', 3, 3, [1, 3, 4, 6, 7, 10, 14, 20]], ['thrownaxe', 'axe', 5, 4, [5, 7, 11, 0, 16, 23, 36, 44]],
@@ -1032,14 +1032,15 @@ const HIDEPIECE = [{ k: 'coif', n: 'coif', g: 'hat', slot: 'head' }, { k: 'body'
   { k: 'chaps', n: 'chaps', g: 'legs', slot: 'legs' }, { k: 'vambraces', n: 'vambraces', g: 'glove', slot: 'hands' }];
 HIDES.forEach(h => HIDEPIECE.forEach((q, qi) => defWear({
   id: h.k + '_' + q.k, name: h.n + ' ' + q.n, g: q.g, c: h.c, c2: h.c2, slot: q.slot, def: h.st[qi * 2], rat: h.st[qi * 2 + 1],
-  req: { ranged: h.lv, defence: h.df }, val: Math.round((h.st[qi * 2] + h.st[qi * 2 + 1] * 1.4 + 6) * (1 + h.st[3] * 0.22))
+  req: q.slot === 'body' ? { ranged: h.lv, defence: h.df } : { ranged: h.lv },   // wiki: only the body wears a Defence gate
+  val: Math.round((h.st[qi * 2] + h.st[qi * 2 + 1] * 1.4 + 6) * (1 + h.st[3] * 0.22))
 })));
 
 /* trees: level, xp, firemaking xp, respawn ticks, canopy tint, scale */
 const TREES = [
-  ['tree', 'Tree', 1, 25, 40, 25, 0x3f7a34, 1.00, 'logs'], ['oak', 'Oak', 15, 37, 60, 30, 0x4e7a2b, 1.18, 'oak_logs'],
-  ['willow', 'Willow', 30, 67, 90, 40, 0x6f8f3a, 1.10, 'willow_logs'], ['maple', 'Maple', 45, 100, 135, 55, 0xa8632a, 1.22, 'maple_logs'],
-  ['yew', 'Yew', 60, 175, 202, 90, 0x2f5a3c, 1.34, 'yew_logs'], ['magic', 'Magic tree', 75, 250, 303, 140, 0x6f6fc8, 1.28, 'magic_logs'],
+  ['tree', 'Tree', 1, 25, 40, 25, 0x3f7a34, 1.00, 'logs'], ['oak', 'Oak', 15, 37.5, 60, 30, 0x4e7a2b, 1.18, 'oak_logs'],
+  ['willow', 'Willow', 30, 67.5, 90, 40, 0x6f8f3a, 1.10, 'willow_logs'], ['maple', 'Maple', 45, 100, 135, 55, 0xa8632a, 1.22, 'maple_logs'],
+  ['yew', 'Yew', 60, 175, 202.5, 90, 0x2f5a3c, 1.34, 'yew_logs'], ['magic', 'Magic tree', 75, 250, 303.8, 140, 0x6f6fc8, 1.28, 'magic_logs'],
   ['mahogany', 'Mahogany', 50, 125, 157.5, 70, 0x8a3a2a, 1.26, 'mahogany_logs']   // appended, never inserted: tree kinds are part of the deterministic world
 ].map(([k, n, lv, xp, fire, rs, tint, sc, log], i) => {
   defItem({ id: log, name: k === 'tree' ? 'Logs' : cap(k) + ' logs', g: 'log', c: '#8a6438', c2: '#5b4123', stack: 1, fire, fireLv: lv, val: 8 + i * 30 });
@@ -1048,7 +1049,7 @@ const TREES = [
 /* rocks: the ore colour is the vein tint and the icon colour. Prices are authored so the chain climbs:
    tin matches copper, coal sits under iron, and the value of everything downstream derives from these. */
 const ORES = [
-  ['copper', 'Copper rock', 1, 17, 12, '#b2632a', '#7a3f18', 'copper_ore', , 10], ['tin', 'Tin rock', 1, 17, 12, '#9aa0a8', '#65696f', 'tin_ore', , 10],
+  ['copper', 'Copper rock', 1, 17.5, 12, '#b2632a', '#7a3f18', 'copper_ore', , 10], ['tin', 'Tin rock', 1, 17.5, 12, '#9aa0a8', '#65696f', 'tin_ore', , 10],
   ['iron', 'Iron rock', 15, 35, 16, '#8a5238', '#5b3423', 'iron_ore', , 60], ['coal', 'Coal rock', 30, 50, 30, '#33333a', '#17171b', 'coal', 'Coal', 45],
   ['mithril', 'Mithril rock', 55, 80, 90, '#5c63b8', '#373d84', 'mithril_ore', , 190], ['adamantite', 'Adamantite rock', 70, 95, 140, '#4e7d52', '#2d5232', 'adamantite_ore', , 330],
   ['runite', 'Runite rock', 85, 125, 250, '#3ab6c4', '#1f7d89', 'runite_ore', , 560],
@@ -1062,8 +1063,8 @@ const ORES = [
 /* smelting: the 2007 ladder, coal-hungry at the top. A bar is worth its ores plus a fifteenth — smelting adds value now
    instead of destroying a third of it. */
 const BARS = [
-  ['bronze', 1, 6, [['copper_ore', 1], ['tin_ore', 1]]], ['iron', 15, 12, [['iron_ore', 1]]], ['steel', 30, 17, [['iron_ore', 1], ['coal', 2]]],
-  ['mithril', 50, 30, [['mithril_ore', 1], ['coal', 4]]], ['adamant', 70, 37, [['adamantite_ore', 1], ['coal', 6]]], ['rune', 85, 50, [['runite_ore', 1], ['coal', 8]]],
+  ['bronze', 1, 6.2, [['copper_ore', 1], ['tin_ore', 1]]], ['iron', 15, 12.5, [['iron_ore', 1]]], ['steel', 30, 17.5, [['iron_ore', 1], ['coal', 2]]],
+  ['mithril', 50, 30, [['mithril_ore', 1], ['coal', 4]]], ['adamant', 70, 37.5, [['adamantite_ore', 1], ['coal', 6]]], ['rune', 85, 50, [['runite_ore', 1], ['coal', 8]]],
   ['silver', 20, 13.7, [['silver_ore', 1]], { n: 'Silver', c: '#c8ccd4', c2: '#80848c' }], ['gold', 40, 22.5, [['gold_ore', 1]], { n: 'Gold', c: '#e0b436', c2: '#9a7414' }]
 ].map(([t, lv, xp, need, T]) => {
   T = T || TIER[t];
@@ -1138,7 +1139,7 @@ const defStack = (id, name, g, c, c2, val, x) => defItem(Object.assign({ id, nam
 const RC = [['air', 1, 5, 11, '#cfd8e0', '#8f9aa6', 5, 1], ['mind', 2, 5.5, 14, '#9a7ad0', '#65509a', 4, 1], ['water', 5, 6, 19, '#4f8fd0', '#2f5f92', 5, 1],
   ['earth', 9, 6.5, 26, '#8a6a3a', '#5b4524', 5, 1], ['fire', 14, 7, 35, '#d05a2a', '#8f3a16', 5, 1], ['body', 20, 7.5, 46, '#d8cfc4', '#8a8078', 5, 1],
   ['cosmic', 27, 8, 59, '#e8d86a', '#9a8a2a', 120], ['chaos', 35, 8.5, 74, '#c04a4a', '#802e2e', 90, 1], ['nature', 44, 9, 91, '#5aa04a', '#2f6a28', 180],
-  ['law', 54, 9.5, 0, '#6a8ad8', '#3a4f8a', 200], ['death', 65, 10, 0, '#e8e8f0', '#6a6a74', 220, 1], ['blood', 77, 10.5, 0, '#8a1a24', '#4a0a10', 400],
+  ['law', 54, 9.5, 95, '#6a8ad8', '#3a4f8a', 200], ['death', 65, 10, 99, '#e8e8f0', '#6a6a74', 220, 1], ['blood', 77, 10.5, 0, '#8a1a24', '#4a0a10', 400],
   ['soul', 90, 29.7, 0, '#f0e8f8', '#8a7a9a', 600]]        // appended, never inserted: RC index is wire format
   .map(([k, lv, xp, step, c, c2, val, shop], i) => ({ k, lv, xp, step, c, c2, val, shop: shop || 0, id: k + '_rune', i }));
 const RUNES = RC.map(r => defStack(r.id, cap(r.k) + ' rune', 'rune', r.c, r.c2, r.val, { rune: 1 }));
@@ -1214,7 +1215,7 @@ const mkName = r => r.name || ITEMS[r.id].name + (r.n > 1 ? ' x' + r.n : '');
 for (const b of BARS) recipe(b.id, 'smithing', b.lv, b.xp, b.need,
   b.t === 'iron' ? { at: 3, fn: () => Math.random() < 0.5 ? [['iron_bar', 1]] : (say('The ore is too impure and you fail to refine it.', 'bad'), null) } : { at: 3 });   // iron smelts at 50%, as ever
 const SMITH_XP = { bronze: 12.5, iron: 25, steel: 37.5, mithril: 50, adamant: 62.5, rune: 75 };   // the 2007 xp per bar at the anvil
-for (const b of BARS) for (const s of SMITH) if (ITEMS[b.t + '_' + s.p]) recipe(b.t + '_' + s.p, 'smithing', Math.min(MAXL, b.lv + s.off), (SMITH_XP[b.t] || b.xp * 2) * s.bars, [[b.id, s.bars]], { at: 4, tool: 'hammer', n: s.n });
+for (const b of BARS) for (const s of SMITH) if (ITEMS[b.t + '_' + s.p]) recipe(b.t + '_' + s.p, 'smithing', Math.min(MAXL, b.lv > 1 ? b.lv + s.off : Math.max(1, s.off)), (SMITH_XP[b.t] || b.xp * 2) * s.bars, [[b.id, s.bars]], { at: 4, tool: 'hammer', n: s.n });   // bronze starts at the offset itself (dagger and axe at 1), iron up stacks it on the bar
 
 /* ---- 6. SHOPS: stock is a function of (kind, settlement tier), derived every time the door opens ---- */
 const SHOP_KINDS = [
@@ -1365,10 +1366,10 @@ const SPEC = {
   dragon_halberd: { cost: 30, dmg: 1.1, big2: 1 },
   dragon_2h_sword: { cost: 60 },
   dragon_claws: { cost: 50, claws: 1 },
-  dragon_battleaxe: { cost: 100, fx: () => { let d = 0; for (const k of ['attack', 'defence', 'ranged', 'magic']) { const t = Math.floor(lvl[SK[k]] * 0.1); bst[SK[k]] = Math.max(-99, bst[SK[k]] - t); d += t; }
+  dragon_battleaxe: { cost: 100, fx: () => { let d = 0; for (const k of ['attack', 'defence', 'ranged', 'magic']) { const t = Math.floor(Math.max(0, lvl[SK[k]] + bst[SK[k]]) * 0.1); bst[SK[k]] = Math.max(-lvl[SK[k]], bst[SK[k]] - t); d += t; }
     bst[SK.strength] = Math.min(99, bst[SK.strength] + 10 + Math.floor(d / 4)); dirty.sk = 1; say('You feel the power of the dragon battleaxe surge through you!', 'lv'); } },
   dragon_crossbow: { cost: 60, rng: 1, dmg: 1.2 },
-  magic_shortbow: { cost: 55, rng: 1, n: 2, acc: 1.43 }
+  magic_shortbow: { cost: 55, rng: 1, n: 2, acc: 1.43, msb: 1 }   // snapshot: two arrows, its own prayerless max off the arrow alone
 };
 const SPELLS = [
   ['wind_strike', 'Wind Strike', 1, 5.5, 2, 0xd8e4ee, [['air_rune', 1], ['mind_rune', 1]]],
@@ -1393,8 +1394,8 @@ const SPELLS = [
   ['curse', 'Curse', 19, 29, 0, 0x9a7ad0, [['body_rune', 1], ['earth_rune', 3], ['water_rune', 2]], 'def'],
   // appended, never inserted: the row index rides op 18. hold = ticks rooted to the ground; undead gates the cast to the risen
   ['crumble_undead', 'Crumble Undead', 39, 24.5, 15, 0xd8cfa0, [['earth_rune', 2], ['air_rune', 2], ['chaos_rune', 1]], null, 0, 1],
-  ['bind', 'Bind', 20, 30.5, 0, 0x3aa04a, [['nature_rune', 2], ['earth_rune', 3], ['water_rune', 3]], 'hold', 8],
-  ['snare', 'Snare', 50, 60.5, 0, 0x2a8a3a, [['nature_rune', 3], ['earth_rune', 4], ['water_rune', 4]], 'hold', 16],
+  ['bind', 'Bind', 20, 30, 0, 0x3aa04a, [['nature_rune', 2], ['earth_rune', 3], ['water_rune', 3]], 'hold', 8],
+  ['snare', 'Snare', 50, 60, 0, 0x2a8a3a, [['nature_rune', 3], ['earth_rune', 4], ['water_rune', 4]], 'hold', 16],
   ['entangle', 'Entangle', 79, 89, 0, 0x1e7a2e, [['nature_rune', 4], ['earth_rune', 5], ['water_rune', 5]], 'hold', 24]
 ].map(([k, n, lv, xp, max, tint, need, drain, hold, undead], i) => ({ k, n, lv, xp, max, tint, need, drain, hold, undead, i }));
 /* prayers drain points per tick while lit, at the 2007 rates: 0.6 / (seconds per point) — the 36s/18s/12s/6s/3s/2s/1.5s ladder */
@@ -1405,16 +1406,17 @@ const PRAYERS = [
   // appended, never inserted: the bit is the row's index in the save. The effect object: atk/str/def/rng/mag multiply; prot names the monster style turned
   // aside (0 on the other overheads, so they share its slot); heal, restore, preserve, item, retri, redeem and smite are flags; a seventh column is a Defence requirement
   ['rapid_heal', 'Rapid Heal', 22, 0.0333, { heal: 1 }, 'heart'], ['prot_magic', 'Protect Magic', 37, 0.2, { prot: 'g' }, 'rune'], ['prot_missiles', 'Protect Missiles', 40, 0.2, { prot: 'r' }, 'arrow'],
-  ['prot_melee', 'Protect Melee', 43, 0.2, { prot: 'm' }, 'sword'], ['eagle_eye', 'Eagle Eye', 44, 0.2, { rng: 1.15, rngs: 1.15 }, 'bow'], ['mystic_might', 'Mystic Might', 45, 0.2, { mag: 1.15 }, 'staff'],
+  ['prot_melee', 'Protect Melee', 43, 0.2, { prot: 'm' }, 'sword'], ['eagle_eye', 'Eagle Eye', 44, 0.2, { rng: 1.15, rngs: 1.15 }, 'bow'], ['mystic_might', 'Mystic Might', 45, 0.2, { mag: 1.15, mdmg: 2 }, 'staff'],
   ['sharp_eye', 'Sharp Eye', 8, 0.0167, { rng: 1.05, rngs: 1.05 }, 'arrow'], ['mystic_will', 'Mystic Will', 9, 0.0167, { mag: 1.05 }, 'rune'], ['rapid_restore', 'Rapid Restore', 19, 0.0167, { restore: 1 }, 'leaf'],
-  ['prot_item', 'Protect Item', 25, 0.0333, { item: 1 }, 'ring'], ['hawk_eye', 'Hawk Eye', 26, 0.1, { rng: 1.10, rngs: 1.10 }, 'arrow'], ['mystic_lore', 'Mystic Lore', 27, 0.1, { mag: 1.10 }, 'rune'],
+  ['prot_item', 'Protect Item', 25, 0.0333, { item: 1 }, 'ring'], ['hawk_eye', 'Hawk Eye', 26, 0.1, { rng: 1.10, rngs: 1.10 }, 'arrow'], ['mystic_lore', 'Mystic Lore', 27, 0.1, { mag: 1.10, mdmg: 1 }, 'rune'],
   ['incredible_refl', 'Incredible Refl.', 34, 0.2, { atk: 1.15 }, 'sword'], ['retribution', 'Retribution', 46, 0.05, { retri: 1, prot: 0 }, 'skull'], ['redemption', 'Redemption', 49, 0.1, { redeem: 1, prot: 0 }, 'heart'],
-  ['preserve', 'Preserve', 55, 0.0333, { preserve: 1 }, 'vial'], ['chivalry', 'Chivalry', 60, 0.2, { def: 1.20, str: 1.18, atk: 1.15 }, 'fhelm', 65],
-  ['piety', 'Piety', 70, 0.4, { def: 1.25, str: 1.23, atk: 1.20 }, 'star', 70], ['rigour', 'Rigour', 74, 0.4, { rng: 1.20, rngs: 1.23, def: 1.25 }, 'bow', 70], ['augury', 'Augury', 77, 0.4, { mag: 1.25, def: 1.25 }, 'staff', 70],
+  ['preserve', 'Preserve', 55, 0.0333, { preserve: 1 }, 'vial'], ['chivalry', 'Chivalry', 60, 0.4, { def: 1.20, str: 1.18, atk: 1.15 }, 'fhelm', 65],
+  ['piety', 'Piety', 70, 0.4, { def: 1.25, str: 1.23, atk: 1.20 }, 'star', 70], ['rigour', 'Rigour', 74, 0.4, { rng: 1.20, rngs: 1.23, def: 1.25 }, 'bow', 70], ['augury', 'Augury', 77, 0.4, { mag: 1.25, def: 1.25, mdmg: 4 }, 'staff', 70],
   ['smite', 'Smite', 52, 0.3, { smite: 1, prot: 0 }, 'star']
 ].map(([k, n, lv, drain, fx, g, dl], i) => Object.assign({ k, n, lv, drain, g, dl: dl || 0, fx: Object.keys(fx), bit: 1 << i }, fx));
 if (PRAYERS.length > 32) throw new Error('prayer bitfield full: P.prayers holds 32 bits');   // bit 31 (the sign) still works through & masks; bit 32 wraps to 1
 const prayerMul = f => { let m = 1; for (const p of PRAYERS) if ((P.prayers & p.bit) && p[f]) m *= p[f]; return m; };
+const prayAdd = f => { let s = 0; for (const p of PRAYERS) if ((P.prayers & p.bit) && p[f]) s += p[f]; return s; };   // additive riders: the mystic line's magic damage %
 const prayHas = (f, v) => PRAYERS.some(p => (P.prayers & p.bit) && (v === undefined ? p[f] : p[f] === v));
 
 /* registration points for the skill sections at the foot of the file: extra task kinds, kill/tick/pool/structure hooks, item-on-object handlers */
@@ -3781,6 +3783,7 @@ function updateHeldTool() {
   shownTool = want;
   holdWeapon(avatar.parts.wep, want ? ITEMS[want] : (eq.weapon ? ITEMS[eq.weapon] : null));
 }
+const capeOn = k => eq.cape === 'skillcape_' + k;         // the worn master's cape; each perk speaks at its own site
 function bonus(f) {
   let t = 0;
   for (const s of EQ_SLOTS) if (eq[s]) t += ITEMS[eq[s]][f] || 0;
@@ -3917,7 +3920,7 @@ function spendArrow() {
   dirty.eq = 1; dressAvatar(); markDirty(1);
 }
 /* magic damage bonus (occult, kodai, ancestral): a percentage over the spell's flat max, as the wiki prices it */
-const mdmgMax = m => Math.floor(m * (1 + bonus('mdmg') / 100));
+const mdmgMax = m => Math.floor(m * (1 + (bonus('mdmg') + prayAdd('mdmg')) / 100));
 /* a powered staff (the trident) casts its own spell: no runes, max = magic/3 - 5, at the weapon's own four-tick pace */
 const pstaffOn = () => { const w = weaponIt(); return !!(w && w.pstaff && P.spell === null && !bowRange()); };
 const pstaffMax = () => Math.max(1, Math.floor(eff('magic') / 3) - 5);
@@ -3925,8 +3928,9 @@ const barrowsSet = b => [eq.head, eq.body, eq.legs, eq.weapon].every(id => id &&
 const onTask = o => !!(P.slay && o && o.npc && (o.t.base || o.t).k === P.slay.k);
 const maxHit = () => bowRange() ? rangedMax()
   : Math.floor(maxFrom(Math.floor(eff('strength') * prayerMul('str')) + STYLES[P.style].str, bonus('str'))
-    * (barrowsSet('dharok') ? 1 + (P.maxhp - P.hp) * P.maxhp / 10000 : 1));   // Dharok strikes harder for every drop of blood lost
-const defLevel = () => Math.floor(eff('defence') * prayerMul('def')) + (P.spell !== null ? (P.cstyle ? 3 : 0) : STYLES[P.style].def || 0);
+    * (barrowsSet('dharok') ? 1 + (P.maxhp - P.hp) * P.maxhp / 10000 : 1)     // Dharok strikes harder for every drop of blood lost
+    * (eq.neck === 'berserker_necklace' && (eq.weapon === 'toktz_xil_ak' || eq.weapon === 'tzhaar_ket_om') ? 1.2 : 1));   // the wiki's obsidian charm: a fifth again behind an obsidian blade
+const defLevel = () => Math.floor(eff('defence') * prayerMul('def')) + (P.spell !== null || pstaffOn() ? (P.cstyle ? 3 : 0) : bowRange() ? RSTYLES[P.rstyle].def || 0 : STYLES[P.style].def || 0);   // each discipline's own stance pays its defence
 /* both sides pass their full effective level: players floor(level x prayer) + style + 8, monsters level + 9 */
 function hitChance(atk, atkB, def, defB) {
   const a = atk * (atkB + 64), d = def * (defB + 64);
@@ -4436,12 +4440,13 @@ function hurtPlayer(dmg, byPlayer) {
     P.hp = Math.min(P.maxhp, P.hp + (lvl[SK.prayer] >> 2)); P.pray = 0; P.prayers = 0; dirty.orb = 1;
     say('You are redeemed, at the cost of all your prayer.', 'lv'); drawPrayers();
   }
-  if (P.hp > 0 && eq.ring === 'ring_of_life' && P.hp <= Math.max(1, Math.floor(P.maxhp * 0.1))) {   // fires once, at a tenth of your health
-    eq.ring = null; dirty.eq = 1;
+  if (P.hp > 0 && (eq.ring === 'ring_of_life' || capeOn('defence')) && P.hp <= Math.max(1, Math.floor(P.maxhp * 0.1))) {   // fires at a tenth of your health; the defence cape works the ring's escape and survives it
+    const ring = eq.ring === 'ring_of_life';
+    if (ring) { eq.ring = null; dirty.eq = 1; }
     P.task = null; stopWalk();
     const rlf = tpFrom(), v = nearestVillageTo(rlf.x, rlf.z, 12);
     if (v) { const sp = safeSpotIn(v); sfx(200); teleport(sp.x, sp.z, 200); }
-    say('Your ring of life flares, carries you to safety, and crumbles to dust.', 'lv');
+    say(ring ? 'Your ring of life flares, carries you to safety, and crumbles to dust.' : 'Your cape flares and carries you to safety.', 'lv');
     markDirty(1); healthBar(P);
     return;
   }
@@ -4555,16 +4560,22 @@ function swing(o) {
   P.pose = sp || ps ? 2 : rng ? 1 : stabbing() ? 4 : 0;
   if (--P.actT > 0) return -1;
   P.actT = P.actSpan;
-  const [dl, db] = o.npc ? [o.t.def * (o.defDr > tickN ? 0.95 : 1) * (o.specDr || 1) + 9, o.t.db] : remoteDef(o);
+  const [dl, db] = o.npc ? [Math.max(0, o.t.def * (o.defDr > tickN ? 0.95 : 1) * (o.specDr || 1) - (o.defCut || 0)) + 9, o.t.db] : remoteDef(o);
   let dmg, xps = null;
   if (rng) {
     const st = RSTYLES[P.rstyle], spc = P.specArm && SPEC[eq.weapon] && SPEC[eq.weapon].rng ? SPEC[eq.weapon] : null;
     const rv = voidSet('ranger') ? 1.1 : 1;                 // the wiki's 10% ranged accuracy and damage
-    const ch = hitChance((Math.floor(eff('ranged') * prayerMul('rng')) + st.acc + 8) * (spc && spc.acc || 1) * rv, bonus('rat'), dl, db);
-    const M = Math.floor(rangedMax() * (spc && spc.dmg || 1) * rv);
+    let ta = 1, td = 1;                                     // the twisted bow reads the target's Magic; the dhcb bites dragonkind (wiki curves)
+    if (o.npc && eq.weapon === 'twisted_bow') { const m = Math.min(250, o.t.mag); ta = Math.min(1.4, (140 + (3 * m - 10) / 100 - Math.pow(3 * m / 10 - 100, 2) / 100) / 100); td = Math.min(2.5, (250 + (3 * m - 14) / 100 - Math.pow(3 * m / 10 - 140, 2) / 100) / 100); }
+    if (o.npc && eq.weapon === 'dragon_hunter_crossbow' && o.t.fire) { ta *= 1.3; td *= 1.25; }
+    const dr = spc && spc.ddmg && eq.ammo === 'dragon_arrow', mn = spc ? (dr ? spc.dmin : spc.min || 0) : 0;   // the dark bow's floors, deeper on dragon arrows
+    const ch = hitChance((Math.floor(eff('ranged') * prayerMul('rng')) + st.acc + 8) * (spc && spc.acc || 1) * rv * ta, bonus('rat'), dl, db);
+    // the msb snapshot takes the arrow's strength alone and no prayer, the wiki's own formula; the dark bow's dragon cap is 48 an arrow
+    const M = spc && spc.msb ? maxFrom(eff('ranged') + 2, (eq.ammo && ITEMS[eq.ammo].rst) || 0)
+      : Math.min(dr ? 48 : 1e9, Math.floor(rangedMax() * (spc ? (dr ? spc.ddmg : spc.dmg || 1) : 1) * rv * td));
     if (spc) { P.specArm = 0; P.spec = Math.max(0, P.spec - spc.cost); drawStyles(); }
     dmg = 0;
-    for (let h = 0, hn = spc && spc.n || 1; h < hn; h++) { dmg += roll(ch, M); if (h && P.ammoN > 0) spendArrow(); }
+    for (let h = 0, hn = spc && spc.n || 1; h < hn; h++) { dmg += Math.max(roll(ch, M), mn); if (h && P.ammoN > 0) spendArrow(); }
     dmg = boltProc(o, dmg, ch, M);                        // enchanted bolts have their say
     if (spc && spc.heal && dmg > 0) { P.hp = Math.min(P.maxhp, P.hp + Math.floor(dmg * spc.heal)); dirty.orb = 1; }   // the blowpipe drinks
     const bw = bowItem();                                 // an envenomed launcher bites one time in four, and its venom deepens
@@ -4611,12 +4622,16 @@ function swing(o) {
       P.specArm = 0; P.spec = Math.max(0, P.spec - spc.cost);
       const M = Math.floor(maxHit() * (spc.dmg !== undefined ? spc.dmg : 1) * bm), ch = hitChance(aEff, bonus('atk'), dl, db);
       dmg = 0;
-      if (spc.claws) {                                       // slice and dice: the first hit that lands sets the cascade
+      if (spc.claws) {                                       // slice and dice: four rolls, the first that lands sets the wiki's cascade (4-2-1-1 / 0-4-2-2 / 0-0-3-3 / 0-0-0-5)
         if (Math.random() < ch) { const h1 = randInt(Math.max(1, M >> 1), Math.max(1, M - 1)); dmg = h1 + (h1 >> 1) + (h1 >> 2) + ((h1 >> 2) + 1); }
+        else if (Math.random() < ch) { const h2 = randInt(Math.max(1, Math.floor(M * 3 / 8)), Math.max(1, Math.floor(M * 7 / 8))); dmg = h2 + (h2 >> 1) + ((h2 >> 1) + 1); }
+        else if (Math.random() < ch) { const h3 = randInt(Math.max(1, M >> 2), Math.max(1, Math.floor(M * 3 / 4))); dmg = h3 * 2 + 1; }
+        else if (Math.random() < ch) { dmg = randInt(Math.max(1, M >> 2), Math.max(1, Math.floor(M * 5 / 4))); }
         else if (Math.random() < 2 / 3) dmg = 2;
-      } else for (let h = 0, hn = spc.n || 1; h < hn; h++) dmg += roll(ch, M);
+      } else for (let h = 0, hn = spc.n || 1; h < hn; h++) dmg += Math.random() < ch ? Math.max(spc.min || 0, randInt(0, M)) : 0;
       if (spc.big2 && o.npc && o.t.big) dmg += roll(hitChance(aEff * 0.75, bonus('atk'), dl, db), M);   // the halberd sweeps large prey a second time
       if (spc.drainDef && dmg > 0 && o.npc) o.specDr = (o.specDr || 1) * spc.drainDef;
+      if (spc.drainFlat && dmg > 0 && o.npc) o.defCut = (o.defCut || 0) + dmg;   // the bgs caves in Defence by the wound it deals
       if (spc.stun && o.npc) { o.cd = Math.max(o.cd, spc.stun); say('You shove the ' + o.name + ' back!'); }
       if (spc.bonus && dmg > 0) { dmg += randInt(spc.bonus[0], spc.bonus[1]); say("Saradomin's lightning strikes!", 'lv'); }
       if (spc.quick) P.actT = 1;                           // the maul comes around again at once
@@ -4651,7 +4666,7 @@ function taskTick() {
     if (o.dead || (o.key !== undefined && depleted.has(o.key) && t.k !== 'cook' && t.k !== 'make') || (o.npc && !o.mesh.parent) || (o.remote && !remotes.has(o.pid))) { P.task = null; return; }
     const ox = (o.npc || o.remote) ? o.tx : o.x, oz = (o.npc || o.remote) ? o.tz : o.z;
     // reach: a spell ten tiles, a bow its range, melee one tile — or the bulk of the thing for the big ones, or a halberd's two
-    const reach = t.k !== 'attack' ? (t.reach || 1) : P.spell !== null || pstaffOn() ? MAGIC_RANGE : bowRange() || Math.max((eq.weapon && ITEMS[eq.weapon].reach) || 1, o.npc && o.t.big ? Math.max(npcFp(o.t) + 1, Math.round(o.t.sz)) : 1);
+    const reach = t.k !== 'attack' ? (t.reach || 1) : P.spell !== null ? MAGIC_RANGE : pstaffOn() ? 7 : bowRange() || Math.max((eq.weapon && ITEMS[eq.weapon].reach) || 1, o.npc && o.t.big ? Math.max(npcFp(o.t) + 1, Math.round(o.t.sz)) : 1);   // a powered staff reaches the wiki's seven
     if (chebDist(P.tx, P.tz, ox, oz) > reach) {
       if (!P.path.length) {                                 // chase, or give up if it walked off a cliff
         const p = findPath(P.tx, P.tz, ox, oz, reach);
@@ -4724,8 +4739,9 @@ function taskTick() {
       diaryBump(t.k, o.k, o.x, o.z, 1);
       gainXp(G.sk, R.xp);
       if (t.k === 'mine') sfx(3600, 0.9);
-      else if (Math.random() < 1 / 256) { const nid = Math.random() < 0.5 ? 'egg' : rollTable(SEED_SUB)[0]; dropItem(nid, 1, P.tx, P.tz); sfx(1516); say("A bird's nest falls out of the tree!", 'lv'); }
+      else if (Math.random() < (capeOn('woodcutting') ? 1.1 : 1) / 256) { const nid = Math.random() < 0.5 ? 'egg' : rollTable(SEED_SUB)[0]; dropItem(nid, 1, P.tx, P.tz); sfx(1516); say("A bird's nest falls out of the tree!", 'lv'); }   // the woodcutting cape shakes a tenth more nests loose
       if (t.k === 'mine' && R.rs && Math.random() < 1 / 256 && invFree()) { const g = rollTable(GEM_T)[0]; invAdd(g, 1); say('You find an ' + ITEMS[g].name.toLowerCase() + '!', 'lv'); }
+      if (t.k === 'mine' && capeOn('mining') && R.lv <= 70 && R.k !== 'essence' && Math.random() < 0.05) invAdd(id, 1);   // the mining cape's spare ore, up to adamantite, no xp
       if (R.rs && (t.k !== 'chop' || !R.i || Math.random() < 0.125)) { if (t.k === 'chop') sfx(2734); deplete(o, R.rs); P.task = null; }   // oaks and up fall one log in eight
     }
   } else if (t.k === 'fish') {
@@ -4756,7 +4772,7 @@ function taskTick() {
     invRemove(raw.raw, 1);
     // each food has its own stop-burning level (a fire runs four levels behind a range); the risk slides down to it from ~55%
     const stop = (raw.stop || raw.cookLv + 34) + (o.t === 6 ? 0 : 4);
-    if (Math.random() < (lvl[SK.cooking] >= stop ? 0 : clamp(0.55 * (stop - lvl[SK.cooking]) / Math.max(1, stop - raw.cookLv), 0, 0.55))) {
+    if (!capeOn('cooking') && Math.random() < (lvl[SK.cooking] >= stop ? 0 : clamp(0.55 * (stop - lvl[SK.cooking]) / Math.max(1, stop - raw.cookLv), 0, 0.55))) {   // the cooking cape never burns
       invAdd('burnt_' + raw.k, 1); say('You accidentally burn the ' + raw.n.toLowerCase() + '.', 'bad');
     } else { invAdd(raw.done, 1); say('You cook the ' + raw.n.toLowerCase() + '.'); gainXp('cooking', raw.cook); }
   }
@@ -6193,7 +6209,7 @@ function gameTick() {
     for (let i = 0; i < NSK; i++) if (bst[i] < 0 ? up : bst[i] > 0 && down) { bst[i] -= Math.sign(bst[i]); dirty.sk = 1; }
   }
   if ((!P.moved || !P.run) && P.energy < 100) { P.energy = Math.min(100, P.energy + (15 + Math.floor(lvl[SK.agility] / 10)) / 100); dirty.orb = 1; }   // restore: (15 + agility/10) units a tick
-  if (tickN % (prayHas('heal') ? 50 : 100) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }   // one point a minute, twice as fast under Rapid Heal
+  if (tickN % (prayHas('heal') || capeOn('hitpoints') ? 50 : 100) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }   // one point a minute, twice as fast under Rapid Heal or the hitpoints cape (they never stack)
   if (tickN % 100 === 0 && P.hp > P.maxhp) { P.hp--; dirty.orb = 1; }   // an overfed brew or anglerfish settles back a point a minute
   if (P.prayers) {
     let drain = 0;
@@ -7622,7 +7638,7 @@ TASKS.pick = (t, o) => {
   const p = o.t.pick;
   if (needLv('thieving', p.lv)) return;
   P.actT = 2;
-  if (Math.random() < pickChance(eff('thieving'), p.lv)) {
+  if (Math.random() < pickChance(eff('thieving'), p.lv) * (capeOn('thieving') ? 1.1 : 1)) {   // the thieving cape steadies the hand a tenth
     const [id, n] = lootOf(p.loot);
     if (!invAdd(id, n)) return fail(FULL);
     if (id === 'coins') { gpMade += n; sfx(2115, 0.8); }
@@ -7759,14 +7775,15 @@ ITEMS.anglerfish.ang = 1;                                   // both anglers heal
 recipe('steel_cannonball', 'smithing', 35, 25.6, [['steel_bar', 1]], { at: 4, tool: 'hammer', n: 4, msg: 'You pour the molten metal into the mould; four cannonballs clatter out.' });
 recipe('onyx_bolt_tips', 'fletching', 73, 225.6, [['onyx', 1]], { tool: 'chisel', n: 24, msg: 'You carefully chip the onyx into 24 bolt tips.' });
 /* onyx bolts: the tips finally attach to something — runite bolts, fletching 73, +120, as in 2007 */
-defWear({ id: 'onyx_bolts', name: 'Onyx bolts', g: 'bolt', c: '#2a2028', c2: '#8a98a8', slot: 'ammo', stack: 1, ammo: 1, aT: 'bolt', rst: 120, rat: 54, req: { ranged: 61 }, val: 1800 });
+defWear({ id: 'onyx_bolts', name: 'Onyx bolts', g: 'bolt', c: '#2a2028', c2: '#8a98a8', slot: 'ammo', stack: 1, ammo: 1, aT: 'bolt', rst: 120, rat: 0, req: { ranged: 61 }, val: 1800 });
 recipe('onyx_bolts', 'fletching', 73, 94, [['rune_bolts', 10], ['onyx_bolt_tips', 10]], { n: 10, tk: 1, msg: 'You attach onyx tips to 10 runite bolts.' });
 /* cleaning: a verb on each grimy herb starts its one-input recipe, one leaf a tick */
 for (const h of HERBS) { const r = recipe(h.k, 'herblore', h.lv, h.xp, [[h.grimy, 1]], { tk: 1, msg: 'You clean the dirt from the ' + h.n + ' leaf.' }); ITEMS[h.grimy].opt = ['Clean', () => startMake(r)]; }
 /* effects: a boost counts from the base level and never stacks (re-drinking resets it to the full amount); gameTick walks it back a point a minute */
 const potBoost = (k, b, f) => { const i = SK[k]; bst[i] = Math.max(bst[i], b + Math.floor(lvl[i] * f)); };
-const potRestore = () => { for (let i = 0; i < NSK; i++) if (bst[i] < 0) bst[i] = 0; };
-const potPray = (b, f) => { P.pray = Math.min(P.maxpray, P.pray + b + Math.floor(P.maxpray * (f || 0.25))); };
+const potDrain = (k, b, f) => { const i = SK[k]; bst[i] = Math.max(-lvl[i], bst[i] - b - Math.floor(Math.max(0, lvl[i] + bst[i]) * f)); dirty.sk = 1; };   // wiki drains bite the current level, and stack
+const potRestore = (f, b, all) => { for (let i = 0; i < NSK; i++) if (bst[i] < 0 && (all || i === SK.attack || i === SK.strength || i === SK.defence || i === SK.ranged || i === SK.magic)) bst[i] = Math.min(0, bst[i] + b + Math.floor(lvl[i] * f)); dirty.sk = 1; };   // b + f x base, never past base; plain restore touches the five combat stats only
+const potPray = (b, f) => { P.pray = Math.min(P.maxpray, P.pray + b + Math.floor(P.maxpray * ((f || 0.25) + (capeOn('prayer') ? 0.02 : 0)))); };   // the prayer cape is a holy wrench: two points more in the hundred
 function drink(i) {
   const it = ITEMS[inv[i].id], p = it.pot, d = it.dose;
   p.fx(); sfx(2390);
@@ -7781,15 +7798,15 @@ const POTS = [
   ['attack', 'Attack potion', 'guam', 'eye_of_newt', 3, 25, '#4aa0d8', () => potBoost('attack', 3, .1)],
   ['antipoison', 'Antipoison', 'marrentill', 'unicorn_horn', 5, 37.5, '#3a9a5a', () => { P.psn = 0; P.psnImm = tickN + 150; say('The poison leaves your body.'); }],   // horn stands in for its ground dust
   ['strength', 'Strength potion', 'tarromin', 'limpwurt_root', 12, 50, '#d03a6a', () => potBoost('strength', 3, .1)],
-  ['restore', 'Restore potion', 'harralander', 'red_spiders_eggs', 22, 62.5, '#d86a5a', potRestore],
+  ['restore', 'Restore potion', 'harralander', 'red_spiders_eggs', 22, 62.5, '#d86a5a', () => potRestore(.3, 10)],
   ['energy', 'Energy potion', 'harralander', 'eye_of_newt', 26, 67.5, '#c8b03a', () => { P.energy = Math.min(100, P.energy + 10); }],   // newt eye stands in for chocolate dust
   ['defence', 'Defence potion', 'ranarr', 'white_berries', 30, 75, '#2a8a6a', () => potBoost('defence', 3, .1)],
   ['prayer', 'Prayer potion', 'ranarr', 'snape_grass', 38, 87.5, '#3ad0d0', () => potPray(7)],
   ['super_attack', 'Super attack', 'irit', 'eye_of_newt', 45, 100, '#2a5ad8', () => potBoost('attack', 5, .15)],
   ['super_energy', 'Super energy', 'avantoe', 'mort_myre_fungus', 52, 117.5, '#c8d03a', () => { P.energy = Math.min(100, P.energy + 20); }],
   ['super_strength', 'Super strength', 'kwuarm', 'limpwurt_root', 55, 125, '#e878a8', () => potBoost('strength', 5, .15)],
-  ['super_restore', 'Super restore', 'snapdragon', 'red_spiders_eggs', 63, 142.5, '#d83a3a', () => { potRestore(); potPray(8); }],
-  ['sanfew', 'Sanfew serum', 'snapdragon', 'snape_grass', 65, 160, '#8ad0a0', () => { potRestore(); potPray(4, 0.3); P.psn = 0; }],   // snape grass stands in for the dust and nails of 2007; prayer 4 + 30%, the wiki's own split
+  ['super_restore', 'Super restore', 'snapdragon', 'red_spiders_eggs', 63, 142.5, '#d83a3a', () => { potRestore(.25, 8, 1); potPray(8); }],
+  ['sanfew', 'Sanfew serum', 'snapdragon', 'snape_grass', 65, 160, '#8ad0a0', () => { potRestore(.3, 4, 1); potPray(4, 0.3); P.psn = 0; }],   // snape grass stands in for the dust and nails of 2007; every skill 4 + 30%, the wiki's own split
   ['super_defence', 'Super defence', 'cadantine', 'white_berries', 66, 150, '#3ab04a', () => potBoost('defence', 5, .15)],
   ['antifire', 'Antifire potion', 'lantadyme', 'dragon_scale_dust', 69, 157.5, '#d8903a', () => { P.afire = tickN + 600; }],
   ['ranging', 'Ranging potion', 'dwarf_weed', 'wine_of_zamorak', 72, 162.5, '#6a8a5a', () => potBoost('ranged', 4, .1)],
@@ -7800,16 +7817,18 @@ const POTS = [
   ['stamina', 'Stamina potion', 'avantoe', 'potato_cactus', 77, 102, '#d87a2a', () => { P.energy = Math.min(100, P.energy + 20); P.stamT = tickN + 200; dirty.orb = 1; }],   // cactus stands in for amylase; two minutes of light feet
   ['zamorak_brew', 'Zamorak brew', 'torstol', 'wine_of_zamorak', 78, 175, '#8a2a2a', () => {
     potBoost('attack', 2, .2); potBoost('strength', 2, .12);
-    bst[SK.defence] = Math.min(bst[SK.defence], -(2 + Math.floor(lvl[SK.defence] * .1)));
+    potDrain('defence', 2, .1);
     P.hp = Math.max(1, P.hp - (2 + Math.floor(P.hp * .1)));
     P.pray = Math.min(P.maxpray, P.pray + Math.floor(P.maxpray * .1)); dirty.orb = 1;
   }],   // the wine stands in for jangerberries; the lord of chaos takes his cut of your blood
   ['antidote_pp', 'Antidote++', 'irit', 'coconut', 79, 177.5, '#3ab0a0', () => { P.psn = 0; P.psnImm = tickN + 1200; say('You feel thoroughly proofed against poison.'); }],   // wiki: irit and magic roots in coconut milk
   ['saradomin_brew', 'Saradomin brew', 'toadflax', 'egg', 81, 180, '#d8c84a', () => {
-    P.hp = Math.min(Math.floor(P.maxhp * 1.15), P.hp + 2 + Math.floor(P.maxhp * .15));
-    for (const k of ['attack', 'strength', 'defence', 'ranged', 'magic']) bst[SK[k]] = Math.min(bst[SK[k]], -(2 + Math.floor(lvl[SK[k]] * .1)));
+    const hb = 2 + Math.floor(P.maxhp * .15);
+    P.hp = Math.min(P.maxhp + hb, P.hp + hb);              // wiki: 2 + 15% healed, and that far past full
+    potBoost('defence', 2, .2);                             // wiki: Defence up 2 + 20%
+    for (const k of ['attack', 'strength', 'magic', 'ranged']) potDrain(k, 2, .1);   // the rest down 2 + 10% of current, stacking
     dirty.orb = dirty.sk = 1;
-  }]   // the egg stands in for a crushed nest; heals past full, at the cost of your edge
+  }]   // the egg stands in for a crushed nest; heals and armours past full, at the cost of your edge
 ].map(([k, n, herb, sec, lv, xp, c, fx]) => {
   const p = { k, n, herb, sec, lv, xp, fx }, unf = herb + '_potion_u', hn = ITEMS[herb].name;
   if (!ITEMS[unf]) {
@@ -7817,7 +7836,7 @@ const POTS = [
     recipe(unf, 'herblore', lv, 0, [[herb, 1], ['vial_of_water', 1]], { tk: 2, msg: 'You put the ' + hn.toLowerCase() + ' leaf into the vial of water.' });
   }
   for (let d = 4; d >= 1; d--) defItem({ id: k + '_' + d, name: n + '(' + d + ')', g: 'vial' + d, c, c2: CORK, val: (20 + lv * 4) * d, dose: d, pot: p, opt: ['Drink', drink] });
-  recipe(k + '_4', 'herblore', lv, xp, [[unf, 1], [sec, 1]], { tk: 2, msg: 'You mix the ' + ITEMS[sec].name.toLowerCase() + ' into your potion.' });
+  recipe(k + '_3', 'herblore', lv, xp, [[unf, 1], [sec, 1]], { tk: 2, msg: 'You mix the ' + ITEMS[sec].name.toLowerCase() + ' into your potion.' });   // a mixed potion holds three doses, as ever; four-dose stock falls from monsters
   return p;
 });
 
@@ -8840,6 +8859,12 @@ function homeTp() {
   P.homeT = tickN;
   return tpTo(P.home.x, P.home.z, 'home');
 }
+function houseTp() {                                       // the wiki's Teleport to House, shared with the construction cape
+  if (!P.hs) return say('You have no house to answer the call.', 'bad');
+  const r = tpTo(P.hs.x + P.hs.rm[0][1] * RS + (RS >> 1), P.hs.z + P.hs.rm[0][2] * RS + (RS >> 1), 'to your house');
+  if (!housesReg.has(hMe())) say('Only bare land answers: the house itself is folded away.', 'bad');
+  return r;
+}
 /* item spells take the pack slot and return 1 when the runes should burn; they say why when they do not */
 function alch(i, m) {
   const s = inv[i], it = ITEMS[s.id];
@@ -8882,12 +8907,7 @@ function enchant(i, t) {
 const USPELLS = [
   ['Home Teleport', 1, 0, [], 0xd8e4ee, 'star', 'no runes, once every 30 minutes', homeTp, 0, 4],
   ['Greater Home Teleport', 31, 41, [['law_rune', 1], ['earth_rune', 1], ['air_rune', 3]], 0x6a8ad8, 'star', 'home at once, for runes, no waiting', () => tpTo(P.home.x, P.home.z, 'home'), 0, 4],
-  ['House Teleport', 40, 30, [['law_rune', 1], ['earth_rune', 1], ['air_rune', 1]], 0xe8d9b0, 'house', 'inside your house, wherever it stands', () => {   // the wiki's Teleport to House row
-    if (!P.hs) return say('You have no house to answer the call.', 'bad');
-    const r = tpTo(P.hs.x + P.hs.rm[0][1] * RS + (RS >> 1), P.hs.z + P.hs.rm[0][2] * RS + (RS >> 1), 'to your house');
-    if (!housesReg.has(hMe())) say('Only bare land answers: the house itself is folded away.', 'bad');
-    return r;
-  }, 0, 4],
+  ['House Teleport', 40, 30, [['law_rune', 1], ['earth_rune', 1], ['air_rune', 1]], 0xe8d9b0, 'house', 'inside your house, wherever it stands', houseTp, 0, 4],
   ['City Teleport', 45, 55.5, [['law_rune', 1], ['air_rune', 5]], 0x6a8ad8, 'star', 'the nearest city', cityTp, 0, 4],
   ['Low Level Alchemy', 21, 31, [['nature_rune', 1], ['fire_rune', 3]], 0xe0b436, 'coins', 'an item → coins, 40% of its value', i => alch(i, 0.4), 1, 1],
   ['Superheat Item', 43, 53, [['nature_rune', 1], ['fire_rune', 4]], 0xd05a2a, 'bar', 'an ore → its bar, coal and all', superheat, 1, 1],
@@ -8897,6 +8917,15 @@ const USPELLS = [
   ['Bones to Peaches', 60, 35.5, [['nature_rune', 2], ['water_rune', 4], ['earth_rune', 4]], 0xe8a05a, 'peach', 'every bone in the pack becomes a peach', () => b2fruit('peach'), 0, 3],
   ...ENCH.map((e, t) => ['Lvl-' + (t + 1) + ' Enchant', e.lv, e.xp, e.need, parseInt(GEMS[t].c.slice(1), 16), e.ring ? 'ring' : 'amulet', e.g + ' jewellery or bolts', i => enchant(i, t), 1, 0])
 ].map(([n, lv, xp, need, tint, g, d, f, item, grp]) => ({ n, lv, xp, need, tint, g, d, f, item, grp })).sort((a, b) => (a.grp - b.grp) || (a.lv - b.lv));
+/* skillcape perks with a live counterpart (wiki): ranged catches arrows like the accumulator, defence escapes like the ring of life,
+   agility energises once a day, construction answers the house call; cooking, hitpoints, woodcutting, mining, thieving and prayer speak at their own sites */
+ITEMS.skillcape_ranged.save = 0.72;
+ITEMS.skillcape_construction.opt = ['Teleport', houseTp];
+ITEMS.skillcape_agility.opt = ['Energise', () => {
+  if (tickN - (P.agiCapeT || -1e9) < 144000) return say('The cape has nothing more to give today.', 'bad');
+  P.agiCapeT = tickN; P.energy = 100; P.stamT = tickN + 100; dirty.orb = 1;
+  say('The cape restores your run energy and lightens your step.', 'lv');
+}];
 const usRow = s => liRow('data-us="' + USPELLS.indexOf(s) + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).concat(s.d).join(', ') + '"', P.uspell === s, lvl[SK.magic] < s.lv,
   US07[s.n] ? c07p(US07[s.n]) : drawIcon(s.g, '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (lvl[SK.magic] < s.lv ? 'level ' + s.lv : spellReady(s) ? 'ready' : 'no runes') + '</u>');
 function cast(s, i) {                                       // runes first; the effect burns them only when it lands
@@ -8989,12 +9018,12 @@ SPEC.abyssal_whip = { cost: 50, acc: 1.25 };                // Energy Drain: the
 defWear({ id: 'granite_maul', name: 'Granite maul', g: 'wham', c: '#7a7a80', c2: '#4a4a50', slot: 'weapon', two: 1, atk: 81, str: 79, spd: 7, req: { attack: 50, strength: 50 }, val: 35000 });
 SPEC.granite_maul = { cost: 60, acc: 1, quick: 1 };         // Quick Smash: the next blow follows at once
 defWear({ id: 'dark_bow', name: 'Dark bow', g: 'bow', c: '#2a2430', c2: '#141018', slot: 'weapon', bow: 1, two: 1, spd: 9, rng: 10, rat: 95, req: { ranged: 60 }, val: 150000 });
-SPEC.dark_bow = { cost: 55, rng: 1, n: 2, dmg: 1.3 };       // Descent of Darkness
+SPEC.dark_bow = { cost: 55, rng: 1, n: 2, dmg: 1.3, min: 5, ddmg: 1.5, dmin: 8 };   // Descent of Darkness: min 5 an arrow; dragon arrows 1.5x, min 8, capped 48
 defWear({ id: 'saradomin_sword', name: 'Saradomin sword', g: 'lsword', c: '#e8d44a', c2: '#3a5ac8', slot: 'weapon', two: 1, atk: 82, str: 82, spd: 4, pb: 2, req: { attack: 70 }, val: 90000 });
-SPEC.saradomin_sword = { cost: 100, acc: 1, bonus: [1, 16] };   // Saradomin's Lightning rides the blow
-defWear(Object.assign({}, ITEMS.dragon_dagger, { id: 'dragon_dagger_p', name: 'Dragon dagger (p++)', c2: '#3aa04a', psn: 6, val: ITEMS.dragon_dagger.val + 500 }));
+SPEC.saradomin_sword = { cost: 100, acc: 1, dmg: 1.1, bonus: [1, 16] };   // Saradomin's Lightning: a tenth more steel, 1-16 of the god's own
+defWear(Object.assign({}, ITEMS.dragon_dagger, { id: 'dragon_dagger_p', name: 'Dragon dagger (p)', c2: '#3aa04a', psn: 4, val: ITEMS.dragon_dagger.val + 500 }));   // plain weapon poison bites 4, as the wiki's (p) does
 SPEC.dragon_dagger_p = SPEC.dragon_dagger;
-defItem({ id: 'weapon_poison', name: 'Weapon poison(++)', g: 'vial', c: '#3aa04a', c2: CORK, val: 300, opt: ['Apply', () => {
+defItem({ id: 'weapon_poison', name: 'Weapon poison', g: 'vial', c: '#3aa04a', c2: CORK, val: 300, opt: ['Apply', () => {
   const i = inv.findIndex(s2 => s2 && s2.id === 'dragon_dagger');
   if (i < 0) return say('You have no dragon dagger to envenom.', 'bad');
   invRemove('weapon_poison', 1); inv[i] = { id: 'dragon_dagger_p', n: 1 }; dirty.inv = 1; markDirty();
@@ -9011,7 +9040,7 @@ recipe('weapon_poison', 'herblore', 60, 137.5, [['kwuarm', 1], ['dragon_scale_du
    Drops are wired in the ARMOURY II DROPS block below; barrows set effects, mdmg gear and the trident's own spell are live.
    Re-audited against the wiki Aug 27: the rebalance-era channels folded in (small mdmg on the mage sets, gear ranged
    strength on anguish/assembler/pegasians, occult at 5%). Armour attack penalties and weapon shield-hand defence stay
-   unmodelled by convention. Still unmodelled by choice: tbow scaling, dhcb dragonbane, obsidian synergy. */
+   unmodelled by convention. Tbow scaling, dhcb dragonbane and the obsidian charm now land in swing()/maxHit(). */
 /* barrows: the four melee brothers share the smith's measures; Verac alone carries the god's favour */
 defWear({ id: 'dharoks_helm', name: "Dharok's helm", g: 'fhelm', c: '#494831', c2: '#252518', slot: 'head', def: 46, req: { defence: 70 }, val: 60000 });
 defWear({ id: 'dharoks_platebody', name: "Dharok's platebody", g: 'body', c: '#5b5940', c2: '#2f2e24', slot: 'body', def: 116, req: { defence: 70 }, val: 180000 });
@@ -9040,9 +9069,9 @@ defWear({ id: 'ahrims_staff', name: "Ahrim's staff", g: 'staff', c: '#45452e', c
 /* the god wars: four blades of one hilt, and the generals' plate */
 defWear({ id: 'armadyl_godsword', name: 'Armadyl godsword', g: 'sword2h', c: '#777887', c2: '#323347', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, pb: 8, req: { attack: 75 }, val: 500000 });
 SPEC.armadyl_godsword = { cost: 50, acc: 2, dmg: 1.375 };   // the Judgment
-SPEC.bandos_godsword = { cost: 50, acc: 2, dmg: 1.21, drainDef: 0.8 };   // Warstrike caves the guard in
+SPEC.bandos_godsword = { cost: 50, acc: 2, dmg: 1.21, drainFlat: 1 };   // Warstrike drains Defence by the damage dealt, as the wiki has it
 SPEC.saradomin_godsword = { cost: 50, acc: 2, dmg: 1.1, heal: 0.5, pheal: 0.25 };   // Healing Blade: half the damage back as health (min 10), a quarter as prayer (min 5)
-SPEC.zamorak_godsword = { cost: 50, acc: 2, dmg: 1.1, stun: 20 };        // Ice Cleave, scaled from the wiki's 32 ticks
+SPEC.zamorak_godsword = { cost: 50, acc: 2, dmg: 1.1, stun: 33 };        // Ice Cleave: the wiki's 20-second freeze
 defWear({ id: 'bandos_godsword', name: 'Bandos godsword', g: 'sword2h', c: '#77787f', c2: '#2e302f', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, pb: 8, req: { attack: 75 }, val: 350000 });
 defWear({ id: 'saradomin_godsword', name: 'Saradomin godsword', g: 'sword2h', c: '#888683', c2: '#2e2e32', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, pb: 8, req: { attack: 75 }, val: 300000 });
 defWear({ id: 'zamorak_godsword', name: 'Zamorak godsword', g: 'sword2h', c: '#7e7e87', c2: '#3c1d1a', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, pb: 8, req: { attack: 75 }, val: 280000 });
@@ -9061,7 +9090,7 @@ SPEC.abyssal_tentacle = SPEC.abyssal_whip;
 defWear({ id: 'zamorakian_spear', name: 'Zamorakian spear', g: 'spear', c: '#79655d', c2: '#483428', slot: 'weapon', two: 1, stab: 1, atk: 85, str: 75, spd: 4, pb: 2, req: { attack: 70 }, val: 180000 });
 defWear({ id: 'toktz_xil_ak', name: 'Toktz-xil-ak', g: 'sword', c: '#524c4b', c2: '#201d1d', slot: 'weapon', stab: 1, atk: 47, str: 49, spd: 4, req: { attack: 60 }, val: 60000 });
 defWear({ id: 'tzhaar_ket_om', name: 'Tzhaar-ket-om', g: 'wham', c: '#5a5353', c2: '#282525', slot: 'weapon', two: 1, atk: 80, str: 85, spd: 7, req: { strength: 60 }, val: 75000 });
-defWear({ id: 'berserker_necklace', name: 'Berserker necklace', g: 'amulet', c: '#404045', c2: '#201e20', slot: 'neck', str: 7, def: -20, pb: 3, val: 70000 });   // the obsidian synergy is not modelled
+defWear({ id: 'berserker_necklace', name: 'Berserker necklace', g: 'amulet', c: '#404045', c2: '#201e20', slot: 'neck', atk: -10, str: 7, def: -20, pb: 3, val: 70000 });   // its obsidian charm lands in maxHit()
 /* the treasure tiers: what the richest monsters and deepest vaults will one day pay out */
 defWear({ id: 'amulet_of_fury', name: 'Amulet of fury', g: 'amulet', c: '#444555', c2: '#2e2a33', slot: 'neck', atk: 10, str: 8, def: 15, mag: 10, rat: 10, pb: 5, val: 200000 });
 defWear({ id: 'amulet_of_torture', name: 'Amulet of torture', g: 'amulet', c: '#514040', c2: '#301e18', slot: 'neck', atk: 15, str: 10, pb: 2, val: 300000 });
@@ -9082,10 +9111,10 @@ defWear({ id: 'zamorak_cape', name: 'Zamorak cape', g: 'cape', c: '#3a1a14', c2:
 defWear({ id: 'guthix_cape', name: 'Guthix cape', g: 'cape', c: '#09651c', c2: '#05380f', slot: 'cape', mag: 10, def: 1, req: { magic: 60 }, val: 20000 });
 /* the far shore of ranged: what outranges the dark bow */
 defWear({ id: 'armadyl_crossbow', name: 'Armadyl crossbow', g: 'cbow', c: '#9f9550', c2: '#57522c', slot: 'weapon', bow: 1, ammoT: 'bolt', spd: 6, rng: 8, rat: 100, pb: 1, req: { ranged: 70 }, val: 600000 });
-defWear({ id: 'dragon_hunter_crossbow', name: 'Dragon hunter crossbow', g: 'cbow', c: '#78805d', c2: '#32331d', slot: 'weapon', bow: 1, ammoT: 'bolt', spd: 6, rng: 8, rat: 95, req: { ranged: 65 }, val: 500000 });   // the dragonbane bonus is not modelled
+defWear({ id: 'dragon_hunter_crossbow', name: 'Dragon hunter crossbow', g: 'cbow', c: '#78805d', c2: '#32331d', slot: 'weapon', bow: 1, ammoT: 'bolt', spd: 6, rng: 8, rat: 95, req: { ranged: 65 }, val: 500000 });   // its dragonbane bite (30% acc, 25% dmg) lands in swing()
 defWear({ id: 'toxic_blowpipe', name: 'Toxic blowpipe', g: 'pipe', c: '#267186', c2: '#2e2768', slot: 'weapon', bow: 1, two: 1, selfAmmo: 1, spd: 3, rng: 7, rat: 30, rst: 35, psn: 6, venom: 1, req: { ranged: 75 }, val: 700000 });   // the darts are abstracted into the pipe; the venom is its own
 SPEC.toxic_blowpipe = { cost: 50, dmg: 1.5, heal: 0.5 };    // the spec drinks half of what it deals
-defWear({ id: 'twisted_bow', name: 'Twisted bow', g: 'bow', c: '#6f733e', c2: '#272424', slot: 'weapon', bow: 1, two: 1, spd: 6, rng: 10, rat: 70, rst: 20, req: { ranged: 75 }, val: 1200000 });   // fires arrows flat: the magic-level scaling is not modelled
+defWear({ id: 'twisted_bow', name: 'Twisted bow', g: 'bow', c: '#6f733e', c2: '#272424', slot: 'weapon', bow: 1, two: 1, spd: 6, rng: 10, rat: 70, rst: 20, req: { ranged: 75 }, val: 1200000 });   // scales off the target's Magic in swing(), the wiki's own curves
 defWear({ id: 'crystal_bow', name: 'Crystal bow', g: 'bow', c: '#6e7177', c2: '#3f3a3a', slot: 'weapon', bow: 1, two: 1, selfAmmo: 1, spd: 5, rng: 10, rat: 100, rst: 78, req: { ranged: 70 }, val: 350000 });
 defWear({ id: 'crystal_shield', name: 'Crystal shield', g: 'shield', c: '#5a6068', c2: '#32353a', slot: 'shield', def: 53, req: { defence: 70 }, val: 250000 });
 /* the far shore of magic */
