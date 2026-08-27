@@ -336,7 +336,8 @@ export class World extends DurableObject {
         if ((me.dmgSum = (me.dmgSum || 0) + d) > 110) return;
         const target = this.players.get(String(m[1] || ''));
         if (target && near(me, target)) {
-          try { target.ws.send(JSON.stringify([[11, me.pid, d, m[3] ? 1 : 0]])); } catch {}   // element 3 carries Smite
+          const cls = typeof m[4] === 'string' ? m[4].slice(0, 1) : 0;   // element 4 carries the attack class so the victim's overhead can answer
+          try { target.ws.send(JSON.stringify([[11, me.pid, d, m[3] ? 1 : 0, cls]])); } catch {}   // element 3 carries Smite
         }
         return;
       }

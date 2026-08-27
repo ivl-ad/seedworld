@@ -997,7 +997,7 @@ for (const b of XBOWS) { const t = TIER[b.k]; defWear({ id: b.k + '_crossbow', n
   ammoT: 'bolt', spd: 6, rng: 7, rat: b.ra, req: { ranged: b.lv }, val: Math.round(40 + b.ra * b.ra * 0.5) }); }
 /* ammunition carries the strength and stacks */
 const ARROWS = [['bronze', 1, 7], ['iron', 1, 10], ['steel', 5, 16], ['mithril', 20, 22], ['adamant', 30, 31], ['rune', 40, 49],
-  ['amethyst', 61, 55, 'Amethyst', '#9a6fc4', '#5f4380'], ['dragon', 75, 62]].map(([k, lv, rs, n, c, c2]) => ({ k, lv, rs, n, c, c2 }));
+  ['amethyst', 61, 55, 'Amethyst', '#9a6fc4', '#5f4380'], ['dragon', 75, 60]].map(([k, lv, rs, n, c, c2]) => ({ k, lv, rs, n, c, c2 }));
 const BOLTS = [['bronze', 1, 10], ['iron', 26, 46], ['steel', 31, 64], ['mithril', 36, 82], ['adamant', 46, 100], ['rune', 61, 115], ['dragon', 64, 122]]
   .map(([k, lv, rs]) => ({ k, lv, rs }));
 const defAmmo = (a, suffix, g, aT, pm) => { const t = TIER[a.k]; defWear({ id: a.k + suffix, name: (a.n || t.n) + (aT ? ' bolts' : ' arrow'), g,
@@ -1008,7 +1008,7 @@ for (const a of BOLTS) defAmmo(a, '_bolts', 'bolt', 'bolt', 1.1);
 defWear({ id: 'diamond_bolts_e', name: 'Diamond bolts (e)', g: 'bolt', c: '#e8f0f8', c2: '#8a98a8', slot: 'ammo', stack: 1, ammo: 1, aT: 'bolt', rst: 105, rat: 47, req: { ranged: 46 }, val: 800 });
 /* thrown weapons: ammunition that is its own launcher (bow: 1 so the ranged code reads its speed and range); knives and darts come off the anvil,
    axes and javelins from the archery shop, chinchompas from box traps. [kind, glyph, speed, range, strength per metal: bronze iron steel black mithril adamant rune dragon] */
-const THROWN = [['knife', 'knife', 3, 4, [3, 4, 7, 8, 9, 14, 24, 28]], ['dart', 'dart', 3, 3, [1, 3, 4, 6, 7, 10, 14, 20]], ['thrownaxe', 'axe', 5, 4, [5, 7, 11, 0, 16, 23, 36, 44]],
+const THROWN = [['knife', 'knife', 3, 4, [3, 4, 7, 8, 10, 14, 24, 28]], ['dart', 'dart', 3, 3, [1, 3, 4, 6, 7, 10, 14, 20]], ['thrownaxe', 'axe', 5, 4, [5, 7, 11, 0, 16, 23, 36, 44]],
   ['javelin', 'spear', 6, 5, [6, 10, 12, 0, 18, 28, 42, 60]]].map(([k, g, spd, rng, rs]) => ({ k, g, spd, rng, rs }));
 const THROWN_T = TIERS.filter(t => !t.armourOnly);
 const defThrown = (id, name, g, c, c2, lv, rs, x) => defWear(Object.assign({ id, name, g, c, c2, slot: 'ammo', stack: 1, ammo: 1, thrown: 1, bow: 1, rat: 2 + rs, rst: rs, req: { ranged: lv }, val: Math.max(2, rs * 2) }, x));
@@ -1158,8 +1158,8 @@ const GEMS = [['sapphire', 20, 50, '#3a64c8', '#1e3a80', 25, 64], ['emerald', 27
 });
 const GEM_T = GEMS.map(g => ['uncut_' + g.k, g.w]);
 /* jewellery: [form, slot, level, xp, per-gem levels, per-gem xp]; a gold bar, then a gem; amulets need a ball of wool */
-const JEWEL = [['ring', 'ring', 5, 15, [20, 27, 34, 43, 55], [40, 55, 70, 85, 100]], ['necklace', 'neck', 6, 20, [22, 29, 40, 56, 72], [55, 60, 75, 90, 105]],
-  ['amulet', 'neck', 8, 30, [24, 31, 50, 70, 80], [65, 70, 85, 100, 150]]].map(([k, slot, lv, xp, lvs, xps]) => {
+const JEWEL = [['ring', 'ring', 5, 15, [20, 27, 34, 43, 55, 67], [40, 55, 70, 85, 100, 115]], ['necklace', 'neck', 6, 20, [22, 29, 40, 56, 72, 82], [55, 60, 75, 90, 105, 120]],
+  ['amulet', 'neck', 8, 30, [24, 31, 50, 70, 80, 90], [65, 70, 85, 100, 150, 165]]].map(([k, slot, lv, xp, lvs, xps]) => {
   defWear({ id: 'gold_' + k, name: 'Gold ' + k, g: k === 'ring' ? 'ring' : 'amulet', c: '#e0b436', c2: '#9a7414', slot, val: 60 + lv * 12 });
   for (const g of GEMS) defWear({ id: g.k + '_' + k, name: cap(g.k) + ' ' + k, g: k === 'ring' ? 'ring' : 'amulet', c: g.c, c2: '#9a7414', slot, val: 120 + (g.i + 1) * (g.i + 1) * 160 });
   return { k, lv, xp, lvs, xps };
@@ -1245,7 +1245,7 @@ function shopStock(kind, tier) {
   if (s.armour) {
     const A = ['med_helm', 'full_helm', 'platebody', 'chainbody', 'platelegs', 'plateskirt', 'kiteshield', 'sq_shield'];
     metal(A.concat(['boots', 'gauntlets']), 4);
-    if (tier === 2) for (const p of A) push('white_' + p, 3);
+    if (tier === 2) for (const p of A.concat(['boots', 'gauntlets'])) push('white_' + p, 3);
     push('leather_gloves', 10); push('leather_boots', 10); push('amulet_of_magic', 3); push('anti_dragon_shield', 4);
     if (tier >= 1) { push('amulet_of_defence', 3); push('amulet_of_strength', 3); }
     if (tier === 2) push('amulet_of_power', 2);
@@ -1278,6 +1278,7 @@ function shopStock(kind, tier) {
     push('bronze_arrow', 500); push('team_cape', 5);
     if (tier >= 1) push('ring_of_recoil', 3);
   }
+  if (s.k === 'craft' && tier === 2) for (const c of SKILLS) if (!c.locked) push('skillcape_' + c.k, 1);   // the city outfitter keeps every master's cape; req99 still gates the wearing
   return list;
 }
 const buyPrice = it => Math.max(1, Math.round(it.val * 1.15));
@@ -1360,7 +1361,7 @@ const SPEC = {
   dragon_mace: { cost: 25, acc: 1.25, dmg: 1.5 },
   dragon_warhammer: { cost: 50, dmg: 1.5, drainDef: 0.7 },
   dragon_scimitar: { cost: 55, acc: 1.25 },                 // its prayer-cut is PvP-only in 2007 and not modelled
-  dragon_spear: { cost: 25, stun: 8, dmg: 0 },
+  dragon_spear: { cost: 25, stun: 5, dmg: 0 },              // a three-second shove, as the wiki has it
   dragon_halberd: { cost: 30, dmg: 1.1, big2: 1 },
   dragon_2h_sword: { cost: 60 },
   dragon_claws: { cost: 50, claws: 1 },
@@ -1404,12 +1405,12 @@ const PRAYERS = [
   // appended, never inserted: the bit is the row's index in the save. The effect object: atk/str/def/rng/mag multiply; prot names the monster style turned
   // aside (0 on the other overheads, so they share its slot); heal, restore, preserve, item, retri, redeem and smite are flags; a seventh column is a Defence requirement
   ['rapid_heal', 'Rapid Heal', 22, 0.0333, { heal: 1 }, 'heart'], ['prot_magic', 'Protect Magic', 37, 0.2, { prot: 'g' }, 'rune'], ['prot_missiles', 'Protect Missiles', 40, 0.2, { prot: 'r' }, 'arrow'],
-  ['prot_melee', 'Protect Melee', 43, 0.2, { prot: 'm' }, 'sword'], ['eagle_eye', 'Eagle Eye', 44, 0.2, { rng: 1.15 }, 'bow'], ['mystic_might', 'Mystic Might', 45, 0.2, { mag: 1.15 }, 'staff'],
-  ['sharp_eye', 'Sharp Eye', 8, 0.0167, { rng: 1.05 }, 'arrow'], ['mystic_will', 'Mystic Will', 9, 0.0167, { mag: 1.05 }, 'rune'], ['rapid_restore', 'Rapid Restore', 19, 0.0167, { restore: 1 }, 'leaf'],
-  ['prot_item', 'Protect Item', 25, 0.0333, { item: 1 }, 'ring'], ['hawk_eye', 'Hawk Eye', 26, 0.1, { rng: 1.10 }, 'arrow'], ['mystic_lore', 'Mystic Lore', 27, 0.1, { mag: 1.10 }, 'rune'],
+  ['prot_melee', 'Protect Melee', 43, 0.2, { prot: 'm' }, 'sword'], ['eagle_eye', 'Eagle Eye', 44, 0.2, { rng: 1.15, rngs: 1.15 }, 'bow'], ['mystic_might', 'Mystic Might', 45, 0.2, { mag: 1.15 }, 'staff'],
+  ['sharp_eye', 'Sharp Eye', 8, 0.0167, { rng: 1.05, rngs: 1.05 }, 'arrow'], ['mystic_will', 'Mystic Will', 9, 0.0167, { mag: 1.05 }, 'rune'], ['rapid_restore', 'Rapid Restore', 19, 0.0167, { restore: 1 }, 'leaf'],
+  ['prot_item', 'Protect Item', 25, 0.0333, { item: 1 }, 'ring'], ['hawk_eye', 'Hawk Eye', 26, 0.1, { rng: 1.10, rngs: 1.10 }, 'arrow'], ['mystic_lore', 'Mystic Lore', 27, 0.1, { mag: 1.10 }, 'rune'],
   ['incredible_refl', 'Incredible Refl.', 34, 0.2, { atk: 1.15 }, 'sword'], ['retribution', 'Retribution', 46, 0.05, { retri: 1, prot: 0 }, 'skull'], ['redemption', 'Redemption', 49, 0.1, { redeem: 1, prot: 0 }, 'heart'],
   ['preserve', 'Preserve', 55, 0.0333, { preserve: 1 }, 'vial'], ['chivalry', 'Chivalry', 60, 0.2, { def: 1.20, str: 1.18, atk: 1.15 }, 'fhelm', 65],
-  ['piety', 'Piety', 70, 0.4, { def: 1.25, str: 1.23, atk: 1.20 }, 'star', 70], ['rigour', 'Rigour', 74, 0.4, { rng: 1.23, def: 1.25 }, 'bow', 70], ['augury', 'Augury', 77, 0.4, { mag: 1.25, def: 1.25 }, 'staff', 70],
+  ['piety', 'Piety', 70, 0.4, { def: 1.25, str: 1.23, atk: 1.20 }, 'star', 70], ['rigour', 'Rigour', 74, 0.4, { rng: 1.20, rngs: 1.23, def: 1.25 }, 'bow', 70], ['augury', 'Augury', 77, 0.4, { mag: 1.25, def: 1.25 }, 'staff', 70],
   ['smite', 'Smite', 52, 0.3, { smite: 1, prot: 0 }, 'star']
 ].map(([k, n, lv, drain, fx, g, dl], i) => Object.assign({ k, n, lv, drain, g, dl: dl || 0, fx: Object.keys(fx), bit: 1 << i }, fx));
 if (PRAYERS.length > 32) throw new Error('prayer bitfield full: P.prayers holds 32 bits');   // bit 31 (the sign) still works through & masks; bit 32 wraps to 1
@@ -2604,10 +2605,10 @@ const LOOT = {
     ['sanfew_4', 5, 20], ['dark_crab', 5, 50], ['law_rune', 3, 60]],
     tert: [['dragon_2h_sword', 256], ['dragon_pickaxe', 256], ['ring_of_wealth', 512]] },
   graardor: { den: 127, main: [['coins', 32, 19500, 20000], ['rune_longsword', 8], ['rune_2h_sword', 8], ['rune_platebody', 8], ['rune_pickaxe', 6], ['grimy_snapdragon', 8, 3],
-    ['nature_rune', 8, 65, 70]], tert: [['dragon_warhammer', 381], ['dragon_chainbody', 381], ['dragon_boots', 381], ['dragon_platebody', 508]] },   // the Bandos armour slots; the platebody sits on the hilt-slot rate as this game's bridge
+    ['nature_rune', 8, 65, 70]], tert: [['dragon_warhammer', 381], ['dragon_chainbody', 381], ['dragon_boots', 381], ['dragon_platebody', 508]] },   // the dragon pieces predate the true Bandos set (added below at the same wiki rates); both now fall
   kril: { nb: 1, den: 127, main: [['coins', 37, 19500, 20000], ['adamant_arrow', 8, 295, 300], ['rune_scimitar', 8], ['adamant_platebody', 8], ['rune_platelegs', 7],
     ['dragon_dagger', 2], ['death_rune', 8, 120, 125], ['blood_rune', 8, 80, 85], ['grimy_lantadyme', 8, 10]],
-    tert: [['steam_battlestaff', 127], ['dragon_spear', 127], ['master_wand', 508], ['dragon_mace', 128]] },   // steam bstaff / zamorakian spear / staff of the dead slots; the mace is this game's bridge
+    tert: [['steam_battlestaff', 127], ['dragon_spear', 127], ['master_wand', 508], ['dragon_mace', 128]] },   // the true zamorakian spear and staff of the dead join below at the wiki's rates; these older slots still pay
   evilchicken: { alw: [['raw_chicken', 1], ['feather', 90, 242]], tert: [['dragon_spear', 128], ['amulet_of_glory', 128]] },   // TODO: verify — random-event boss, no OSRS table
   slashbash: { nb: 1, alw: [['big_bones', 5]], tert: [['dragon_spear', 128], ['dragon_hasta', 128]] },   // TODO: verify — two zogre and three ourg bones stand in as big bones
   bktitan: { den: 128, main: [['iron_full_helm', 5], ['iron_dagger', 4], ['iron_kiteshield', 3], ['steel_longsword', 2], ['iron_arrow', 6, 3], ['fire_rune', 3, 15], ['water_rune', 3, 7],
@@ -3904,7 +3905,7 @@ function bowRange() {                                     // a bow draws arrows 
 }
 /* the 2007 max-hit shape: floor(0.5 + (effective + 8) * (bonus + 64) / 640); effective = floor(level x prayer) + style */
 const maxFrom = (eff, b) => Math.max(1, Math.floor(0.5 + (eff + 8) * (b + 64) / 640));
-const rangedMax = () => maxFrom(Math.floor(eff('ranged') * prayerMul('rng')) + RSTYLES[P.rstyle].str, bonus('rst'));
+const rangedMax = () => maxFrom(Math.floor(eff('ranged') * prayerMul('rngs')) + RSTYLES[P.rstyle].str, bonus('rst'));   // rngs is the damage side: Rigour alone splits 20% accuracy / 23% strength
 function spendArrow() {
   const w = bowItem(); if (w && w.selfAmmo) return;        // nothing leaves the quiver
   const cp = eq.cape && ITEMS[eq.cape];
@@ -3914,7 +3915,16 @@ function spendArrow() {
   say('You have run out of ammunition!', 'bad');
   dirty.eq = 1; dressAvatar(); markDirty(1);
 }
-const maxHit = () => bowRange() ? rangedMax() : maxFrom(Math.floor(eff('strength') * prayerMul('str')) + STYLES[P.style].str, bonus('str'));
+/* magic damage bonus (occult, kodai, ancestral): a percentage over the spell's flat max, as the wiki prices it */
+const mdmgMax = m => Math.floor(m * (1 + bonus('mdmg') / 100));
+/* a powered staff (the trident) casts its own spell: no runes, max = magic/3 - 5, at the weapon's own four-tick pace */
+const pstaffOn = () => { const w = weaponIt(); return !!(w && w.pstaff && P.spell === null && !bowRange()); };
+const pstaffMax = () => Math.max(1, Math.floor(eff('magic') / 3) - 5);
+const barrowsSet = b => [eq.head, eq.body, eq.legs, eq.weapon].every(id => id && id.startsWith(b + 's_'));   // helm to weapon, one brother entire
+const onTask = o => !!(P.slay && o && o.npc && (o.t.base || o.t).k === P.slay.k);
+const maxHit = () => bowRange() ? rangedMax()
+  : Math.floor(maxFrom(Math.floor(eff('strength') * prayerMul('str')) + STYLES[P.style].str, bonus('str'))
+    * (barrowsSet('dharok') ? 1 + (P.maxhp - P.hp) * P.maxhp / 10000 : 1));   // Dharok strikes harder for every drop of blood lost
 const defLevel = () => Math.floor(eff('defence') * prayerMul('def')) + (P.spell !== null ? (P.cstyle ? 3 : 0) : STYLES[P.style].def || 0);
 /* both sides pass their full effective level: players floor(level x prayer) + style + 8, monsters level + 9 */
 function hitChance(atk, atkB, def, defB) {
@@ -4284,9 +4294,10 @@ function npcTick(n) {
   const dun = n.tz > 500000;                                // below ground nothing outgrows you and nothing gets used to you
   if (!n.target && n.t.agg && !P.dead && near <= (n.t.boss ? 7 : 5) && (n.t.boss || dun || npw >= 1.5 || tickN - P.regionT < 1000 / (1 - npw / 1.5)) &&
       (n.t.boss || dun || combatLevel() < n.t.lv * 2 + 1)) { n.target = P; claimMon(n); }
-  if (n.psn > 0 && tickN >= n.psnT && !n.dead) {           // an envenomed wound bites every 30 ticks, shallowing as it goes
+  if (n.psn > 0 && tickN >= n.psnT && !n.dead) {           // a poisoned wound bites every 30 ticks, shallowing as it goes; true venom deepens by two, to twenty
     n.psnT = tickN + 30; n.hp -= n.psn; hitsplat(n.rx, n.ry + 1.2, n.rz, n.psn); healthBar(n); sfxAt(2408, n.tx, n.tz);
-    if (++n.psnN % 5 === 0) n.psn--;
+    if (n.venomF) n.psn = Math.min(20, n.psn + 2);
+    else if (++n.psnN % 5 === 0) n.psn--;
     if (n.hp <= 0) { killNpc(n); return; }
   }
   if (n.target) {
@@ -4317,7 +4328,7 @@ function npcTick(n) {
       // a cast rolls the monster's Magic against 0.7 x your Magic + 0.3 x your Defence and your magic gear; all else rolls your Defence
       const cast = st === 'g' && !n.t.fire, mx = n.t.max !== null ? n.t.max : maxFrom(n.t.str * (n.strDr > tickN ? 0.95 : 1) + 1, n.t.sbon);
       const c = hitChance((cast && n.t.mag > 1 ? n.t.mag : n.t.atk) * (n.atkDr > tickN ? 0.95 : 1) + 9, n.t.abon,
-        cast ? Math.floor(0.7 * eff('magic') + 0.3 * defLevel()) + 8 : defLevel() + 8, cast ? bonus('mag') : bonus('def'));
+        cast ? Math.floor(0.7 * Math.floor(eff('magic') * prayerMul('mag')) + 0.3 * defLevel()) + 8 : defLevel() + 8, cast ? bonus('mag') : bonus('def'));
       // dragonfire ignores armour: a shield or an antifire draught each count one (prayer a half); two is immunity, one leaves a max of 10.
       // unprotected it hits up to 50 as in 2007 (fmax overrides where the wiki differs, e.g. the KBD)
       const fire = st === 'g' && n.t.fire, pr = fire && (eq.shield === 'anti_dragon_shield') + (P.afire > tickN) + (prayHas('prot', 'g') ? 0.5 : 0);
@@ -4356,7 +4367,7 @@ function npcTick(n) {
 const RARE_DROPS = [['nature_rune', 3, 67], ['adamant_javelin', 2, 20], ['death_rune', 2, 45], ['law_rune', 2, 45], ['rune_arrow', 2, 42], ['steel_arrow', 2, 150],
   ['rune_2h_sword', 3], ['rune_battleaxe', 3], ['rune_sq_shield', 2], ['dragon_med_helm', 1], ['rune_kiteshield', 1], ['coins', 21, 3000],
   ['rune_bar', 5], ['dragonstone', 2], ['silver_ore', 2, 100], ['gem', 20], ['mega', 15]], RARE_W = 128;
-const MEGA_DROPS = [['rune_spear', 8], ['dragon_spear', 3]], MEGA_W = 128;
+const MEGA_DROPS = [['rune_spear', 8], ['dragon_spear', 3], ['crystal_bow', 2], ['crystal_shield', 1]], MEGA_W = 128;   // the crystal pieces ride the mega-rare slot: no elves in this world
 const GEM_DROPS = [['uncut_sapphire', 32], ['uncut_emerald', 16], ['uncut_ruby', 8], ['chaos_talisman', 3], ['nature_talisman', 3], ['uncut_diamond', 2],
   ['rune_javelin', 1, 5], ['mega', 1]], GEM_W = 128;
 const HERB_SUB = [['grimy_guam', 32], ['grimy_marrentill', 24], ['grimy_tarromin', 18], ['grimy_harralander', 14], ['grimy_ranarr', 11], ['grimy_irit', 8],
@@ -4375,7 +4386,8 @@ function rollTable(table, budget) {
   return null;
 }
 const randInt = (lo, hi) => lo + (Math.random() * (hi - lo + 1) | 0);
-const SUBTABLES = { rdt: () => rollTable(RARE_DROPS, RARE_W), mega: () => rollTable(MEGA_DROPS, MEGA_W), gem: () => rollTable(GEM_DROPS, GEM_W),
+const rowBudget = w => eq.ring === 'ring_of_wealth' ? null : w;   // the ring clears the empty slots from the rare tables, as in 2007
+const SUBTABLES = { rdt: () => rollTable(RARE_DROPS, rowBudget(RARE_W)), mega: () => rollTable(MEGA_DROPS, MEGA_W), gem: () => rollTable(GEM_DROPS, rowBudget(GEM_W)),
   herb: () => rollTable(HERB_SUB, HERB_W), seed: () => rollTable(SEED_SUB, SEED_W), useed: () => rollTable(USEED_SUB, USEED_W), rseed: () => rollTable(RSEED_SUB, RSEED_W) };
 /* run one authored table: alw always drops; each of `rolls` main rolls picks one [id, w, min, max] slot out of den
    (shortfall = the empty slot; named slots divert to the shared tables); tert entries are independent 1-in-N rolls */
@@ -4387,7 +4399,11 @@ function rollLoot(T, drop) {
     if (d && SUBTABLES[d[0]]) throw new Error('subtable chain too deep: ' + d[0]);
     if (d) drop(d[0], randInt(d[2] || 1, d[3] || d[2] || 1));
   }
-  if (T.tert) for (const d of T.tert) if (Math.random() * d[1] < 1) drop(d[0], randInt(d[2] || 1, d[3] || d[2] || 1));
+  if (T.tert) for (const d of T.tert) if (Math.random() * d[1] < 1) {
+    let dd = d, g = 0;                                    // a tert slot may name a shared table (barrows, raid) just as main slots do
+    while (dd && SUBTABLES[dd[0]] && g++ < 4) dd = SUBTABLES[dd[0]]();
+    if (dd) drop(dd[0], randInt(dd[2] || 1, dd[3] || dd[2] || 1));
+  }
 }
 function killNpc(n) {
   n.dead = 1;
@@ -4528,9 +4544,9 @@ const fail = msg => { say(msg, 'bad'); P.task = null; };
 const needLv = (sk, lv) => { if (lvl[SK[sk]] < lv) { fail('You need ' + skName(SK[sk]) + ' level ' + lv + ' for this.'); return 1; } return 0; };
 /* one swing at o (a monster or another player): ranged, a readied spell, or melee; returns the damage dealt, or -1 when nothing was thrown */
 function swing(o) {
-  const sp = P.spell !== null ? SPELLS[P.spell] : null, rng = sp ? 0 : bowRange();
+  const sp = P.spell !== null ? SPELLS[P.spell] : null, ps = !sp && pstaffOn() ? { k: 'trident', xp: 0, max: pstaffMax(), tint: 0x35c8b8 } : null, rng = sp || ps ? 0 : bowRange();
   P.acting = 1; P.actSpan = sp ? 5 : atkSpeed();
-  P.pose = sp ? 2 : rng ? 1 : stabbing() ? 4 : 0;
+  P.pose = sp || ps ? 2 : rng ? 1 : stabbing() ? 4 : 0;
   if (--P.actT > 0) return -1;
   P.actT = P.actSpan;
   const [dl, db] = o.npc ? [o.t.def * (o.defDr > tickN ? 0.95 : 1) * (o.specDr || 1) + 9, o.t.db] : remoteDef(o);
@@ -4543,17 +4559,22 @@ function swing(o) {
     dmg = 0;
     for (let h = 0, hn = spc && spc.n || 1; h < hn; h++) { dmg += roll(ch, M); if (h && P.ammoN > 0) spendArrow(); }
     dmg = boltProc(o, dmg, ch, M);                        // enchanted bolts have their say
+    if (spc && spc.heal && dmg > 0) { P.hp = Math.min(P.maxhp, P.hp + Math.floor(dmg * spc.heal)); dirty.orb = 1; }   // the blowpipe drinks
+    const bw = bowItem();                                 // an envenomed launcher bites one time in four, and its venom deepens
+    if (dmg > 0 && o.npc && bw && bw.psn && !o.psn && Math.random() < 0.25) { o.psn = bw.psn; o.venomF = bw.venom || 0; o.psnN = 0; o.psnT = tickN + 30; say('Venom rides your dart into the ' + o.name + '.'); }
     shootArrow(P, o, dmg, ammoTint());
     sfx(bowSnd());
     wsSend([19, o.tx, o.tz, ammoTint()]);
     spendArrow();
     xps = st.xp;
-  } else if (sp) {
-    if (sp.undead && !(o.npc && (o.t.base || o.t).undead)) { say('That spell only crumbles the risen dead.', 'bad'); P.spell = null; drawSpells(); return -1; }
-    if (sp.drain === 'hold' && !o.npc) { say('The spell cannot root another adventurer.', 'bad'); P.spell = null; drawSpells(); return -1; }   // no wire field carries a hold
-    if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return -1; }
-    spendRunes(sp);
-    if (sp.drain) {                                       // a curse rolls magic accuracy like any spell, holds for a minute, then the staff comes down
+  } else if (sp || ps) {
+    if (sp) {
+      if (sp.undead && !(o.npc && (o.t.base || o.t).undead)) { say('That spell only crumbles the risen dead.', 'bad'); P.spell = null; drawSpells(); return -1; }
+      if (sp.drain === 'hold' && !o.npc) { say('The spell cannot root another adventurer.', 'bad'); P.spell = null; drawSpells(); return -1; }   // no wire field carries a hold
+      if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return -1; }
+      spendRunes(sp);
+    }
+    if (sp && sp.drain) {                                 // a curse rolls magic accuracy like any spell, holds for a minute, then the staff comes down
       dmg = 0; castFx(o, sp, null); sfx(spellSnd(sp));
       const [cl, cb] = o.npc ? [o.t.mag * 1 + 9, o.t.mdb] : [dl, db];
       if (Math.random() < hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), cl, cb)) {
@@ -4565,20 +4586,23 @@ function swing(o) {
       gainXp('magic', sp.xp); P.spell = null;
     }
     else {
-      // gear buys accuracy only, never damage; a monster defends a spell with its Magic level and magic defence bonus
+      // gear buys accuracy, and mdmg gear a share of damage; a monster defends a spell with its Magic level and magic defence bonus
+      const spl = sp || ps;
       const [ml, mb] = o.npc ? [o.t.mag * (o.defDr > tickN ? 0.95 : 1) + 9, o.t.mdb] : [dl, db];
-      dmg = roll(hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), ml, mb), sp.max); castFx(o, sp, dmg); sfx(spellSnd(sp));
-      if (P.cstyle) { gainXp('magic', sp.xp + dmg * 4 / 3); if (dmg > 0) gainXp('defence', dmg); }   // defensive casting splits the 2007 way
-      else gainXp('magic', sp.xp + dmg * 2);
+      dmg = roll(hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), ml, mb), mdmgMax(spl.max)); castFx(o, spl, dmg); sfx(spellSnd(spl));
+      if (dmg > 0 && o.npc && barrowsSet('ahrim') && Math.random() < 0.25) { o.strDr = tickN + 100; say("Ahrim's curse saps its strength."); }
+      if (P.cstyle) { gainXp('magic', spl.xp + dmg * 4 / 3); if (dmg > 0) gainXp('defence', dmg); }   // defensive casting splits the 2007 way
+      else gainXp('magic', spl.xp + dmg * 2);
     }
-    wsSend([18, sp.i, o.tx, o.tz]);                       // observers cannot see a bolt they were never told about
-    drawSpells();
+    if (sp) { wsSend([18, sp.i, o.tx, o.tz]); drawSpells(); }   // observers cannot see a bolt they were never told about
+    else wsSend([19, o.tx, o.tz, ps.tint]);               // a trident's bolt rides the arrow op, teal
   } else {
     const st = STYLES[P.style], spc = P.specArm && SPEC[eq.weapon] && !SPEC[eq.weapon].rng ? SPEC[eq.weapon] : null;
-    const aEff = (Math.floor(eff('attack') * prayerMul('atk')) + st.acc + 8) * (spc && spc.acc || 1);
+    const bm = eq.head === 'black_mask' && onTask(o) ? 7 / 6 : 1;   // the black mask bites a sixth harder on assignment
+    const aEff = (Math.floor(eff('attack') * prayerMul('atk')) + st.acc + 8) * (spc && spc.acc || 1) * bm;
     if (spc) {
       P.specArm = 0; P.spec = Math.max(0, P.spec - spc.cost);
-      const M = Math.floor(maxHit() * (spc.dmg !== undefined ? spc.dmg : 1)), ch = hitChance(aEff, bonus('atk'), dl, db);
+      const M = Math.floor(maxHit() * (spc.dmg !== undefined ? spc.dmg : 1) * bm), ch = hitChance(aEff, bonus('atk'), dl, db);
       dmg = 0;
       if (spc.claws) {                                       // slice and dice: the first hit that lands sets the cascade
         if (Math.random() < ch) { const h1 = randInt(Math.max(1, M >> 1), Math.max(1, M - 1)); dmg = h1 + (h1 >> 1) + (h1 >> 2) + ((h1 >> 2) + 1); }
@@ -4589,11 +4613,18 @@ function swing(o) {
       if (spc.stun && o.npc) { o.cd = Math.max(o.cd, spc.stun); say('You shove the ' + o.name + ' back!'); }
       if (spc.bonus && dmg > 0) { dmg += randInt(spc.bonus[0], spc.bonus[1]); say("Saradomin's lightning strikes!", 'lv'); }
       if (spc.quick) P.actT = 1;                           // the maul comes around again at once
+      if (spc.heal && dmg > 0) {                            // the Healing Blade drinks for body and soul
+        P.hp = Math.min(P.maxhp, P.hp + Math.max(10, Math.floor(dmg * spc.heal)));
+        if (spc.pheal) P.pray = Math.min(P.maxpray, P.pray + Math.max(5, Math.floor(dmg * spc.pheal)));
+        dirty.orb = 1;
+      }
       drawStyles();
-    } else dmg = roll(hitChance(aEff, bonus('atk'), dl, db), maxHit());
+    } else if (barrowsSet('verac') && Math.random() < 0.25) dmg = randInt(1, Math.floor(maxHit() * bm) + 1);   // Verac strikes through guard and prayer alike
+    else dmg = roll(hitChance(aEff, bonus('atk'), dl, db), Math.floor(maxHit() * bm));
+    if (dmg > 0 && barrowsSet('guthan') && Math.random() < 0.25) { P.hp = Math.min(P.maxhp, P.hp + dmg); dirty.orb = 1; say("Guthan's spear drinks the wound."); }
     if (dmg > 0) { sfx(meleeSnd()); if (!o.npc) sfx(513, 0.9); } else parrySnd();
-    const wp = ITEMS[eq.weapon];                           // an envenomed blade bites one time in four
-    if (dmg > 0 && o.npc && wp && wp.psn && !o.psn && Math.random() < 0.25) { o.psn = wp.psn; o.psnN = 0; o.psnT = tickN + 30; say('Your poison courses through the ' + o.name + '.'); }
+    const wp = ITEMS[eq.weapon];                           // an envenomed blade bites one time in four; venom deepens instead of fading
+    if (dmg > 0 && o.npc && wp && wp.psn && !o.psn && Math.random() < 0.25) { o.psn = wp.psn; o.venomF = wp.venom || 0; o.psnN = 0; o.psnT = tickN + 30; say('Your poison courses through the ' + o.name + '.'); }
     hitsplat(o.rx, o.ry + 1.5, o.rz, dmg);
     xps = st.xp;
   }
@@ -4613,7 +4644,7 @@ function taskTick() {
     if (o.dead || (o.key !== undefined && depleted.has(o.key) && t.k !== 'cook' && t.k !== 'make') || (o.npc && !o.mesh.parent) || (o.remote && !remotes.has(o.pid))) { P.task = null; return; }
     const ox = (o.npc || o.remote) ? o.tx : o.x, oz = (o.npc || o.remote) ? o.tz : o.z;
     // reach: a spell ten tiles, a bow its range, melee one tile — or the bulk of the thing for the big ones, or a halberd's two
-    const reach = t.k !== 'attack' ? (t.reach || 1) : P.spell !== null ? MAGIC_RANGE : bowRange() || Math.max((eq.weapon && ITEMS[eq.weapon].reach) || 1, o.npc && o.t.big ? Math.max(npcFp(o.t) + 1, Math.round(o.t.sz)) : 1);
+    const reach = t.k !== 'attack' ? (t.reach || 1) : P.spell !== null || pstaffOn() ? MAGIC_RANGE : bowRange() || Math.max((eq.weapon && ITEMS[eq.weapon].reach) || 1, o.npc && o.t.big ? Math.max(npcFp(o.t) + 1, Math.round(o.t.sz)) : 1);
     if (chebDist(P.tx, P.tz, ox, oz) > reach) {
       if (!P.path.length) {                                 // chase, or give up if it walked off a cliff
         const p = findPath(P.tx, P.tz, ox, oz, reach);
@@ -4644,10 +4675,12 @@ function taskTick() {
       // each client owns its own hitpoints: we roll with our stats and send it; town ground ends a fight mid-chase
       if (inSafe(P.tx, P.tz) || inSafe(o.tx, o.tz)) return fail('The town watch does not allow fighting here.');
       const dmg = swing(o);
-      if (dmg >= 0) wsSend([11, o.pid, dmg, prayHas('smite') ? 1 : 0]);   // the extra element is ignored by older builds
+      if (dmg >= 0) wsSend([11, o.pid, dmg, prayHas('smite') ? 1 : 0, P.spell !== null || pstaffOn() ? 'g' : bowRange() ? 'r' : 'm']);   // extra elements are ignored by older builds; the class lets their overhead answer
       return;
     }
     if (o.owner && o.owner !== PID) return fail('Someone else is fighting that.');
+    const bt = o.t.base || o.t;                            // some monsters answer only to trained slayers, as in 2007
+    if (bt.slayLv && lvl[SK.slayer] < bt.slayLv) return fail('You need Slayer level ' + bt.slayLv + ' to harm the ' + o.name + '.');
     if (o.key && o.owner !== PID) { o.owner = PID; claimMon(o); }
     if (o.t.boss) { if (!o.caT0) o.caT0 = tickN; o.caSt = (o.caSt || 0) | (P.spell !== null ? 4 : bowRange() ? 2 : 1); }   // the feat ledger watches the style and the clock
     const dmg = swing(o);
@@ -4760,13 +4793,17 @@ function bury(id) {
   say('You dig a hole in the ground, and bury the bones.');
   dirty.orb = 1;
 }
+/* the anglerfish ladder: what it heals at each Hitpoints level, straight off the wiki */
+const angHeal = () => { const L = lvl[SK.hitpoints];
+  return L >= 93 ? 22 : L >= 90 ? 17 : L >= 80 ? 16 : L >= 75 ? 15 : L >= 70 ? 13 : L >= 60 ? 12 : L >= 50 ? 11 : L >= 40 ? 8 : L >= 30 ? 7 : L >= 25 ? 6 : L >= 20 ? 4 : 3; };
 function eat(slotIdx) {
   const it = ITEMS[inv[slotIdx].id];
   if (it.blight && powerAt(P.tx, P.tz) < 1) return say('The blighted flesh only nourishes you in dangerous lands.', 'bad');   // the wilderness rule, in this world's terms
   if (P.foodT > tickN) return;                             // one bite per three ticks, and each bite delays the next swing; a full belly still eats, as ever
   P.foodT = tickN + 3; P.actT += 3;
   invRemove(inv[slotIdx].id, 1); sfx(2393);
-  P.hp = Math.min(P.maxhp, P.hp + it.heal);
+  const heal = it.ang ? angHeal() : it.heal;
+  P.hp = it.ang ? Math.min(P.maxhp + heal, P.hp + heal) : Math.min(P.maxhp, P.hp + heal);   // an anglerfish alone feeds past full, to max + its own heal
   if (it.boost) { potBoost(it.boost[0], it.boost[1], 0); dirty.sk = 1; }   // the pies carry their little blessings
   if (it.energy) { P.energy = Math.min(100, P.energy + it.energy); dirty.orb = 1; }
   dirty.orb = 1;
@@ -5230,7 +5267,7 @@ function drawStyles() {
     return liRow('data-s="' + i + '"', on, 0, drawIcon(s.g, '#c9a24a', '#efe4c4'), s.n, '', '<u>' + s.d + '</u>');
   }).join('');
   el('cbWep').textContent = (bow || weaponIt() || { name: 'Unarmed' }).name;
-  el('cbSpd').textContent = atkSpeed() + ' ticks'; el('cbMax').textContent = P.spell !== null ? SPELLS[P.spell].max : maxHit(); el('cbLvl').textContent = combatLevel();
+  el('cbSpd').textContent = atkSpeed() + ' ticks'; el('cbMax').textContent = P.spell !== null ? mdmgMax(SPELLS[P.spell].max) : pstaffOn() ? mdmgMax(pstaffMax()) : maxHit(); el('cbLvl').textContent = combatLevel();
   const sw = SPEC[eq.weapon], b = el('cbSpec');
   b.style.display = sw ? '' : 'none';
   if (sw) { b.textContent = (P.specArm ? 'Special armed — ' : 'Special attack (' + sw.cost + '%) — ') + Math.floor(P.spec) + '%'; b.classList.toggle('on', !!P.specArm); }
@@ -5559,7 +5596,7 @@ function itemOptions(i) {
   opts.push(itm('Drop', nm, () => { dropItem(s.id, s.n, P.tx, P.tz); inv[i] = null; dirty.inv = 1; }), examineOpt(it));
   return opts;
 }
-const RING_NOTES = { anti_dragon_shield: ' Turns dragonfire aside.', ring_of_recoil: ' Bites back a tenth of every blow.', ring_of_life: ' Carries you to safety at a tenth of your health, once.', ring_of_wealth: ' Fortune favours the wearer.' };
+const RING_NOTES = { anti_dragon_shield: ' Turns dragonfire aside.', ring_of_recoil: ' Bites back a tenth of every blow.', ring_of_life: ' Carries you to safety at a tenth of your health, once.', ring_of_wealth: ' Clears the empty slots from the rare drop tables.' };
 function examine(it) {
   if (it.equip) {
     const mat = it.tname || (it.tier !== undefined && TIERS[it.tier] ? TIERS[it.tier].n : ''), kind = it.slot === 'weapon' ? 'weapon' : it.slot === 'ammo' ? 'ammunition' : 'piece of equipment';
@@ -6141,6 +6178,7 @@ function gameTick() {
   }
   if ((!P.moved || !P.run) && P.energy < 100) { P.energy = Math.min(100, P.energy + (15 + Math.floor(lvl[SK.agility] / 10)) / 100); dirty.orb = 1; }   // restore: (15 + agility/10) units a tick
   if (tickN % (prayHas('heal') ? 50 : 100) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }   // one point a minute, twice as fast under Rapid Heal
+  if (tickN % 100 === 0 && P.hp > P.maxhp) { P.hp--; dirty.orb = 1; }   // an overfed brew or anglerfish settles back a point a minute
   if (P.prayers) {
     let drain = 0;
     for (const p of PRAYERS) if (P.prayers & p.bit) drain += p.drain;
@@ -6735,9 +6773,10 @@ function onNet(m) {
       trouble('Seedworld could not save your character. Your progress this session will not be kept.', 'server refused save: ' + (m[1] || 'unknown'));
       break;
     case 11: {                                              // someone hit us
-      const R = ensureRemote(m[1]), dmg = clamp(m[2] | 0, 0, 60);
+      const R = ensureRemote(m[1]); let dmg = clamp(m[2] | 0, 0, 60);
       if (P.dead || inSafe(P.tx, P.tz)) break;
       if (!pvpOn) { pvpOn = 1; say('You are under attack!', 'bad'); }
+      if (m[4] && dmg > 0 && prayHas('prot', m[4])) { dmg = Math.floor(dmg * 0.6); say('Your prayer turns part of the blow aside.'); }   // overheads soften another player's hit by 40%
       if (m[3] && dmg > 0 && P.pray > 0) { P.pray = Math.max(0, P.pray - Math.floor(dmg / 4)); say('You feel your prayer being smitten!', 'bad'); dirty.orb = 1; }
       hurtPlayer(dmg, 1); retaliate(R);
       break;
@@ -7590,7 +7629,7 @@ structHooks.push((rec, vs, inChunk) => {
 /* ---- SLAYER: one master a settlement hands out a family to hunt; every kill of it pays its hitpoints in xp ---- */
 const MASTERS = [['Turael', 0, 15, 30, 0, 25], ['Mazchna', 20, 30, 50, 10, 45], ['Vannaka', 40, 40, 80, 20, 80], ['Chaeldar', 70, 60, 120, 40, 130], ['Duradel', 100, 80, 160, 60, 1e9]]
   .map(([n, cb, lo, hi, a, b]) => ({ n, cb, lo, hi, a, b }));   // one a settlement rank: combat needed, task size, the band of base levels it assigns
-const slayPool = m => NPC_TYPES.filter(t => !t.boss && !t.town && !t.flee && t.lv >= m.a && t.lv <= m.b);
+const slayPool = m => NPC_TYPES.filter(t => !t.boss && !t.town && !t.flee && t.lv >= m.a && t.lv <= m.b && (!t.slayLv || lvl[SK.slayer] >= t.slayLv));
 const plural = (s, n) => n === 1 ? s : s.replace(/^(.*?)( of .*)?$/, (_, w, of) => (/[mM]an$/.test(w) ? w.slice(0, -2) + 'en' : /f$/.test(w) ? w.slice(0, -1) + 'ves' : w + (/s$/.test(w) ? 'es' : 's')) + (of || ''));
 let slayO = null;                                          // the master whose window is open
 function slayerTalk(o) {
@@ -7648,7 +7687,7 @@ USE_ON[5] = (o, uit) => SHOP_KINDS[o.k].k === 'craft' && RECIPES.some(r => r.at 
 for (const j of JEWEL) {
   const wool = j.k === 'amulet' ? [['ball_of_wool', 1]] : [], x = { at: 3, tool: j.k + '_mould' };
   recipe('gold_' + j.k, 'crafting', j.lv, j.xp, [['gold_bar', 1]].concat(wool), x);
-  for (const g of GEMS) if (j.lvs[g.i] !== undefined) recipe(g.k + '_' + j.k, 'crafting', j.lvs[g.i], j.xps[g.i], [['gold_bar', 1], [g.k, 1]].concat(wool), x);   // onyx jewellery stays drop-only: TODO: verify its craft levels
+  for (const g of GEMS) if (j.lvs[g.i] !== undefined) recipe(g.k + '_' + j.k, 'crafting', j.lvs[g.i], j.xps[g.i], [['gold_bar', 1], [g.k, 1]].concat(wool), x);   // onyx included at the wiki's 67/82/90; Lvl-6 Enchant finishes the fury and the berserker
 }
 recipe('tiara', 'crafting', 23, 52.5, [['silver_bar', 1]], { at: 3, tool: 'tiara_mould' });
 /* spinning needs no wheel: a one-input recipe has nothing to be used on, so flax and wool carry a Spin verb */
@@ -7687,7 +7726,8 @@ defStack('coconut', 'Coconut', 'crop', '#8a6438', '#4a3620', 120, { heal: 2 }); 
 defStack('supercompost', 'Supercompost', 'crop', '#4a3a28', '#2a2018', 90);            // inert trade good: this game's patches take no compost or disease (see FARMING)
 defStack('steel_cannonball', 'Steel cannonball', 'bar', '#4a4a52', '#2a2a30', 50);     // no cannon exists here: a smithable trade good
 defItem({ id: 'onyx_bolt_tips', name: 'Onyx bolt tips', g: 'bolt', c: '#2a2028', c2: '#141018', stack: 1, val: 1400 });
-defItem({ id: 'blighted_anglerfish', name: 'Blighted anglerfish', g: 'cfish', c: '#4a4a5a', c2: '#3a2a3a', stack: 1, val: 140, heal: 22, blight: 1 });
+defItem({ id: 'blighted_anglerfish', name: 'Blighted anglerfish', g: 'cfish', c: '#4a4a5a', c2: '#3a2a3a', stack: 1, val: 140, heal: 22, blight: 1, ang: 1 });
+ITEMS.anglerfish.ang = 1;                                   // both anglers heal by the wiki's Hitpoints-level table and past full
 recipe('steel_cannonball', 'smithing', 35, 25.6, [['steel_bar', 1]], { at: 4, tool: 'hammer', n: 4, msg: 'You pour the molten metal into the mould; four cannonballs clatter out.' });
 recipe('onyx_bolt_tips', 'fletching', 73, 225.6, [['onyx', 1]], { tool: 'chisel', n: 24, msg: 'You carefully chip the onyx into 24 bolt tips.' });
 /* onyx bolts: the tips finally attach to something — runite bolts, fletching 73, +120, as in 2007 */
@@ -7698,7 +7738,7 @@ for (const h of HERBS) { const r = recipe(h.k, 'herblore', h.lv, h.xp, [[h.grimy
 /* effects: a boost counts from the base level and never stacks (re-drinking resets it to the full amount); gameTick walks it back a point a minute */
 const potBoost = (k, b, f) => { const i = SK[k]; bst[i] = Math.max(bst[i], b + Math.floor(lvl[i] * f)); };
 const potRestore = () => { for (let i = 0; i < NSK; i++) if (bst[i] < 0) bst[i] = 0; };
-const potPray = b => { P.pray = Math.min(P.maxpray, P.pray + b + Math.floor(P.maxpray / 4)); };
+const potPray = (b, f) => { P.pray = Math.min(P.maxpray, P.pray + b + Math.floor(P.maxpray * (f || 0.25))); };
 function drink(i) {
   const it = ITEMS[inv[i].id], p = it.pot, d = it.dose;
   p.fx(); sfx(2390);
@@ -7721,7 +7761,7 @@ const POTS = [
   ['super_energy', 'Super energy', 'avantoe', 'mort_myre_fungus', 52, 117.5, '#c8d03a', () => { P.energy = Math.min(100, P.energy + 20); }],
   ['super_strength', 'Super strength', 'kwuarm', 'limpwurt_root', 55, 125, '#e878a8', () => potBoost('strength', 5, .15)],
   ['super_restore', 'Super restore', 'snapdragon', 'red_spiders_eggs', 63, 142.5, '#d83a3a', () => { potRestore(); potPray(8); }],
-  ['sanfew', 'Sanfew serum', 'snapdragon', 'snape_grass', 65, 160, '#8ad0a0', () => { potRestore(); potPray(8); P.psn = 0; }],   // snape grass stands in for the dust and nails of 2007
+  ['sanfew', 'Sanfew serum', 'snapdragon', 'snape_grass', 65, 160, '#8ad0a0', () => { potRestore(); potPray(4, 0.3); P.psn = 0; }],   // snape grass stands in for the dust and nails of 2007; prayer 4 + 30%, the wiki's own split
   ['super_defence', 'Super defence', 'cadantine', 'white_berries', 66, 150, '#3ab04a', () => potBoost('defence', 5, .15)],
   ['antifire', 'Antifire potion', 'lantadyme', 'dragon_scale_dust', 69, 157.5, '#d8903a', () => { P.afire = tickN + 600; }],
   ['ranging', 'Ranging potion', 'dwarf_weed', 'wine_of_zamorak', 72, 162.5, '#6a8a5a', () => potBoost('ranged', 4, .1)],
@@ -8681,7 +8721,7 @@ const ENCH = [['sapphire', 7, 17.5, [['cosmic_rune', 1], ['water_rune', 1]], 'ri
   ['ruby', 49, 59, [['cosmic_rune', 1], ['fire_rune', 5]], 0, 'amulet_of_strength'],
   ['diamond', 57, 67, [['cosmic_rune', 1], ['earth_rune', 10]], 'ring_of_life', 'amulet_of_power'],
   ['dragonstone', 68, 78, [['cosmic_rune', 1], ['water_rune', 15], ['earth_rune', 15]], 'ring_of_wealth', 'amulet_of_glory'],
-  ['onyx', 87, 97, [['cosmic_rune', 1], ['fire_rune', 20], ['death_rune', 1]], 0, 0]]   // Lvl-6 exists for the bolts alone: onyx jewellery is drop-only
+  ['onyx', 87, 97, [['cosmic_rune', 1], ['fire_rune', 20], ['death_rune', 1]], 0, 0]]   // the onyx amulet and necklace gain their products post-hoc: the fury and the berserker
   .map(([g, lv, xp, need, ring, amu]) => ({ g, lv, xp, need, ring, amu }));
 function enchant(i, t) {
   const id = inv[i].id, e = ENCH[t];
@@ -8691,7 +8731,7 @@ function enchant(i, t) {
     say('The ' + e.g + ' bolts take the enchantment and glow faintly.');
     return 1;
   }
-  const out = id === e.g + '_ring' ? e.ring : id === e.g + '_amulet' ? e.amu : 0;
+  const out = id === e.g + '_ring' ? e.ring : id === e.g + '_amulet' ? e.amu : id === e.g + '_necklace' ? e.neck : 0;
   if (!out) return say(id.startsWith(e.g) ? 'That piece takes no enchantment.' : 'This spell can only enchant ' + e.g + ' jewellery or bolts.', 'bad');
   inv[i] = { id: out, n: 1 }; dirty.inv = 1; markDirty();
   say('You enchant the ' + ITEMS[id].name.toLowerCase() + '.');
@@ -8821,9 +8861,9 @@ recipe('weapon_poison', 'herblore', 60, 137.5, [['kwuarm', 1], ['dragon_scale_du
 (LOOT.hero.tert = LOOT.hero.tert || []).push(['saradomin_sword', 512]);                // game-economy: a hero carries the god's blade
 
 /* ---- ARMOURY II: beyond rune. Barrows, the god wars, and the treasure tiers. Icons ship from i07/ (icons07-map.csv);
-   worn tints are sampled from those sprites. Weapon atk/str follow the wiki's best style, armour def its melee mean,
-   mag/rat sit on this game's compressed ladders (mystic top 12, black d'hide 23). TODO-verify: armour means, set effects
-   (barrows sets, sgs heal, tbow scaling, dhcb dragonbane, occult %, obsidian synergy are not modelled). No drops yet: dev-spawn only. */
+   worn tints are sampled from those sprites. Weapon atk/str follow the wiki's best style, armour def its melee mean.
+   Drops are wired in the ARMOURY II DROPS block below; barrows set effects, mdmg gear and the trident's own spell are live.
+   Still unmodelled by choice: sgs heal, tbow scaling, dhcb dragonbane, obsidian synergy. */
 /* barrows: the four melee brothers share the smith's measures; Verac alone carries the god's favour */
 defWear({ id: 'dharoks_helm', name: "Dharok's helm", g: 'fhelm', c: '#494831', c2: '#252518', slot: 'head', def: 46, req: { defence: 70 }, val: 60000 });
 defWear({ id: 'dharoks_platebody', name: "Dharok's platebody", g: 'body', c: '#5b5940', c2: '#2f2e24', slot: 'body', def: 116, req: { defence: 70 }, val: 180000 });
@@ -8853,7 +8893,7 @@ defWear({ id: 'ahrims_staff', name: "Ahrim's staff", g: 'staff', c: '#45452e', c
 defWear({ id: 'armadyl_godsword', name: 'Armadyl godsword', g: 'sword2h', c: '#777887', c2: '#323347', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, pb: 8, req: { attack: 75 }, val: 500000 });
 SPEC.armadyl_godsword = { cost: 50, acc: 2, dmg: 1.375 };   // the Judgment
 SPEC.bandos_godsword = { cost: 50, acc: 2, dmg: 1.21, drainDef: 0.8 };   // Warstrike caves the guard in
-SPEC.saradomin_godsword = { cost: 50, acc: 2, dmg: 1.1 };   // Healing Blade (the healing itself is not modelled)
+SPEC.saradomin_godsword = { cost: 50, acc: 2, dmg: 1.1, heal: 0.5, pheal: 0.25 };   // Healing Blade: half the damage back as health (min 10), a quarter as prayer (min 5)
 SPEC.zamorak_godsword = { cost: 50, acc: 2, dmg: 1.1, stun: 20 };        // Ice Cleave, scaled from the wiki's 32 ticks
 defWear({ id: 'bandos_godsword', name: 'Bandos godsword', g: 'sword2h', c: '#77787f', c2: '#2e302f', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, pb: 8, req: { attack: 75 }, val: 350000 });
 defWear({ id: 'saradomin_godsword', name: 'Saradomin godsword', g: 'sword2h', c: '#888683', c2: '#2e2e32', slot: 'weapon', two: 1, atk: 132, str: 132, spd: 6, pb: 8, req: { attack: 75 }, val: 300000 });
@@ -8878,7 +8918,7 @@ defWear({ id: 'berserker_necklace', name: 'Berserker necklace', g: 'amulet', c: 
 defWear({ id: 'amulet_of_fury', name: 'Amulet of fury', g: 'amulet', c: '#444555', c2: '#2e2a33', slot: 'neck', atk: 10, str: 8, def: 15, mag: 10, rat: 10, pb: 5, val: 200000 });
 defWear({ id: 'amulet_of_torture', name: 'Amulet of torture', g: 'amulet', c: '#514040', c2: '#301e18', slot: 'neck', atk: 15, str: 10, pb: 2, val: 300000 });
 defWear({ id: 'necklace_of_anguish', name: 'Necklace of anguish', g: 'amulet', c: '#5e4534', c2: '#332017', slot: 'neck', rat: 15, pb: 2, val: 300000 });
-defWear({ id: 'occult_necklace', name: 'Occult necklace', g: 'amulet', c: '#2a3550', c2: '#14061c', slot: 'neck', mag: 12, pb: 2, val: 400000 });   // the 10% magic damage is not modelled
+defWear({ id: 'occult_necklace', name: 'Occult necklace', g: 'amulet', c: '#2a3550', c2: '#14061c', slot: 'neck', mag: 12, mdmg: 10, pb: 2, val: 400000 });   // the wiki's 10% magic damage, through bonus('mdmg')
 defWear({ id: 'berserker_ring', name: 'Berserker ring', g: 'ring', c: '#8b8894', c2: '#402729', slot: 'ring', str: 4, def: 1, val: 120000 });
 defWear({ id: 'warrior_ring', name: 'Warrior ring', g: 'ring', c: '#999d65', c2: '#545638', slot: 'ring', atk: 4, def: 1, val: 60000 });
 defWear({ id: 'archers_ring', name: 'Archers ring', g: 'ring', c: '#93774b', c2: '#3d372d', slot: 'ring', rat: 4, def: 0, val: 100000 });
@@ -8895,25 +8935,25 @@ defWear({ id: 'guthix_cape', name: 'Guthix cape', g: 'cape', c: '#09651c', c2: '
 /* the far shore of ranged: what outranges the dark bow */
 defWear({ id: 'armadyl_crossbow', name: 'Armadyl crossbow', g: 'cbow', c: '#9f9550', c2: '#57522c', slot: 'weapon', bow: 1, ammoT: 'bolt', spd: 6, rng: 8, rat: 100, pb: 1, req: { ranged: 70 }, val: 600000 });
 defWear({ id: 'dragon_hunter_crossbow', name: 'Dragon hunter crossbow', g: 'cbow', c: '#78805d', c2: '#32331d', slot: 'weapon', bow: 1, ammoT: 'bolt', spd: 6, rng: 8, rat: 95, req: { ranged: 65 }, val: 500000 });   // the dragonbane bonus is not modelled
-defWear({ id: 'toxic_blowpipe', name: 'Toxic blowpipe', g: 'pipe', c: '#267186', c2: '#2e2768', slot: 'weapon', bow: 1, two: 1, selfAmmo: 1, spd: 3, rng: 7, rat: 30, rst: 35, req: { ranged: 75 }, val: 700000 });   // the darts are abstracted into the pipe
-SPEC.toxic_blowpipe = { cost: 50, dmg: 1.5 };
+defWear({ id: 'toxic_blowpipe', name: 'Toxic blowpipe', g: 'pipe', c: '#267186', c2: '#2e2768', slot: 'weapon', bow: 1, two: 1, selfAmmo: 1, spd: 3, rng: 7, rat: 30, rst: 35, psn: 6, venom: 1, req: { ranged: 75 }, val: 700000 });   // the darts are abstracted into the pipe; the venom is its own
+SPEC.toxic_blowpipe = { cost: 50, dmg: 1.5, heal: 0.5 };    // the spec drinks half of what it deals
 defWear({ id: 'twisted_bow', name: 'Twisted bow', g: 'bow', c: '#6f733e', c2: '#272424', slot: 'weapon', bow: 1, two: 1, spd: 6, rng: 10, rat: 70, rst: 20, req: { ranged: 75 }, val: 1200000 });   // fires arrows flat: the magic-level scaling is not modelled
 defWear({ id: 'crystal_bow', name: 'Crystal bow', g: 'bow', c: '#6e7177', c2: '#3f3a3a', slot: 'weapon', bow: 1, two: 1, selfAmmo: 1, spd: 5, rng: 10, rat: 100, rst: 78, req: { ranged: 70 }, val: 350000 });
 defWear({ id: 'crystal_shield', name: 'Crystal shield', g: 'shield', c: '#5a6068', c2: '#32353a', slot: 'shield', def: 53, req: { defence: 70 }, val: 250000 });
 /* the far shore of magic */
 defWear({ id: 'ancient_staff', name: 'Ancient staff', g: 'staff', c: '#5c5555', c2: '#400b3f', slot: 'weapon', atk: 40, str: 50, mag: 15, spd: 4, req: { magic: 50, attack: 50 }, val: 90000 });
-defWear({ id: 'staff_of_the_dead', name: 'Staff of the dead', g: 'staff', c: '#7b9073', c2: '#282f25', slot: 'weapon', atk: 70, str: 72, mag: 17, spd: 4, req: { magic: 75, attack: 75 }, val: 400000 });
-defWear({ id: 'toxic_staff_of_the_dead', name: 'Toxic staff of the dead', g: 'staff', c: '#6d7848', c2: '#201921', slot: 'weapon', atk: 70, str: 72, mag: 25, psn: 6, spd: 4, req: { magic: 75, attack: 75 }, val: 500000 });
+defWear({ id: 'staff_of_the_dead', name: 'Staff of the dead', g: 'staff', c: '#7b9073', c2: '#282f25', slot: 'weapon', atk: 70, str: 72, mag: 17, mdmg: 15, spd: 4, req: { magic: 75, attack: 75 }, val: 400000 });
+defWear({ id: 'toxic_staff_of_the_dead', name: 'Toxic staff of the dead', g: 'staff', c: '#6d7848', c2: '#201921', slot: 'weapon', atk: 70, str: 72, mag: 25, mdmg: 15, psn: 6, venom: 1, spd: 4, req: { magic: 75, attack: 75 }, val: 500000 });
 defStaff('kodai_wand', 'Kodai wand', '#654e98', '#3f179f', 0, 0, 28, 75, 800000, 'water_rune', 'wand');
-defWear({ id: 'trident_of_the_seas', name: 'Trident of the seas', g: 'trident', c: '#6f694c', c2: '#0b3f40', slot: 'weapon', mag: 15, spd: 4, req: { magic: 75 }, val: 300000 });
+defWear({ id: 'trident_of_the_seas', name: 'Trident of the seas', g: 'trident', c: '#6f694c', c2: '#0b3f40', slot: 'weapon', mag: 15, spd: 4, pstaff: 1, req: { magic: 75 }, val: 300000 });   // a powered staff: casts its own bolt, four ticks, max = magic/3 - 5
 defWear({ id: 'mages_book', name: "Mage's book", g: 'shield', c: '#a37f39', c2: '#5f1d17', slot: 'shield', mag: 15, req: { magic: 60 }, val: 120000 });
 defWear({ id: 'infinity_hat', name: 'Infinity hat', g: 'hat', c: '#8f4c4b', c2: '#501e30', slot: 'head', def: 0, mag: 6, req: { magic: 50, defence: 25 }, val: 120000 });
 defWear({ id: 'infinity_top', name: 'Infinity top', g: 'robe', c: '#874553', c2: '#4f1b54', slot: 'body', def: 0, mag: 22, req: { magic: 50, defence: 25 }, val: 300000 });
 defWear({ id: 'infinity_bottoms', name: 'Infinity bottoms', g: 'legs', c: '#923966', c2: '#4c1b57', slot: 'legs', def: 0, mag: 17, req: { magic: 50, defence: 25 }, val: 250000 });
 defWear({ id: 'infinity_boots', name: 'Infinity boots', g: 'boot', c: '#8e7523', c2: '#231e27', slot: 'feet', def: 0, mag: 5, req: { magic: 50, defence: 25 }, val: 80000 });
-defWear({ id: 'ancestral_hat', name: 'Ancestral hat', g: 'hat', c: '#857a6c', c2: '#333031', slot: 'head', def: 12, mag: 8, req: { magic: 75, defence: 65 }, val: 500000 });
-defWear({ id: 'ancestral_robe_top', name: 'Ancestral robe top', g: 'robe', c: '#706865', c2: '#292832', slot: 'body', def: 41, mag: 35, req: { magic: 75, defence: 65 }, val: 900000 });
-defWear({ id: 'ancestral_robe_bottom', name: 'Ancestral robe bottom', g: 'legs', c: '#726d79', c2: '#32324a', slot: 'legs', def: 27, mag: 26, req: { magic: 75, defence: 65 }, val: 800000 });
+defWear({ id: 'ancestral_hat', name: 'Ancestral hat', g: 'hat', c: '#857a6c', c2: '#333031', slot: 'head', def: 12, mag: 8, mdmg: 2, req: { magic: 75, defence: 65 }, val: 500000 });
+defWear({ id: 'ancestral_robe_top', name: 'Ancestral robe top', g: 'robe', c: '#706865', c2: '#292832', slot: 'body', def: 41, mag: 35, mdmg: 2, req: { magic: 75, defence: 65 }, val: 900000 });
+defWear({ id: 'ancestral_robe_bottom', name: 'Ancestral robe bottom', g: 'legs', c: '#726d79', c2: '#32324a', slot: 'legs', def: 27, mag: 26, mdmg: 2, req: { magic: 75, defence: 65 }, val: 800000 });
 /* 3rd age: the treasure trails' impossible metal, in all three disciplines */
 defWear({ id: 'third_age_full_helmet', name: '3rd age full helmet', g: 'fhelm', c: '#b3aaa9', c2: '#1a2626', slot: 'head', def: 46, req: { defence: 65 }, val: 500000 });
 defWear({ id: 'third_age_platebody', name: '3rd age platebody', g: 'body', c: '#867d7c', c2: '#1a2020', slot: 'body', def: 106, req: { defence: 65 }, val: 900000 });
@@ -8930,6 +8970,55 @@ defWear({ id: 'third_age_robe_top', name: '3rd age robe top', g: 'robe', c: '#6d
 defWear({ id: 'third_age_robe', name: '3rd age robe', g: 'skirt', c: '#4c5a5c', c2: '#26292c', slot: 'legs', def: 0, mag: 19, req: { magic: 65 }, val: 800000 });
 defStaff('third_age_wand', '3rd age wand', '#6f7a7a', '#151111', 0, 0, 20, 65, 900000, undefined, 'wand');
 defWear({ id: 'third_age_amulet', name: '3rd age amulet', g: 'amulet', c: '#605023', c2: '#1a1411', slot: 'neck', mag: 15, def: 0, val: 600000 });
+
+/* ---- ARMOURY II DROPS: every treasure above now has a home. GWD pieces sit at the wiki's own 1/381 armour and 1/508
+   hilt rates on the generals this world has; where the true owner is absent the nearest kin stands in (each commented).
+   The shared tables roll with no empty weight: a tert that names one always pays a piece. ---- */
+const BARROWS_SUB = [['dharoks_helm', 1], ['dharoks_platebody', 1], ['dharoks_platelegs', 1], ['dharoks_greataxe', 1],
+  ['guthans_helm', 1], ['guthans_platebody', 1], ['guthans_chainskirt', 1], ['guthans_warspear', 1],
+  ['torags_helm', 1], ['torags_platebody', 1], ['torags_platelegs', 1], ['torags_hammers', 1],
+  ['veracs_helm', 1], ['veracs_brassard', 1], ['veracs_plateskirt', 1], ['veracs_flail', 1],
+  ['karils_coif', 1], ['karils_leathertop', 1], ['karils_leatherskirt', 1], ['karils_crossbow', 1],
+  ['ahrims_hood', 1], ['ahrims_robetop', 1], ['ahrims_robeskirt', 1], ['ahrims_staff', 1]];
+const RAID_SUB = [['dragon_hunter_crossbow', 4], ['ancestral_hat', 3], ['ancestral_robe_top', 3], ['ancestral_robe_bottom', 3], ['kodai_wand', 2], ['twisted_bow', 2]];   // the raid vault's own weights
+SUBTABLES.barrows = () => rollTable(BARROWS_SUB);
+SUBTABLES.raid = () => rollTable(RAID_SUB);
+ITEMS.kodai_wand.mdmg = 15;                                 // the magic-damage carriers among the staves
+if (ITEMS.smoke_battlestaff) ITEMS.smoke_battlestaff.mdmg = 10;
+if (ITEMS.mystic_smoke_staff) ITEMS.mystic_smoke_staff.mdmg = 10;
+const bossTert = (k, ...rows) => (LOOT[k].tert = LOOT[k].tert || []).push(...rows);
+bossTert('vetion', ['barrows', 12]); bossTert('scurrius', ['barrows', 30]);           // the crypt keepers deal the brothers' war-gear (the 2007 chest paid ~1/17)
+bossTert('graardor', ['bandos_chestplate', 381], ['bandos_tassets', 381], ['bandos_boots', 381], ['bandos_godsword', 508], ['raid', 250]);
+bossTert('kril', ['zamorakian_spear', 128], ['staff_of_the_dead', 508], ['zamorak_godsword', 508], ['raid', 250]);
+bossTert('galvek', ['armadyl_helmet', 381], ['armadyl_chestplate', 381], ['armadyl_chainskirt', 381], ['armadyl_godsword', 508], ['armadyl_crossbow', 508], ['raid', 250]);   // game-economy: the sky dragon stands in for Kree'arra
+bossTert('hero', ['saradomin_godsword', 1024]);                                       // game-economy: the god's own paragon carries his blade
+bossTert('venenatis', ['toxic_blowpipe', 512], ['toxic_staff_of_the_dead', 512], ['abyssal_tentacle', 400]);   // game-economy: the venom queen stands in for Zulrah, and her arms for the kraken's
+bossTert('eldric', ['trident_of_the_seas', 512], ['mages_book', 350], ['infinity_top', 350], ['infinity_boots', 500]);   // game-economy: the sea-ice king keeps the kraken's fork and the scholar's shelf
+bossTert('branda', ['toktz_xil_ak', 128], ['tzhaar_ket_om', 128], ['fire_cape', 128], ['infinity_bottoms', 350], ['infinity_hat', 500]);   // game-economy: the fire queen holds the volcano's arsenal
+bossTert('skotizo', ['primordial_boots', 128], ['pegasian_boots', 128], ['eternal_boots', 128], ['master_wand', 350]);   // game-economy: the dark warden stands in for Cerberus (crystals 1/128 each)
+bossTert('jungledemon', ['amulet_of_torture', 512], ['necklace_of_anguish', 512], ['soul_talisman', 128]);   // game-economy: the jungle demon stands in for the demonic gorillas; the soul altar answers to him
+bossTert('spectre', ['occult_necklace', 512]);                                        // the smoke devil's own 1/512, on its misty kin
+bossTert('blackdemon', ['abyssal_dagger', 512], ['abyssal_bludgeon', 750]);           // the abyssal kin keep the sire's arms (unsired odds ~1/492)
+bossTert('revenant', ['ancient_staff', 512]);                                         // game-economy: the restless dead keep the old magicks
+bossTert('obor', ['berserker_ring', 128]); bossTert('bktitan', ['warrior_ring', 128]);
+bossTert('slashbash', ['archers_ring', 128]); bossTert('bryophyta', ['seers_ring', 128]);   // game-economy: the four lesser bosses split the Dagannoth Kings' rings, each at the Kings' 1/128
+bossTert('vorkath', ['avas_assembler', 50], ['raid', 300]);                           // the assembler is the wiki's own 1/50 head, sewn straight on
+bossTert('kalphitequeen', ['raid', 300]);
+bossTert('paladin', ['saradomin_cape', 128], ['law_talisman', 64]);                   // game-economy: no mage arena here — the god capes fall from their faithful, the far altars' keys with them
+bossTert('darkwizard', ['zamorak_cape', 128], ['teacher_wand', 128]);
+bossTert('druid', ['guthix_cape', 128]);
+bossTert('shade', ['death_talisman', 80]); bossTert('greaterdemon', ['blood_talisman', 100]);
+bossTert('blackknight', ['black_dart_tips', 32, 8, 16]);
+/* the slayer's mask and the mystic leftovers ride the task-only tertiary, like the robes before them */
+defWear({ id: 'black_mask', name: 'Black mask', g: 'skull', c: '#33343c', c2: '#15161b', slot: 'head', def: 9, req: { defence: 10, strength: 20 }, val: 40000 });   // on assignment its wearer's melee bites 7/6 harder (swing reads it)
+NPC_BY.banshee.slayLv = 15; NPC_BY.spectre.slayLv = 60;     // the wiki's slayer gates: the pool and the attack path both honour them
+(LOOT.banshee.taskTert = LOOT.banshee.taskTert || []).push(['black_mask', 512], ['mystic_hat', 150]);   // the cave horror's 1/512, on its wailing kin
+(LOOT.spectre.taskTert = LOOT.spectre.taskTert || []).push(['mystic_gloves', 112], ['mystic_boots', 112]);
+/* mystic combo staves: the furnace-smith refits a combo battlestaff for coin, as Thormac once did */
+for (const ck of ['lava', 'steam', 'smoke', 'mist', 'dust', 'mud']) if (ITEMS['mystic_' + ck + '_staff'])
+  recipe('mystic_' + ck + '_staff', 'magic', 40, 0, [[ck + '_battlestaff', 1], ['coins', 40000]], { at: 3, msg: 'The furnace-smith refits your battlestaff in mystic fashion.' });
+/* onyx jewellery joins the gold bench (67/82/90 crafting, per the wiki); Lvl-6 Enchant turns amulet and necklace into the fury and the berserker */
+ENCH[5].amu = 'amulet_of_fury'; ENCH[5].neck = 'berserker_necklace';
 
 /* the baker's economy: wheat from the allotments, the windmill grinds at last, the range bakes */
 OBJ_OPTS[25] = ['Mill at', 'Windmill', o => openMake(25, o)];
@@ -9284,13 +9373,20 @@ const CLUE_STAPLES = [['coins', 30, 800, 6000], ['nature_rune', 10, 20, 60], ['l
 const CLUE_TRIM = [['rune_full_helm_t', 2], ['rune_platelegs_t', 2], ['rune_plateskirt_t', 1], ['rune_kiteshield_t', 2], ['rune_platebody_t', 1]];
 const CLUE_LOOT = [CLUE_STAPLES, CLUE_STAPLES.concat([['dragonstone', 1]], CLUE_TRIM),
   CLUE_STAPLES.concat([['dragonstone', 2]], CLUE_TRIM, [['rune_full_helm_g', 1], ['rune_platelegs_g', 1], ['rune_kiteshield_g', 1], ['rune_platebody_g', 0.5], ['rune_plateskirt_g', 0.5]])];
+/* the vault's impossible metal: 3rd age at the wiki's spirit (about 1/15,000 a piece — the true 1/42k would never land at this
+   game's pace), the gilded tools beside it; ranger boots keep the wiki's medium-casket odds. Rolled in openCasket. */
+const VAULT_SUB = [['third_age_full_helmet', 1], ['third_age_platebody', 1], ['third_age_platelegs', 1], ['third_age_kiteshield', 1], ['third_age_longsword', 1],
+  ['third_age_range_coif', 1], ['third_age_range_top', 1], ['third_age_range_legs', 1], ['third_age_vambraces', 1], ['third_age_bow', 1],
+  ['third_age_mage_hat', 1], ['third_age_robe_top', 1], ['third_age_robe', 1], ['third_age_wand', 1], ['third_age_amulet', 1],
+  ['gilded_hatchet', 3], ['gilded_pickaxe', 3]];
 /* fail fast on any loot, pickpocket, casket or shop id that does not resolve: a typo in a table would otherwise
    crash mid-session at kill time (dropItem reads ITEMS[id].name), and a shop typo would silently never stock.
    Runs here because it must see the whole larder — food, potions and clue items are defined late. */
 (() => {
   const bad = [], chk = (id, where) => { if (!ITEMS[id] && !SUBTABLES[id]) bad.push(where + ':' + id); };
   for (const k in LOOT) { const T = LOOT[k]; for (const d of (T.alw || []).concat(T.main || [], T.tert || [], T.taskTert || [])) chk(d[0], k); if (T.main) { const w = T.main.reduce((a, d) => a + d[1], 0); if (w > (T.den || w)) bad.push('overweight:' + k); } }
-  for (const [tbl, n] of [[RARE_DROPS, 'rdt'], [MEGA_DROPS, 'mega'], [GEM_DROPS, 'gem'], [HERB_SUB, 'herb'], [SEED_SUB, 'seed'], [USEED_SUB, 'useed'], [RSEED_SUB, 'rseed']])
+  for (const [tbl, n] of [[RARE_DROPS, 'rdt'], [MEGA_DROPS, 'mega'], [GEM_DROPS, 'gem'], [HERB_SUB, 'herb'], [SEED_SUB, 'seed'], [USEED_SUB, 'useed'], [RSEED_SUB, 'rseed'],
+    [BARROWS_SUB, 'barrows'], [RAID_SUB, 'raid'], [VAULT_SUB, 'vault']])
     for (const d of tbl) chk(d[0], n);
   for (const t of CLUE_LOOT) for (const d of t) chk(d[0], 'casket');
   for (const t of NPC_TYPES) if (t.pick) for (const d of t.pick.loot) chk(d[0], 'pick:' + t.k);
@@ -9334,6 +9430,8 @@ function openCasket(s, i) {                                // two rolls, three, 
     clogAdd(d[0]);
     if (!invAdd(d[0], n)) dropItem(d[0], n, P.tx, P.tz);
   }
+  const rare = i === 2 && Math.random() < 1 / 1000 ? rollTable(VAULT_SUB) : i === 1 && Math.random() < 1 / 280 ? ['ranger_boots'] : null;
+  if (rare) { clogAdd(rare[0]); if (!invAdd(rare[0], 1)) dropItem(rare[0], 1, P.tx, P.tz); say('Something ancient glitters among the spoils: ' + ITEMS[rare[0]].name + '!', 'lv'); }
   say('You open the casket. Its treasures are yours.', 'lv'); markDirty(1);
 }
 
