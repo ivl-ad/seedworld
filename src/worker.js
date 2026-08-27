@@ -43,7 +43,7 @@ const cleanSeed = s => (String(s || '').trim().toLowerCase().slice(0, 32)) || 'l
    invisible from the browser: assets update instantly and the Worker does not,
    so the game looks new while the server is months old and silently dropping
    everything it does not understand. */
-const BUILD = 7;   // 6: player houses (op 23); 7: wider house lane, size refusal echoed as op 24
+const BUILD = 8;   // 6: player houses (op 23); 7: wider house lane, size refusal echoed as op 24; 8: houses stand only while their owner is connected
 
 /* The spawn-table revision this deployment expects, echoed in the socket hello
    (element 6). A client whose own SPAWN_REV differs keeps its world private
@@ -172,10 +172,11 @@ export class World extends DurableObject {
     for (let i = 0; i < snap.length; i += 100) {
       try { server.send(JSON.stringify(snap.slice(i, i + 100))); } catch {}
     }
-    // every standing house, in pages: rare data, but a joiner must see them all
+    // every standing house, in pages — and a house stands only while its owner is connected,
+    // so the joiner sees just the living (their own record they ignore client-side)
     await this.loadHouses(seed);
     const hs = [];
-    for (const [hp, h] of this.houses) hs.push([23, hp, h.d]);
+    for (const [hp, h] of this.houses) if (this.players.has(hp)) hs.push([23, hp, h.d]);
     for (let i = 0; i < hs.length; i += 20) {
       try { server.send(JSON.stringify(hs.slice(i, i + 20))); } catch {}
     }
@@ -583,7 +584,13 @@ export class World extends DurableObject {
     const cur = this.players.get(a.pid);
     if (!cur || cur.ws !== ws) return;
     this.players.delete(a.pid);
-    this.flushHouses(1);                         // a leaver's pending house edits go to disk now
+    /* the leaver's house folds with them: houses stand only while their owner walks the world.
+       Their record leaves memory and D1 too — the character blob is the one true copy, and the
+       client re-announces it on every join. A row surviving an evicted object without this close
+       is filtered from snapshots by the connected-pids check above. */
+    if (this.houses && this.houses.delete(a.pid)) this.hDirty.add(a.pid);
+    this.flushHouses(1);                         // a leaver's pending house edits (now including the fold) go to disk
+    this.queue('23:' + a.pid, [23, a.pid, 0]);
     for (const p of this.players.values()) {
       if (p.seen.delete(a.pid)) {
         try { p.ws.send(JSON.stringify([[5, a.pid]])); } catch {}

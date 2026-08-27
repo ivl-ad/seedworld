@@ -6107,6 +6107,7 @@ function loadSeed(str) {
   drops.length = 0; fires.length = 0; npcDead.clear(); indoors = null; mhCache.clear(); popQueue.length = 0;
   for (const pid of [...housesReg.keys()]) clearHouse(pid);  // houses belong to a world; the next save and snapshot restock them
   hghosts.length = 0; litMap.clear(); bmOn = 0; moveSel = null;
+  hsAsked = 0; if (hsBarEl) hsBarEl.style.display = 'none';  // a fresh world asks fresh questions
   for (const n of npcs) scene.remove(n.mesh);
   npcs.length = 0;
   closeOverlays();
@@ -6614,8 +6615,7 @@ function applySave(b) {
   for (const [k, t] of (b.bd || [])) if (typeof k === 'string' && k[0] === 'b' && (t | 0) > tickN) npcDead.set(k, t | 0);
   P.hs = b.hs && hValid(b.hs) ? b.hs : null;
   if (P.hs) for (const r of P.hs.rm) r[4] = r[4].map(f => f && idOf(f));   // renamed furniture folds in too
-  applyHouse(hMe(), P.hs);
-  if (P.hs && !OFFLINE && srvBuild >= 6) wsSend([23, P.hs]);   // the room may hold a staler copy of this house
+  applyHouse(hMe(), P.hs);                                   // raised optimistically: the join snapshot may contest the land (case 23 folds ours and asks)
   P.cl = new Set((b.cl || []).map(idOf).filter(id => ITEMS[id]));
   P.pet = b.pet && ITEMS[idOf(b.pet)] ? idOf(b.pet) : null;
   P.ins = (b.ins || []).map(idOf).filter(id => ITEMS[id]);
@@ -6775,14 +6775,19 @@ function onNet(m) {
         trouble('Seedworld is being updated. You can play, but your progress will not be kept until it finishes.',
                 'server build ' + (build || 'pre-versioning') + ' < client ' + NEED_BUILD + ' — deploy src/worker.js (npx wrangler deploy)');
       }
-      if (build >= 6 && P.hs) wsSend([23, P.hs]);           // show the room this character's house
+      if (build >= 6) setTimeout(() => {                    // announce AFTER the join snapshot lands: an early hello would make the senior house yield to ours
+        if (P.hs && housesReg.has(hMe()) && ws && ws.readyState === 1) wsSend([23, P.hs]);
+      }, 1200);
       break;
     }
     case 23: {                                              // a house stands (or falls) somewhere in this world
       const pid = String(m[1] || '');
       if (!pid || pid === PID) break;
-      const h = m[2];
-      applyHouse(pid, h && Array.isArray(h.rm) && h.rm.length <= 12 ? h : null);
+      const h = m[2] && Array.isArray(m[2].rm) && m[2].rm.length <= 12 && hValid(m[2]) ? m[2] : null;
+      const foe = h ? hBlocked(h, pid) : 0;
+      if (foe === hMe()) hsYield();                         // they held this land before us: ours folds away and the owner chooses
+      else if (foe) break;                                  // two rival houses overlap each other: whichever stands, stands — render nothing new
+      applyHouse(pid, h);
       break;
     }
     case 24:                                                // the room could not carry our house record
@@ -8134,6 +8139,16 @@ const hValid = h => Number.isFinite(h.x) && Number.isFinite(h.z) && Number.isFin
   Array.isArray(h.rm) && h.rm.length >= 1 && h.rm.length <= 12 &&
   h.rm.every(r => Array.isArray(r) && Number.isInteger(r[0]) && ROOMS[r[0]] && Number.isInteger(r[1]) && Math.abs(r[1]) <= 2 &&
     Number.isInteger(r[2]) && Math.abs(r[2]) <= 2 && Number.isInteger(r[3]) && r[3] >= 0 && r[3] <= 3 && Array.isArray(r[4]));
+/* houses stand only while their owner walks this world: the character save is the one true record, the room a live mirror.
+   Conflicts weigh the ACTUAL rooms of both houses, not the old blanket radius — a one-room cottage slips in where a mansion cannot. */
+function hClash(a, b) {
+  for (const p of a.rm) for (const q of b.rm) {
+    const ax = a.x + p[1] * RS, az = a.z + p[2] * RS, bx = b.x + q[1] * RS, bz = b.z + q[2] * RS;
+    if (ax < bx + RS + 2 && bx < ax + RS + 2 && az < bz + RS + 2 && bz < az + RS + 2) return 1;   // two tiles of daylight between any two walls
+  }
+  return 0;
+}
+function hBlocked(h, skip) { for (const [pid, r] of housesReg) if (pid !== skip && r.h && hClash(h, r.h)) return pid; return 0; }
 const NOBLOCK = { rug: 1, chart: 1, decor: 1 };            // flat or wall-hung: walked over
 function clearHouse(pid) {
   const r = housesReg.get(pid);
@@ -8230,7 +8245,7 @@ function claimHouse() {
   const nv = nearVillage(P.tx, P.tz);
   if (nv && nv.d < nv.v.r * 1.6) return say('Too close to town: the guilds keep this land.', 'bad');
   if (highwayAt(P.tx, P.tz) > 0.15) return say("You cannot build on the king's road.", 'bad');
-  for (const r of housesReg.values()) if (r.h && Math.max(Math.abs(r.h.x - x0), Math.abs(r.h.z - z0)) < RS * 3 + 10) return say('Another house stands too near.', 'bad');
+  if (hBlocked({ x: x0, z: z0, rm: [[0, 0, 0, 0, []]] }, hMe())) return say('Another house stands too near.', 'bad');   // the fresh parlour's own footprint, not a blanket radius
   let lo = 1e9, hi = -1e9;
   for (let a = -RS; a < RS * 2; a++) for (let b = -RS; b < RS * 2; b++) {   // the whole nine-room lot must fit
     const y = heightAt(x0 + a, z0 + b);
@@ -8338,6 +8353,57 @@ function askDemolish() {
     '<div class="wrow2"><button id="demoGo">Demolish</button><button id="demoNo">Keep it</button></div>', '');
   el('demoGo').onclick = () => { closeOverlays(); P.hs = null; applyHouse(hMe(), null); markDirty(1); if (!OFFLINE && srvBuild >= 6) wsSend([23, 0]); bmOn = 0; say('The house comes down.'); };
   el('demoNo').onclick = closeOverlays;
+}
+/* land taken at login: our house folds away (the save keeps every room and stick) and the owner chooses —
+   move it for free from a small standing bar, or leave it to try the same ground next arrival */
+let hsAsked = 0, hsBarEl = null;
+function hsBarShow(on) {
+  if (!hsBarEl) {
+    hsBarEl = div(document.body, 'hsbar', 'Your house is unplaced &nbsp;<button id="hsPlace">Place here</button><button id="hsLater">Later</button>');
+    hsBarEl.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:6;padding:6px 10px;background:#1d1a14e6;border:1px solid #6b5a34;font:inherit;font-size:11px';
+    el('hsPlace').onclick = hsTryHere;
+    el('hsLater').onclick = () => { hsBarShow(0); say('Your house waits below the soil; it will try its old land when next you arrive.'); };
+  }
+  hsBarEl.style.display = on ? '' : 'none';
+}
+function hsYield() {
+  applyHouse(hMe(), null);                                  // only the standing shape folds; P.hs is untouched
+  if (!OFFLINE && srvBuild >= 6) wsSend([23, 0]);           // retract our hello announce from the room
+  if (hsAsked) { hsBarShow(1); return say('Another house stands on your land; yours folds away again.', 'bad'); }   // the popup is spent: the bar alone carries the choice
+  hsAsked = 1;
+  showModal('Your land is taken',
+    '<p class="smsg">Another adventurer\'s house stands where yours would rise. Nothing is lost — <b>every room and furnishing</b> rests safe in your save.</p>' +
+    '<p class="smsg">Move it now for free, keeping all of it, or leave it: it will try the same land when next you arrive.</p>' +
+    '<div class="wrow2"><button id="hsMoveGo">Move it (free)</button><button id="hsStay">Leave it</button></div>', '');
+  el('hsMoveGo').onclick = () => { closeOverlays(); hsBarShow(1); say('Stand where the house should rise and press Place here.', 'lv'); };
+  el('hsStay').onclick = () => { closeOverlays(); say('Your house waits below the soil; it will try the same land when next you arrive.'); };
+}
+/* the free move: the same ground rules as a deed claim, but measured over the ACTUAL rooms — and no deed spent */
+function hsTryHere() {
+  const h = P.hs;
+  if (!h) return hsBarShow(0);
+  if (inDunPlane(P.tz)) return say('No deed covers the underworld.', 'bad');
+  const x0 = P.tx - (RS >> 1), z0 = P.tz - (RS >> 1);
+  const nv = nearVillage(P.tx, P.tz);
+  if (nv && nv.d < nv.v.r * 1.6) return say('Too close to town: the guilds keep this land.', 'bad');
+  if (highwayAt(P.tx, P.tz) > 0.15) return say("You cannot build on the king's road.", 'bad');
+  if (hBlocked({ x: x0, z: z0, rm: h.rm }, hMe())) return say('Another house stands too near.', 'bad');
+  let lo = 1e9, hi = -1e9, felled = 0;
+  for (const r of h.rm) for (let a = -1; a <= RS; a++) for (let b = -1; b <= RS; b++) {   // each room and a doorstep ring
+    const x = x0 + r[1] * RS + a, z = z0 + r[2] * RS + b, y = heightAt(x, z), k = tk(x, z);
+    if (y < 1.2) return say('The lot runs into water.', 'bad');
+    if (floorMap.has(k) && floorMap.get(k).house !== hMe()) return say('Something else already stands on that ground.', 'bad');
+    if (blocked.has(k)) felled++;
+    lo = Math.min(lo, y); hi = Math.max(hi, y);
+  }
+  if (hi - lo > 2.2) return say('The ground is too uneven to build on. Seek flatter land.', 'bad');
+  if (felled) say('The builders clear ' + felled + ' trees and stones as the walls rise.');
+  h.x = x0; h.z = z0; h.y = Math.round(hi * 4) / 4;
+  applyHouse(hMe(), h);
+  markDirty(1);
+  if (!OFFLINE && srvBuild >= 6) wsSend([23, h]);
+  hsBarShow(0);
+  say('Your house settles on this land, every room and stick of it.', 'lv');
 }
 /* the fixtures a house offers */
 OBJ_OPTS[20] = ['Rest at', 'Bed', o => { if (o.house !== hMe()) return say('That is not your bed.'); P.home.x = o.x; P.home.z = o.z; markDirty(1); say('Home is where this bed stands: death and the home teleport return here.', 'lv'); }];
