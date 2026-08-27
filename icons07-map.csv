@@ -1207,3 +1207,34 @@ marker,mkshop_archery,Archery Shop,c07/archeryShopIcon.png
 marker,mkshop_craft,Crafting Shop,c07/craftingShopIcon.png
 marker,mkhouse,Your house,c07/housePortalIcon.png
 marker,mkskull,Where you fell,i07/bones.png
+item,dragonfire_shield,Dragonfire shield,i07/dragonfireShield.png
+item,draconic_visage,Draconic visage,i07/draconicVisage.png
+item,slayer_helmet,Slayer helmet,i07/slayerHelmet.png
+item,void_melee_helm,Void melee helm,i07/voidMeleeHelm.png
+item,void_ranger_helm,Void ranger helm,i07/voidRangerHelm.png
+item,void_mage_helm,Void mage helm,i07/voidMageHelm.png
+item,void_knight_top,Void knight top,i07/voidKnightTop.png
+item,void_knight_robe,Void knight robe,i07/voidKnightRobe.png
+item,void_knight_gloves,Void knight gloves,i07/voidKnightGloves.png
+item,granite_shield,Granite shield,i07/graniteShield.png
+item,granite_body,Granite body,i07/graniteBody.png
+item,granite_legs,Granite legs,i07/graniteLegs.png
+item,toktz_ket_xil,Toktz-ket-xil,i07/toktzKetXil.png
+item,obsidian_cape,Obsidian cape,i07/obsidianCape.png
+item,toktz_mej_tal,Toktz-mej-tal,i07/toktzMejTal.png
+item,salve_amulet,Salve amulet,i07/salveAmulet.png
+item,holy_book,Holy book,i07/holyBook.png
+item,unholy_book,Unholy book,i07/unholyBook.png
+item,book_of_balance,Book of balance,i07/bookOfBalance.png
+item,fighter_torso,Fighter torso,i07/fighterTorso.png
+item,initiate_sallet,Initiate sallet,i07/initiateSallet.png
+item,initiate_hauberk,Initiate hauberk,i07/initiateHauberk.png
+item,initiate_cuisse,Initiate cuisse,i07/initiateCuisse.png
+item,proselyte_sallet,Proselyte sallet,i07/proselyteSallet.png
+item,proselyte_hauberk,Proselyte hauberk,i07/proselyteHauberk.png
+item,proselyte_cuisse,Proselyte cuisse,i07/proselyteCuisse.png
+item,cooked_karambwan,Cooked karambwan,i07/cookedKarambwan.png
+item,partyhat,Blue partyhat,i07/bluePartyhat.png
+item,santa_hat,Santa hat,i07/santaHat.png
+item,hween_mask,Green h'ween mask,i07/greenHalloweenMask.png
+uspell,houseTeleport,House Teleport,c07/teleportToHouse.png
