@@ -1836,6 +1836,7 @@ function boltFrame(dt) {
     if (k >= 1) {
       b.m.visible = false; b.m.scale.setScalar(1);
       if (!b.arw) spellBurst(tx, ty, tz, b.sp.tint);
+      if (!b.arw && b.sp.k && !b.sp.drain) sfxAt(b.dmg === 0 ? 227 : spellSnd(b.sp, 1), tx, tz);   // splash or strike, where it lands
       if (b.dmg !== null) { hitsplat(tx, o.ry + 1.5, tz, b.dmg); if (!o.dead) healthBar(o); }
       bolts.splice(i, 1);
     }
@@ -4000,6 +4001,7 @@ function takeDrop(d) {
   if ((!ITEMS[d.id].stack && !invFree()) || !invAdd(d.id, d.n)) { say(FULL, 'bad'); return; }
   drops.splice(i, 1);
   markDirty();
+  if (d.id === 'coins') sfx(2115);
   say('You pick up ' + (d.n > 1 ? d.n + ' x ' : '') + ITEMS[d.id].name.toLowerCase() + '.');
 }
 const fires = []; pickLists.push(fires);
@@ -4274,7 +4276,7 @@ function npcTick(n) {
   if (!n.target && n.t.agg && !P.dead && near <= (n.t.boss ? 7 : 5) && (n.t.boss || dun || npw >= 1.5 || tickN - P.regionT < 1000 / (1 - npw / 1.5)) &&
       (n.t.boss || dun || combatLevel() < n.t.lv * 2 + 1)) { n.target = P; claimMon(n); }
   if (n.psn > 0 && tickN >= n.psnT && !n.dead) {           // an envenomed wound bites every 30 ticks, shallowing as it goes
-    n.psnT = tickN + 30; n.hp -= n.psn; hitsplat(n.rx, n.ry + 1.2, n.rz, n.psn); healthBar(n);
+    n.psnT = tickN + 30; n.hp -= n.psn; hitsplat(n.rx, n.ry + 1.2, n.rz, n.psn); healthBar(n); sfxAt(2408, n.tx, n.tz);
     if (++n.psnN % 5 === 0) n.psn--;
     if (n.hp <= 0) { killNpc(n); return; }
   }
@@ -4401,6 +4403,7 @@ function hurtPlayer(dmg, byPlayer) {
   P.hp = Math.max(0, P.hp - dmg);
   dirty.orb = 1;
   hitsplat(P.rx, P.ry + 1.6, P.rz, dmg);
+  if (hurtSnd) { sfx(hurtSnd); hurtSnd = 0; } else if (dmg > 0) sfx(513); else parrySnd();
   wsSend([13, P.hp, P.maxhp]);
   if (P.hp > 0 && P.hp <= Math.floor(P.maxhp * 0.1) && prayHas('redeem')) {   // Redemption: a tenth of your health buys a quarter of your prayer level, for every point
     P.hp = Math.min(P.maxhp, P.hp + (lvl[SK.prayer] >> 2)); P.pray = 0; P.prayers = 0; dirty.orb = 1;
@@ -4410,7 +4413,7 @@ function hurtPlayer(dmg, byPlayer) {
     eq.ring = null; dirty.eq = 1;
     P.task = null; stopWalk();
     const rlf = tpFrom(), v = nearestVillageTo(rlf.x, rlf.z, 12);
-    if (v) { const sp = safeSpotIn(v); teleport(sp.x, sp.z, 200); }
+    if (v) { const sp = safeSpotIn(v); sfx(200); teleport(sp.x, sp.z, 200); }
     say('Your ring of life flares, carries you to safety, and crumbles to dust.', 'lv');
     markDirty(1); healthBar(P);
     return;
@@ -4425,6 +4428,7 @@ function retaliate(attacker) {
 }
 function die(byPlayer) {
   P.dead = 1; P.task = null; P.path.length = 0;
+  sfx(512);
   say('Oh dear, you are dead!', 'bad');
   deathSpot = { x: P.tx, z: P.tz, t: tickN };               // the skull stands where you fell, on every map, for the pile's quarter hour
   deathMark.position.set(P.tx, Math.max(walkY(P.tx, P.tz), 0), P.tz);
@@ -4485,7 +4489,7 @@ function hearDeplete(key, due) {
   const o = objIndex.get(key);
   if (!o) return;
   hideInst(o);
-  if (o.t === 0) unblock(key);
+  if (o.t === 0) { unblock(key); sfxAt(2734, o.x, o.z); }   // a neighbour's tree comes down within earshot
 }
 function respawnTick() {
   if (!depleted.size) return;
@@ -4531,6 +4535,7 @@ function swing(o) {
     for (let h = 0, hn = spc && spc.n || 1; h < hn; h++) { dmg += roll(ch, M); if (h && P.ammoN > 0) spendArrow(); }
     dmg = boltProc(o, dmg, ch, M);                        // enchanted bolts have their say
     shootArrow(P, o, dmg, ammoTint());
+    sfx(bowSnd());
     wsSend([19, o.tx, o.tz, ammoTint()]);
     spendArrow();
     xps = st.xp;
@@ -4540,19 +4545,20 @@ function swing(o) {
     if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return -1; }
     spendRunes(sp);
     if (sp.drain) {                                       // a curse rolls magic accuracy like any spell, holds for a minute, then the staff comes down
-      dmg = 0; castFx(o, sp, null);
+      dmg = 0; castFx(o, sp, null); sfx(spellSnd(sp));
       const [cl, cb] = o.npc ? [o.t.mag * 1 + 9, o.t.mdb] : [dl, db];
       if (Math.random() < hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), cl, cb)) {
+        sfx(sp.hold ? 203 : 221);
         if (sp.hold) { o.heldT = tickN + sp.hold; say('Your spell roots the ' + o.name + ' to the ground!'); }
         else { o[sp.drain + 'Dr'] = tickN + 100; say('Your spell weakens the ' + o.name + '.'); }
       }
-      else say('Your spell splashes off the ' + o.name + '.');
+      else { sfx(227); say('Your spell splashes off the ' + o.name + '.'); }
       gainXp('magic', sp.xp); P.spell = null;
     }
     else {
       // gear buys accuracy only, never damage; a monster defends a spell with its Magic level and magic defence bonus
       const [ml, mb] = o.npc ? [o.t.mag * (o.defDr > tickN ? 0.95 : 1) + 9, o.t.mdb] : [dl, db];
-      dmg = roll(hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), ml, mb), sp.max); castFx(o, sp, dmg); gainXp('magic', sp.xp + dmg * 2);
+      dmg = roll(hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), ml, mb), sp.max); castFx(o, sp, dmg); sfx(spellSnd(sp)); gainXp('magic', sp.xp + dmg * 2);
     }
     wsSend([18, sp.i, o.tx, o.tz]);                       // observers cannot see a bolt they were never told about
     drawSpells();
@@ -4574,6 +4580,7 @@ function swing(o) {
       if (spc.quick) P.actT = 1;                           // the maul comes around again at once
       drawStyles();
     } else dmg = roll(hitChance(aEff, bonus('atk'), dl, db), maxHit());
+    if (dmg > 0) { sfx(meleeSnd()); if (!o.npc) sfx(513, 0.9); } else parrySnd();
     const wp = ITEMS[eq.weapon];                           // an envenomed blade bites one time in four
     if (dmg > 0 && o.npc && wp && wp.psn && !o.psn && Math.random() < 0.25) { o.psn = wp.psn; o.psnN = 0; o.psnT = tickN + 30; say('Your poison courses through the ' + o.name + '.'); }
     hitsplat(o.rx, o.ry + 1.5, o.rz, dmg);
@@ -4645,11 +4652,11 @@ function taskTick() {
   if (t.k === 'pray') {
     const bi = inv.findIndex(s => s && ITEMS[s.id].bury);
     if (bi < 0) {
-      if (P.pray < P.maxpray) { P.pray = P.maxpray; dirty.orb = 1; say('You kneel at the altar, and your prayer is restored.'); } else say('You have no bones to offer.');
+      if (P.pray < P.maxpray) { P.pray = P.maxpray; dirty.orb = 1; sfx(2674); say('You kneel at the altar, and your prayer is restored.'); } else say('You have no bones to offer.');
       P.task = null; return;
     }
     const id = inv[bi].id;
-    invRemove(id, 1);
+    invRemove(id, 1); sfx(2738);
     gainXp('prayer', ITEMS[id].bury * (o && o.pm ? o.pm() : 2));   // village altars double; a house chapel pays its wiki multiplier, burners counted
     diaryBump('bones', 0, P.tx, P.tz, 1);
     P.maxpray = lvl[SK.prayer]; P.pray = Math.min(P.maxpray, P.pray + 2); dirty.orb = 1;
@@ -4658,14 +4665,17 @@ function taskTick() {
     const G = GATHER[t.k], R = G.list[o.k], tool = bestTool(G.tool);
     if (!tool) return fail(G.need);
     if (needLv(G.sk, R.lv)) return;
+    sfx(t.k === 'chop' ? 3037 + randInt(0, 5) : R.k === 'essence' ? 2926 : 3220 + randInt(0, 5), 0.7);   // one swing of the tool per roll
     if (Math.random() < gatherChance(lvl[SK[G.sk]], R.lv, tool.tier)) {
       const id = R.k === 'essence' && lvl[SK.mining] >= 30 ? 'pure_essence' : R[G.yield];
       if (!invAdd(id, 1)) { dropItem(id, 1, P.tx, P.tz); say('Your pack is full; the ' + ITEMS[id].name.toLowerCase() + ' falls at your feet.'); }
       else say(G.got + ITEMS[id].name.toLowerCase() + '.');
       diaryBump(t.k, o.k, o.x, o.z, 1);
       gainXp(G.sk, R.xp);
+      if (t.k === 'mine') sfx(3600, 0.9);
+      else if (Math.random() < 1 / 256) { const nid = Math.random() < 0.5 ? 'egg' : rollTable(SEED_SUB)[0]; dropItem(nid, 1, P.tx, P.tz); sfx(1516); say("A bird's nest falls out of the tree!", 'lv'); }
       if (t.k === 'mine' && R.rs && Math.random() < 1 / 256 && invFree()) { const g = rollTable(GEM_T)[0]; invAdd(g, 1); say('You find an ' + ITEMS[g].name.toLowerCase() + '!', 'lv'); }
-      if (R.rs && (t.k !== 'chop' || !R.i || Math.random() < 0.125)) { deplete(o, R.rs); P.task = null; }   // oaks and up fall one log in eight
+      if (R.rs && (t.k !== 'chop' || !R.i || Math.random() < 0.125)) { if (t.k === 'chop') sfx(2734); deplete(o, R.rs); P.task = null; }   // oaks and up fall one log in eight
     }
   } else if (t.k === 'fish') {
     // every qualifying fish rolls its own chance, best first, so shrimp still turn up beside the trout;
@@ -4675,11 +4685,13 @@ function taskTick() {
     if (!pool.length) return fail('You need a higher Fishing level to fish here.');
     if (!o.k && invCount('small_net') + invCount('fishing_rod') === 0) return fail('You need a small net or a fishing rod.');
     if (o.k && !invCount('harpoon')) return fail('You need a harpoon to fish these waters.');
+    sfx(o.k ? 4960 : invCount('small_net') ? 2603 : 2600, 0.7);
     let f = null;
     for (let i = pool.length - 1; i >= 0 && !f; i--) if (Math.random() < rollChance(lvl[SK.fishing], pool[i].lv, 2)) f = pool[i];
     if (f) {
       if (!invAdd(f.raw, 1)) { dropItem(f.raw, 1, P.tx, P.tz); say('Your pack is full; the ' + f.n.toLowerCase() + ' flops at your feet.'); }
       else say('You catch a ' + f.n.toLowerCase() + '.');
+      sfx(2148, 0.8);
       if (f.k === 'trout' || f.k === 'salmon') invRemove('feather', 1);
       diaryBump('fish', f.k, P.tx, P.tz, 1);
       gainXp('fishing', f.xp);
@@ -4704,7 +4716,7 @@ function lightLogs(id) {
   if (!invCount('tinderbox')) return say('You need a tinderbox to light that.', 'bad');
   if (lvl[SK.firemaking] < it.fireLv) return say('You need Firemaking level ' + it.fireLv + ' to burn these.', 'bad');
   if (fires.some(f => f.x === P.tx && f.z === P.tz)) return say('There is already a fire here.', 'bad');
-  invRemove(id, 1);
+  invRemove(id, 1); sfx(2599);
   lightFire(P.tx, P.tz);
   gainXp('firemaking', it.fire);
   say('The fire catches and the logs begin to burn.');
@@ -4726,11 +4738,12 @@ function craft(r) {
   const out = r.fn ? r.fn(r) : [[r.id, r.n]];
   if (out) for (const [id, n] of out) if (!invAdd(id, n)) { for (const [id2, n2] of r.need) { invAdd(id2, n2); if (id2 === 'coins') gpSunk -= n2; } fail(FULL); return 0; }
   if (out) { if (r.xp) gainXp(r.sk, r.xp); say(r.msg || 'You make ' + (out[0][1] > 1 ? out[0][1] + ' ' : 'a ') + ITEMS[out[0][0]].name.toLowerCase() + '.'); }
+  if (out && P.task && P.task.k === 'make') { const sid = r.sk === 'fletching' ? 2605 : r.at === 4 ? 2722 : r.at === 3 ? (r.sk === 'smithing' ? 1061 : 2725) : 0; if (sid) sfx(sid, 0.9); }   // anvil rings, furnace roars, knife whittles
   if (out && r.at === 6 && r.sk === 'cooking') diaryBump('bake', 0, P.tx, P.tz, 1);
   return 1;
 }
 function bury(id) {
-  invRemove(id, 1);
+  invRemove(id, 1); sfx(2738);
   gainXp('prayer', ITEMS[id].bury);
   P.maxpray = lvl[SK.prayer];
   say('You dig a hole in the ground, and bury the bones.');
@@ -4741,7 +4754,7 @@ function eat(slotIdx) {
   if (it.blight && powerAt(P.tx, P.tz) < 1) return say('The blighted flesh only nourishes you in dangerous lands.', 'bad');   // the wilderness rule, in this world's terms
   if (P.foodT > tickN) return;                             // one bite per three ticks, and each bite delays the next swing; a full belly still eats, as ever
   P.foodT = tickN + 3; P.actT += 3;
-  invRemove(inv[slotIdx].id, 1);
+  invRemove(inv[slotIdx].id, 1); sfx(2393);
   P.hp = Math.min(P.maxhp, P.hp + it.heal);
   if (it.boost) { potBoost(it.boost[0], it.boost[1], 0); dirty.sk = 1; }   // the pies carry their little blessings
   if (it.energy) { P.energy = Math.min(100, P.energy + it.energy); dirty.orb = 1; }
@@ -4759,7 +4772,7 @@ function paintModal(title, html, foot) {
   modalEl.classList.add('on');
   showTab('inv');
 }
-function openBank() { clearUse(); bankOpen = 1; say('The banker pulls out your vault book.'); drawBank(); }
+function openBank() { clearUse(); bankOpen = 1; sfx(2021); say('The banker pulls out your vault book.'); drawBank(); }
 let bankQ = '', bankMode = '1', bankX = 50;                 // the 2007 quantity row: 1 / 5 / 10 / X / All drives both directions
 const bankQty = () => bankMode === 'all' ? 1e9 : bankMode === 'x' ? bankX : +bankMode;
 const bankQtyLbl = () => bankMode === 'all' ? 'all' : bankQty();
@@ -4846,7 +4859,10 @@ let geSlots = null, geOpen = 0, geTimer = 0, geBusy = 0, geView = null;
 const geOn = () => !OFFLINE && AUTH;
 async function geFetch() {
   const j = await api('/ge?auth=' + AUTH);
-  if (j && j.slots) { geSlots = j.slots; if (geOpen && !geView) drawGE(); }
+  if (j && j.slots) {
+    if (geSlots) for (let i = 0; i < GE_SLOTS_N; i++) { const a = geSlots[i], b = j.slots[i]; if (a && b && a.state !== 1 && b.state === 1) { sfx(3925); break; } }   // an offer finished while we watched
+    geSlots = j.slots; if (geOpen && !geView) drawGE();
+  }
   return j;
 }
 const gePost = (path, body) => { body.auth = AUTH; return api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); };
@@ -4969,13 +4985,13 @@ async function geCollect(i) {
   const got = [];
   if (j.items > 0) got.push(j.items + ' × ' + (ITEMS[o.item] ? ITEMS[o.item].name : o.item));
   if (j.coins > 0) got.push(fmt(j.coins) + ' gp');
-  if (got.length) say('You collect ' + got.join(' and ') + '.', 'good');
+  if (got.length) { sfx(3924); say('You collect ' + got.join(' and ') + '.', 'good'); }
   if (geOpen) drawGE();
 }
 async function geGreet() {                                 // one probe on login: a sale that finished overnight is not a secret
   if (!geOn()) return;
   const j = await geFetch();
-  if (j && j.slots && j.slots.some(o => o && (o.coins_box > 0 || o.items_box > 0))) say('The Grand Exchange holds goods for you to collect.', 'lv');
+  if (j && j.slots && j.slots.some(o => o && (o.coins_box > 0 || o.items_box > 0))) { sfx(3925); say('The Grand Exchange holds goods for you to collect.', 'lv'); }
 }
 function shopBuy(id) {
   const it = ITEMS[id], price = buyPrice(it);
@@ -5124,6 +5140,7 @@ function showModal(title, html, foot, keepTab) {
   if (!keepTab) showTab('inv');
 }
 function closeOverlays() {
+  if (bankOpen) sfx(2022, 0.8);                            // the vault book shuts
   modalEl.classList.remove('on'); openShop = null; makeRows = null; bankOpen = 0; barberOn = 0; geOpen = 0; geView = null; clearInterval(geTimer); statsOpen = 0;
   if (pvpHold) { pvpHold = 0; stopWalk(); }               // dismissing the border warning cancels the walk
 }
@@ -5246,6 +5263,7 @@ on(prayList, 'click', e => {
   if (lvl[SK.prayer] < p.lv || lvl[SK.defence] < p.dl) return say('You need Prayer level ' + p.lv + (p.dl ? ' and Defence level ' + p.dl : '') + ' for that.', 'bad');
   if (P.pray <= 0 && !(P.prayers & p.bit)) return say('You have run out of prayer points.', 'bad');
   P.prayers ^= p.bit;
+  if (!(P.prayers & p.bit)) sfx(2673);
   if (P.prayers & p.bit) for (const q of PRAYERS) if (q !== p && q.fx.some(x => p.fx.includes(x))) P.prayers &= ~q.bit;   // prayers sharing an effect share a slot
   markDirty(); drawPrayers();
 });
@@ -5260,8 +5278,10 @@ const optList = el('optList');
 function drawOpts() {
   optList.innerHTML = OPT_ROWS.map(r => '<div class="opt" data-o="' + r.k + '"><span>' + r.n + '</span><b>' + (r.tog ? (OPT[r.k] ? 'ON' : 'OFF') : r.fmt(OPT[r.k])) + '</b></div>').join('') +
     '<div class="opt"><span>Music volume</span><input type="range" id="volSlider" min="0" max="100" value="' + Math.round(vol * 100) + '" aria-label="Music volume"></div>' +
+    '<div class="opt"><span>Effects volume</span><input type="range" id="sfxSlider" min="0" max="100" value="' + Math.round(sfxVol * 100) + '" aria-label="Effects volume"></div>' +
     '<div class="opt" data-o="dev"><span>Developer console</span><b>OPEN</b></div>';
   el('volSlider').oninput = e => setVol(+e.target.value / 100);
+  el('sfxSlider').oninput = e => setSfxVol(+e.target.value / 100);
 }
 on(optList, 'click', e => {
   const d = e.target.closest('[data-o]'); if (!d) return;
@@ -6085,13 +6105,13 @@ function gameTick() {
     let drain = 0;
     for (const p of PRAYERS) if (P.prayers & p.bit) drain += p.drain;
     P.pray -= drain / (1 + bonus('pb') / 30);              // wiki: every point of prayer bonus stretches the drain by a thirtieth
-    if (P.pray <= 0) { P.pray = 0; P.prayers = 0; say('You have run out of prayer points.', 'bad'); drawPrayers(); }
+    if (P.pray <= 0) { P.pray = 0; P.prayers = 0; sfx(2672); say('You have run out of prayer points.', 'bad'); drawPrayers(); }
     dirty.orb = 1;
   }
   if (P.spec < 100 && tickN % 50 === 0) { P.spec = Math.min(100, P.spec + 10); if (SPEC[eq.weapon]) drawStyles(); }   // 10% back each 30 seconds
   if (P.psn > 0 && tickN >= P.psnT && !P.dead) {             // poison bites every 30 ticks; the wound shallows one point per five bites
     P.psnT = tickN + 30;
-    hurtPlayer(P.psn);
+    hurtSnd = 2408; hurtPlayer(P.psn);                     // the wound hisses instead of grunting
     if (++P.psnN % 5 === 0 && --P.psn <= 0) { P.psn = 0; say('The poison has worn off.', 'good'); }
   }
   for (let i = drops.length - 1; i >= 0; i--) if (--drops[i].life <= 0) drops.splice(i, 1);
@@ -6357,7 +6377,7 @@ const store = {
 })();
 
 /* ---- MUSIC: one looping track; browsers hold it back until the first gesture ---- */
-const bgm = new Audio('https://github.com/ivl-ad/seedworld/blob/8122acb9070aaa0a8a30790c0558bf793cba75de/sound/7th_Realm_(v1).ogg');
+const bgm = new Audio('https://github.com/ivl-ad/seedworld/raw/8122acb9070aaa0a8a30790c0558bf793cba75de/sound/7th_Realm_(v1).ogg');
 bgm.loop = true; bgm.preload = 'auto';
 const volSaved = store.get('seedworld.vol');
 let vol = volSaved === '' ? 0.5 : clamp(parseFloat(volSaved) || 0, 0, 1), lastVol = vol > 0 ? vol : 0.5;
@@ -6375,6 +6395,74 @@ el('bgmBtn').onclick = () => setVol(vol > 0 ? 0 : lastVol);
 bgm.volume = vol; bgm.muted = vol <= 0;
 drawVol(); bgmPlay();
 on(window, 'pointerdown keydown', () => { if (vol > 0 && bgm.paused) bgmPlay(); }, { passive: true });
+
+/* ---- SOUND EFFECTS: one-shot wavs in sound/<id>.wav, fetched on first use and decoded once; the music's gesture unlocks these too ---- */
+const sfxSaved = store.get('seedworld.sfxvol');
+let acx = null, sfxBus = null, sfxN = 0, sndWarm = 0, hurtSnd = 0, fireLoop = null;
+let sfxVol = sfxSaved === '' ? 0.8 : clamp(parseFloat(sfxSaved) || 0, 0, 1);
+const sndBufs = new Map(), sndAt = new Map();
+function sndUnlock() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  if (!acx) { acx = new AC(); sfxBus = acx.createGain(); sfxBus.gain.value = sfxVol; sfxBus.connect(acx.destination); }
+  if (acx.state !== 'running') { const p = acx.resume(); if (p && p.catch) p.catch(() => {}); }
+  if (!sndWarm) { sndWarm = 1; [2510, 513, 1975, 512, 2393, 2115, 200].forEach((id, i) => setTimeout(() => sndLoad(id), 500 + i * 300)); }   // the everyday handful warms first
+}
+on(window, 'pointerdown keydown', sndUnlock, { passive: true });
+function sndLoad(id) {
+  let b = sndBufs.get(id);
+  if (b === undefined) {
+    b = fetch('sound/' + id + '.wav').then(r => r.arrayBuffer()).then(a => acx.decodeAudioData(a))
+      .then(bf => (sndBufs.set(id, bf), bf), () => sndBufs.set(id, null));
+    sndBufs.set(id, b);
+  }
+  return b;
+}
+/* play a one-shot at vol (0..1) under the master; an unloaded sound plays when it arrives, unless the moment has passed */
+function sfx(id, vol) {
+  if (!acx || acx.state !== 'running' || sfxVol <= 0 || document.hidden) return;
+  const b = sndBufs.get(id);
+  if (b === undefined) { const t0 = performance.now(); sndLoad(id).then(() => { if (performance.now() - t0 < 700) sfx(id, vol); }); return; }
+  if (!(b instanceof AudioBuffer) || sfxN >= 12) return;
+  const now = performance.now();
+  if (now - (sndAt.get(id) || 0) < 60) return;              // the same sound twice in one instant is only louder
+  sndAt.set(id, now);
+  const s = acx.createBufferSource(), g = acx.createGain();
+  s.buffer = b; g.gain.value = vol === undefined ? 1 : vol;
+  s.connect(g); g.connect(sfxBus);
+  sfxN++; s.onended = () => sfxN--;
+  s.start();
+}
+/* a sound with a place fades over r tiles from where you stand */
+function sfxAt(id, x, z, r, vol) { const R = r || 16, d = Math.hypot(x - P.tx, z - P.tz); if (d < R) sfx(id, (vol === undefined ? 1 : vol) * (1 - d / R)); }
+function setSfxVol(v) { sfxVol = clamp(v, 0, 1); if (sfxBus) sfxBus.gain.value = sfxVol; store.set('seedworld.sfxvol', sfxVol.toFixed(2)); }
+/* voices: the weapon in hand picks the wav */
+const WSND = { mace: 2508, wham: 2508, staff: 2560, wand: 2560, trident: 2560, whip: 2720 };
+const meleeSnd = () => { const w = weaponIt(); return !w ? 2508 : w.stab ? (Math.random() < 0.5 ? 2548 : 2549) : WSND[w.g] || 2510; };
+const bowSnd = () => { const w = bowItem(); return !w ? 2692 : w.g === 'cbow' ? 2695 : w.g === 'dart' || w.g === 'pipe' ? 2696 : w.thrown ? 2708 : 2692; };
+const spellSnd = (sp, hit) => sp.drain === 'hold' ? (hit ? 203 : 202) : (sp.k.startsWith('fire') ? 160 : 220) + (hit ? 1 : 0);
+const parrySnd = () => sfx(Math.random() < 0.5 ? 1975 : 1977, 0.8);
+/* the nearest campfire crackles: one looping source, its gain trailing your distance; put out when you walk away */
+tickHooks.push(() => {
+  let d = 1e9;
+  for (const f of fires) { const q = Math.hypot(f.x - P.tx, f.z - P.tz); if (q < d) d = q; }
+  const want = d < 7 && sfxVol > 0 && !document.hidden && acx && acx.state === 'running';
+  if (want && !fireLoop) {
+    const b = sndBufs.get(1669);
+    if (b === undefined) sndLoad(1669);
+    else if (b instanceof AudioBuffer) {
+      const s = acx.createBufferSource(), g = acx.createGain();
+      s.buffer = b; s.loop = true; g.gain.value = 0;
+      s.connect(g); g.connect(sfxBus); s.start();
+      fireLoop = { s, g, quiet: 0 };
+    }
+  }
+  if (fireLoop) {
+    fireLoop.g.gain.setTargetAtTime(want ? clamp(1 - d / 7, 0, 1) * 0.55 : 0, acx.currentTime, 0.25);
+    if (want) fireLoop.quiet = 0;
+    else if (++fireLoop.quiet > 6) { try { fireLoop.s.stop(); } catch {} fireLoop = null; }
+  }
+});
 async function useKey(raw) {
   const k = normKey(raw);
   if (k.length !== 25) return 0;
@@ -6659,11 +6747,12 @@ function onNet(m) {
       if (q) { if (P.task && P.task.o === q) P.task = null; q.dead = 1; if (q.plate) { freePlate(q.plate); q.plate = null; } removeNpc(q); }
       break;
     }
-    case 19: { const R = ensureRemote(m[1]); if (R) shootArrow(R, aimAt(m[2] | 0, groundY(m[2] | 0, m[3] | 0), m[3] | 0), null, (m[4] | 0) || 0xc3c8d0); break; }
-    case 18: { const R = ensureRemote(m[1]), sp = SPELLS[m[2] | 0]; if (R && sp) remoteBolt(R, sp, m[3] | 0, m[4] | 0); break; }
+    case 19: { const R = ensureRemote(m[1]); if (R) { shootArrow(R, aimAt(m[2] | 0, groundY(m[2] | 0, m[3] | 0), m[3] | 0), null, (m[4] | 0) || 0xc3c8d0); sfxAt(2692, R.tx, R.tz, 14, 0.7); } break; }
+    case 18: { const R = ensureRemote(m[1]), sp = SPELLS[m[2] | 0]; if (R && sp) { remoteBolt(R, sp, m[3] | 0, m[4] | 0); sfxAt(spellSnd(sp), R.tx, R.tz, 14, 0.8); } break; }
     case 13: { const R = ensureRemote(m[1]); if (!R) break; R.hp = m[2] | 0; R.maxhp = Math.max(1, m[3] | 0); R.hurt = tickN; if (R.hp < R.maxhp) healthBar(R, 2.0); break; }
     case 12: {                                              // a player died near us and spilled
       const R = remotes.get(m[1]);
+      sfxAt(512, m[2] | 0, m[3] | 0);
       say((R ? R.name : 'Someone') + ' has been defeated.', 'lv');
       for (const it of (m[4] || [])) dropItem(it[0], it[1], m[2] | 0, m[3] | 0);
       break;
@@ -7428,7 +7517,7 @@ TASKS.pick = (t, o) => {
   if (Math.random() < pickChance(eff('thieving'), p.lv)) {
     const [id, n] = lootOf(p.loot);
     if (!invAdd(id, n)) return fail(FULL);
-    if (id === 'coins') gpMade += n;
+    if (id === 'coins') { gpMade += n; sfx(2115, 0.8); }
     gainXp('thieving', p.xp);
     say('You pick the ' + o.name.toLowerCase() + "'s pocket.");
   } else {
@@ -7571,7 +7660,7 @@ const potRestore = () => { for (let i = 0; i < NSK; i++) if (bst[i] < 0) bst[i] 
 const potPray = b => { P.pray = Math.min(P.maxpray, P.pray + b + Math.floor(P.maxpray / 4)); };
 function drink(i) {
   const it = ITEMS[inv[i].id], p = it.pot, d = it.dose;
-  p.fx();
+  p.fx(); sfx(2390);
   inv[i] = d > 1 ? { id: p.k + '_' + (d - 1), n: 1 } : null;           // the vial keeps its slot
   say('You drink some of your ' + p.n.toLowerCase() + '.' + (d > 1 ? ' You have ' + (d - 1) + (d > 2 ? ' doses' : ' dose') + ' left.' : ' You have finished your potion.'));
   dirty.inv = dirty.sk = dirty.orb = 1; markDirty();
@@ -7654,7 +7743,7 @@ function plantSeed(o, c) {
   if (P.farm[o.key]) return say('There is something growing there.', 'bad');
   if (needLv('farming', c.lv)) return;
   if (invCount(c.seed) < n) return say('You need ' + n + ' seeds to plant an allotment.', 'bad');
-  invRemove(c.seed, n);
+  invRemove(c.seed, n); sfx(2442);
   P.farm[o.key] = [c.i, tickN];
   gainXp('farming', c.plant); markDirty(1);
   say('You plant the seeds.');
@@ -7675,6 +7764,7 @@ TASKS.harvest = TASKS.checktree = (t, o) => {
   }
   if (!invAdd(c.yield, 1)) return fail(FULL);
   gainXp(c.t === 2 ? 'woodcutting' : 'farming', c.t === 2 ? c.tree.xp : c.xp);
+  sfx(2442, 0.8);
   say((c.t === 2 ? 'You get some ' : 'You harvest some ') + ITEMS[c.yield].name.toLowerCase() + '.');
   if (--s[2] <= 0) { delete P.farm[o.key]; markDirty(1); say('The patch is cleared.'); P.task = null; }
 };
@@ -8428,6 +8518,7 @@ function enterDun(o) {
   const d = layoutDun(dunOf(nv.v));
   P.dunRet = { x: o.x, z: o.z };                            // the daylight side of the door: every teleport below reckons from here
   markDirty();
+  sfx(62); setTimeout(() => sfx(60, 0.8), 800);             // the door swings, and shuts behind you
   teleport(d.en.x, d.en.z, 400);
   say('You step through the black door, down into ' + d.name + '.', 'lv');
   say('The dark presses close. Everything here means you harm.', 'bad');
@@ -8438,7 +8529,7 @@ function leaveDun(o) {
   villageBuildings(d.v);
   const c = d.v.keep, k = c.hall;
   const spot = openNear(Math.round(k.x + DDX[c.gate] * (k.w / 2 + 2)), Math.round(k.z + DDZ[c.gate] * (k.d / 2 + 2)), 4);
-  if (spot) { teleport(spot.x, spot.z, 400); say('You climb back into the daylight.'); }
+  if (spot) { sfx(62); setTimeout(() => sfx(60, 0.8), 800); teleport(spot.x, spot.z, 400); say('You climb back into the daylight.'); }
 }
 OBJ_OPTS[23] = o => [{ t: o.k ? 'Leave' : 'Enter', o: 'Dungeon', f: act(o, o.k ? leaveDun : enterDun) }];
 OBJ_OPTS[24] = ['Slash', 'Web', o => {
@@ -8517,7 +8608,7 @@ RING_NOTES.ring_of_dueling = ' Rub it to be carried to the nearest settlement.';
 ITEMS.amulet_of_glory.opt = ['Rub', cityTp];               // the glory carries you to the nearest city, its 2007 role
 RING_NOTES.amulet_of_glory = ' Rub it to be carried to the nearest city.';
 /* teleports: every one ends what you were doing and lands you on a street tile */
-function tpTo(x, z, where) { closeOverlays(); teleport(x, z, 400); say('You teleport ' + where + '.'); return 1; }
+function tpTo(x, z, where) { closeOverlays(); sfx(200); teleport(x, z, 400); say('You teleport ' + where + '.'); return 1; }
 const tpV = (v, what) => { if (!v) return say('There is no ' + what + ' near enough to reach.', 'bad'); const s = safeSpotIn(v); return tpTo(s.x, s.z, 'to ' + villageName(v)); };
 const nearCity = R => nearestOf(SETTLE_CELL, R, (a, b) => { const v = villageAt(a, b); return v && v.rank >= 3 ? v : null; });   // nearest settlement of city rank, R cells out
 function villageTp() { const f = tpFrom(); return tpV(nearestVillageTo(f.x, f.z, 12), 'settlement'); }
@@ -8586,6 +8677,8 @@ function cast(s, i) {                                       // runes first; the 
   if (!spellReady(s)) return say('You do not have the runes for that spell.', 'bad');
   if (!s.f(i)) return;
   spendRunes(s); if (s.xp) gainXp('magic', s.xp);
+  const uid = s.n === 'High Level Alchemy' ? 97 : s.n === 'Low Level Alchemy' ? 98 : s.n === 'Superheat Item' ? 190 : 0;
+  if (uid) sfx(uid);
   spellBurst(P.rx, P.ry + 1.1, P.rz, s.tint); P.acting = 1; P.pose = 2;
 }
 function castItem(i) { const s = P.uspell; P.uspell = null; cast(s, i); showTab('mg'); }
@@ -9187,7 +9280,7 @@ function readClue(i) {                                     // a scroll without a
 }
 function dig() {
   const c = P.clue;
-  kneel();
+  kneel(); sfx(1470);
   if (!c || !invCount('clue_' + c[2]) || chebDist(P.tx, P.tz, c[0], c[1]) > 2) return say('You dig a hole, and find nothing.');
   invRemove('clue_' + c[2], 1); invAdd('casket_' + c[2], 1); P.clue = null; markDirty(1);
   say('You dig up a casket!', 'lv');
