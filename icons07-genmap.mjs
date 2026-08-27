@@ -17,7 +17,7 @@ for (const ln of fs.readFileSync(path.join(HERE, 'icons07-map.csv'), 'utf8').tri
   if (!m || !maps[kind]) { console.warn('skipped row: ' + ln); continue; }
   if (kind === 'item') maps.item[id] = m[1] === 'i07' ? m[2] : 'c07/' + m[2];
   else if (kind === 'uspell') maps.uspell[name.replace(/^"|"$/g, '').replace(/""/g, '"')] = m[2];
-  else if (kind === 'marker') maps.marker[id.slice(2)] = m[2];
+  else if (kind === 'marker') maps.marker[id.slice(2)] = m[1] === 'c07' ? m[2] : 'i07/' + m[2];   // bare = c07; item sprites keep their folder (mk07p resolves)
   else maps[kind][id] = m[2];
 }
 const key = k => /^[A-Za-z_$][\w$]*$/.test(k) || /^\d+$/.test(k) ? k : "'" + k.replace(/'/g, "\\'") + "'";
