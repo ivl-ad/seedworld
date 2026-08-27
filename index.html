@@ -6357,7 +6357,7 @@ const store = {
 })();
 
 /* ---- MUSIC: one looping track; browsers hold it back until the first gesture ---- */
-const bgm = new Audio('https://oldschool.runescape.wiki/images/7th_Realm_%28v1%29.ogg?d3762');
+const bgm = new Audio('https://github.com/ivl-ad/seedworld/blob/8122acb9070aaa0a8a30790c0558bf793cba75de/sound/7th_Realm_(v1).ogg');
 bgm.loop = true; bgm.preload = 'auto';
 const volSaved = store.get('seedworld.vol');
 let vol = volSaved === '' ? 0.5 : clamp(parseFloat(volSaved) || 0, 0, 1), lastVol = vol > 0 ? vol : 0.5;
