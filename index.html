@@ -871,8 +871,49 @@ const NAME_FORMS = [
   ['X', 'X', 'X Castle', 'Great X', 'North X', 'South X', 'X Keep', 'Port X'],
   ['X', 'Royal X', 'X City', 'Greater X', 'Imperial X', 'X Crown', 'High X', 'Port X']
 ];
+/* the old names, granted to the heartland: each list is one biome's, iconic first, and a 1 marks a name that must
+   stand by water. Settlements inside the first band's reach claim them nearest-the-origin first, each name once;
+   every town beyond — and any heart town the lists cannot cover — keeps its seeded name. */
+const OSRS_NAMES = {
+  meadows: [['Lumbridge'], ['Varrock'], ['Draynor Village'], ['Edgeville'], ['Hosidius'], ['Shayzien'], ['Kourend Castle'], ['Civitas illa Fortis'], ['Port Piscarilius', 1], ['Dorgesh-Kaan']],
+  highlands: [['Falador'], ['Taverley'], ['Burthorpe'], ['Port Sarim', 1], ['Rimmington'], ['Entrana', 1], ['Keldagrim'], ["Gu'Tanoth"]],
+  greenwood: [['East Ardougne'], ['Camelot'], ["Seers' Village"], ['Yanille'], ['West Ardougne'], ['Catherby', 1], ['Port Khazard', 1], ['Hemenster'], ['Witchaven', 1], ['Lletya'], ['Prifddinas'], ['Tyras Camp'], ['Zanaris']],
+  desert: [['Al Kharid'], ['Pollnivneach'], ['Nardah'], ['Sophanem'], ['Menaphos'], ['Ullek'], ['Uzer']],
+  mire: [['Canifis'], ['Port Phasmatys', 1], ["Mort'ton"], ['Burgh de Rott'], ['Darkmeyer'], ['Meiyerditch'], ['Arceuus']],
+  reach: [['Rellekka'], ['Neitiznot'], ['Jatizso'], ['Miscellania'], ['Etceteria'], ['Mountain Camp']],
+  jungle: [['Brimhaven', 1], ['Shilo Village'], ['Tai Bwo Wannai'], ['Musa Point', 1], ['Jiggig']],
+  wilds: [['Lovakengj'], ['Mor Ul Rek']]
+};
+let osrsMap = null, osrsMapS = 0;
+function osrsNameOf(v) {                                    // pure in S: every client grants the same charters
+  if (osrsMapS !== S) osrsMap = null;
+  if (!osrsMap) {
+    osrsMapS = S; osrsMap = new Map();
+    const vs = [];
+    for (let a = -16; a <= 16; a++) for (let b = -16; b <= 16; b++) {
+      const q = villageAt(a, b);
+      if (q && Math.hypot(q.x, q.z) < 3800) vs.push(q);
+    }
+    vs.sort((p, q2) => (Math.hypot(p.x, p.z) - Math.hypot(q2.x, q2.z)) || (p.x - q2.x) || (p.z - q2.z));
+    const used = new Set();
+    const wet = q => { for (let i = 0; i < 8; i++) { const a2 = i / 8 * TAU, rr = q.r * 1.3; if (macroHeight(q.x + Math.cos(a2) * rr, q.z + Math.sin(a2) * rr) < SEA) return 1; } return 0; };
+    for (const q of vs) {
+      const pool = OSRS_NAMES[q.reg.k];
+      if (!pool) continue;
+      let coastal = -1;
+      for (const row of pool) {
+        if (used.has(row[0])) continue;
+        if (row[1]) { if (coastal < 0) coastal = wet(q); if (!coastal) continue; }
+        used.add(row[0]); osrsMap.set(q.cx + ':' + q.cz, row[0]);
+        break;
+      }
+    }
+  }
+  return osrsMap.get(v.cx + ':' + v.cz) || null;
+}
 function villageName(v) {
   if (v.name) return v.name;
+  if (Math.hypot(v.x, v.z) < 3800) { const os = osrsNameOf(v); if (os) return v.name = os; }
   const h = hash2(v.x, v.z, S + 61);
   let form = NAME_FORMS[v.rank][(h >>> 24) & 7];
   if (form === 'Port X') {
@@ -8555,7 +8596,11 @@ structHooks.push((rec, vs, inChunk) => {
       };
       for (const [dx, dz] of [[1, 0], [0, 1]]) {
         const a = bank(-dx, -dz), b = a && bank(dx, dz);
-        if (b) { objs.push({ t: 16, k: 0, x, z, y: 0, key: tk(x, z), n: AGIL_N[0], lv: 1, xp: 7.5, ax: x - dx * a, az: z - dz * a, bx: x + dx * b, bz: z + dz * b, noMark: 1 }); break; }
+        if (b) {
+          const alv = clamp(1 + Math.round(Math.max(0, powerAt(x, z)) * 12), 1, 75);   // the deeper the ground, the surer the feet it asks — 2007 logs are levelled
+          objs.push({ t: 16, k: 0, x, z, y: 0, key: tk(x, z), n: AGIL_N[0], lv: alv, xp: alv * 1.2 + 6, ax: x - dx * a, az: z - dz * a, bx: x + dx * b, bz: z + dz * b, noMark: 1 });
+          break;
+        }
       }
     } else if (!(h & 31) && open(x, z)) {                   // rocks: a ledge 2.5-6 units up, two tiles over; the object sits on the step between
       for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
@@ -9849,7 +9894,8 @@ function bridgeAt(gx, gz) {
   if (c !== undefined) return c;
   c = null;
   const h = hash2(gx * 11 + 6, gz * 13 + 2, S + 820);
-  if (gz * BRIDGE_CELL > 499000 - BRIDGE_CELL || h % 100 >= 55) { bridgeCache.set(key, c); return c; }
+  const wildC = wildLvAt(gx * BRIDGE_CELL + 88, gz * BRIDGE_CELL + 88) > 0;   // the wilds bridge their lava more eagerly than the safelands their brooks
+  if (gz * BRIDGE_CELL > 499000 - BRIDGE_CELL || h % 100 >= (wildC ? 74 : 55)) { bridgeCache.set(key, c); return c; }
   for (let i = 0; i < 14 && !c; i++) {
     const hh = hash2(gx * 37 + i, gz * 41 - i, S + 821 + i);
     const ax = gx * BRIDGE_CELL + 12 + hh % (BRIDGE_CELL - 24), az = gz * BRIDGE_CELL + 12 + (hh >>> 9) % (BRIDGE_CELL - 24);
