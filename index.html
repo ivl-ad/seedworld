@@ -352,6 +352,7 @@
   .wof b{display:block;font-size:12px;color:var(--amber);letter-spacing:.04em}
   .wof u{text-decoration:none;color:var(--dim);font-size:9px;display:block;margin-top:2px}
   .wof:hover{box-shadow:inset 0 0 0 1px var(--bevel-2)}
+  .wof.sel,.wchar.sel{box-shadow:inset 0 0 0 1px var(--amber);background:rgba(255,190,80,.07)}
   #welCols{margin-top:2px}
   /* a short screen (landscape phone) lays the map beside the controls; the lobby scrolls either way */
   @media (max-height:560px){
@@ -4347,6 +4348,10 @@ function takeDrop(d) {
   const i = drops.indexOf(d); if (i < 0) return;
   if ((!ITEMS[d.id].stack && !invFree()) || !invAdd(d.id, d.n)) { say(FULL, 'bad'); return; }
   drops.splice(i, 1);
+  if (P.dpile && Math.abs(d.x - P.dpile.x) <= 1 && Math.abs(d.z - P.dpile.z) <= 1) {   // reclaiming your own pile burns it from the saved record
+    const r = P.dpile.rows.find(r2 => r2[0] === d.id);
+    if (r) { r[1] -= d.n; P.dpile.rows = P.dpile.rows.filter(r2 => r2[1] > 0); if (!P.dpile.rows.length) P.dpile = null; }
+  }
   markDirty();
   if (d.id === 'coins') sfx(2115);
   say('You pick up ' + (d.n > 1 ? d.n + ' x ' : '') + ITEMS[d.id].name.toLowerCase() + '.');
@@ -4862,7 +4867,12 @@ function die(byPlayer) {
     if (s.n > k) { spill.push([s.id, s.n - k]); if (!byPlayer) dropItem(s.id, s.n - k, dx, dz, 1500); }   // a player's kill leaves nothing for you: the pile is the killer's
   }
   dirty.inv = dirty.eq = 1; dressAvatar();
-  if (spill.length) netWorld([12, dx, dz, spill.slice(0, 40), byPlayer || '', tickN]);   // monsters' kills go out too: the pile turns public after its safe half
+  if (spill.length) {
+    netWorld([12, dx, dz, spill.slice(0, 40), byPlayer || '', tickN]);   // monsters' kills go out too: the pile turns public after its safe half
+    // your pile is your right: one saved record survives any relog, and after a killer's minute even a PvP corpse may be reclaimed
+    P.dpile = { x: dx, z: dz, t: tickN, pv: byPlayer ? 1 : 0, rows: spill.slice(0, 40).map(r => [r[0], r[1]]) };
+    if (byPlayer) pendingPiles.push({ due: tickN + 100, x: dx, z: dz, rows: P.dpile.rows, life: 1400 });
+  }
   if (spill.length) say(byPlayer
     ? (wasSkulled ? 'The skull takes its due: ' + (K - keep ? 'you clutch one thing; the rest' : 'everything you carried') + ' falls to your killer.'
                   : 'You keep your ' + (K - keep) + ' most valuable items; the rest falls to your killer.')
@@ -6738,6 +6748,7 @@ function gameTick() {
     const p = pendingPiles.splice(i, 1)[0];
     for (const it of p.rows) dropItem(it[0], it[1] | 0, p.x, p.z, p.life);
   }
+  if (P.dpile && tickN > P.dpile.t + 1500) { P.dpile = null; markDirty(); }        // the quarter hour is spent; the record dies with the pile
   for (let i = fires.length - 1; i >= 0; i--) if (--fires[i].life <= 0) fires.splice(i, 1);
   for (const [k, t] of npcDead) if (t <= tickN) npcDead.delete(k);
   if ((tickN & 7) === 0) refreshNpcs();
@@ -7120,7 +7131,8 @@ function packSave() {
     bd: [...npcDead].filter(([k, t]) => k && k[0] === 'b' && t > tickN),    // slain boss lairs: the cell key is stable, so the timer survives a reload
     hs: P.hs || 0,
     cl: [...P.cl], pet: P.pet || 0, ins: P.ins, pl: P.petLost, dy: P.dy, ca: P.ca,
-    dr: P.dunRet || 0, cs: P.cstyle, bs: Array.from(bst), sku: P.skull || 0 };   // sku: the skull's expiry on the shared clock — one entry, refreshed per initiated attack
+    dr: P.dunRet || 0, cs: P.cstyle, bs: Array.from(bst), sku: P.skull || 0,     // sku: the skull's expiry on the shared clock — one entry, refreshed per initiated attack
+    dp: P.dpile || 0 };                                                          // dp: the unclaimed death pile, so a relog cannot cost you your right to it
 }
 /* renames must not eat a save: an old id folds into its new name here before the ITEMS checks discard it */
 const OLD_IDS = Object.create(null);                       // old id -> current id; add a row with any rename, forever
@@ -7161,6 +7173,16 @@ function applySave(b) {
   const bs = b.bs || [];                                     // boosts and drains ride the blob, as 2007 logouts kept them
   for (let i = 0; i < NSK; i++) bst[i] = clamp(bs[i] | 0, -99, 99);
   P.skull = Math.min(b.sku | 0, tickN + SKULL_T);            // the skull serves out its saved sentence; a doctored future tick is clipped
+  P.dpile = null;
+  const dp = b.dp;
+  if (dp && isFinite(dp.x) && Array.isArray(dp.rows)) {      // the unclaimed pile returns: sealed until the killer's minute is out, gone at the quarter hour
+    const rows = dp.rows.map(r => [idOf(r[0]), r[1] | 0]).filter(r => ITEMS[r[0]] && r[1] > 0).slice(0, 40);
+    const t = dp.t | 0, due = Math.max(t + (dp.pv ? 100 : 0), tickN), life = t + 1500 - due;
+    if (rows.length && life > 0) {
+      P.dpile = { x: dp.x | 0, z: dp.z | 0, t, pv: dp.pv ? 1 : 0, rows };
+      pendingPiles.push({ due, x: dp.x | 0, z: dp.z | 0, rows, life });
+    }
+  }
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
   return b;
 }
@@ -7172,7 +7194,7 @@ function freshCharacter() {
   P.maxhp = P.hp = lvl[SK.hitpoints]; P.maxpray = P.pray = lvl[SK.prayer];
   P.energy = 100; P.run = 1; P.style = 0; P.cstyle = 0; P.prayers = 0; P.spell = null; P.slay = null; P.clue = null; P.farm = Object.create(null); bst.fill(0);
   P.hs = null;                                              // loadSeed already tore any standing house down
-  P.cl = new Set(); P.pet = null; P.ins = []; P.petLost = []; P.dy = {}; P.ca = {}; P.dunRet = null; P.skull = 0;
+  P.cl = new Set(); P.pet = null; P.ins = []; P.petLost = []; P.dy = {}; P.ca = {}; P.dunRet = null; P.skull = 0; P.dpile = null;
   for (const [id, n] of [['bronze_hatchet', 1], ['bronze_pickaxe', 1], ['tinderbox', 1], ['hammer', 1], ['small_net', 1], ['coins', 120]]) invAdd(id, n);
   eq.weapon = 'bronze_sword';
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
@@ -7694,10 +7716,15 @@ function previewSeed(str) {
 let welTimer = 0;
 const welSeedEl = el('welSeed'), welGoEl = el('welGo');
 const curSeed = () => welSeedEl.value || 'lumbridge';
-on(welSeedEl, 'input', () => { clearTimeout(welTimer); welTimer = setTimeout(() => previewSeed(curSeed()), 180); });
-el('welRoll').onclick = () => { welSeedEl.value = rollSeed(); previewSeed(welSeedEl.value); };
+function welSync() {                                        // the chosen world wears the highlight, wherever its button lives
+  const s = curSeed().trim().toLowerCase();
+  for (const b of document.querySelectorAll('.wof, .wchar')) b.classList.toggle('sel', (b.dataset.wof || b.dataset.seed || '').toLowerCase() === s);
+}
+const welPick = seed => { welSeedEl.value = seed; previewSeed(seed); pollPopulation(); };   // select; Enter this world commits
+on(welSeedEl, 'input', () => { clearTimeout(welTimer); welTimer = setTimeout(() => { previewSeed(curSeed()); pollPopulation(); }, 180); });
+el('welRoll').onclick = () => welPick(rollSeed());
 welGoEl.onclick = () => enterWorld(curSeed());
-for (const b of document.querySelectorAll('.wof')) b.onclick = () => { if (!welGoEl.disabled) enterWorld(b.dataset.wof); };   // one tap into an official world
+for (const b of document.querySelectorAll('.wof')) b.onclick = () => welPick(b.dataset.wof);
 on(welSeedEl, 'keydown', e => { if (e.key === 'Enter') welGoEl.click(); });
 const setGo = (txt, off) => { welGoEl.disabled = !!off; welGoEl.textContent = txt; };
 /* fetch the character for this seed, apply it, open the socket, reveal the world; every await has an offline fallback */
@@ -7997,7 +8024,7 @@ async function loadCharacterList(cached) {                  // existing characte
   const list = acct && acct.key === KEY ? acct.characters : [];
   if (!list.length) { box.innerHTML = ''; return; }
   box.innerHTML = '<div class="wclab">Your characters</div>' + list.map(c => '<button class="wchar" data-seed="' + c.seed + '">' + c.seed + ' <u>combat ' + c.combat + ' · total ' + c.totalLevel + '</u></button>').join('');
-  box.querySelectorAll('.wchar').forEach(b => b.onclick = () => { welSeedEl.value = b.dataset.seed; previewSeed(b.dataset.seed); pollPopulation(); });
+  box.querySelectorAll('.wchar').forEach(b => b.onclick = () => welPick(b.dataset.seed));
   haveChars = new Set(list.map(c => c.seed));
 }
 function offChars() {                                       // the character list the server would send, read from this browser
@@ -8018,11 +8045,12 @@ function offChars() {                                       // the character lis
   const nice = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
   box.innerHTML = rows.length ? '<div class="wclab">Your characters here</div>' + rows.map(([s, cb, tot]) =>
     '<button class="wchar" data-seed="' + nice(s) + '">' + nice(s) + ' <u>combat ' + cb + ' · total ' + tot + '</u></button>').join('') : '';
-  box.querySelectorAll('.wchar').forEach(bt => bt.onclick = () => { welSeedEl.value = bt.dataset.seed; previewSeed(bt.dataset.seed); pollPopulation(); });
+  box.querySelectorAll('.wchar').forEach(bt => bt.onclick = () => welPick(bt.dataset.seed));
 }
-async function pollPopulation() {                           // only while the select screen is up
+async function pollPopulation() {                           // only while the select screen is up; always speaks of the SELECTED world
   clearTimeout(popTimer);
   if (started) return;
+  welSync();
   const seed = curSeed().trim().toLowerCase(), line = el('welPop'), mine = haveChars.has(seed) ? ' · you have a character here' : ' · new character';
   if (OFFLINE) { line.textContent = 'Offline' + mine; return; }
   let j = await api('/population?seed=' + encodeURIComponent(seed));
@@ -10088,6 +10116,7 @@ function petFollow(id) {
 }
 let petMesh = null, petFor = '';
 let petR = 0.5;                                             // the pet's half-footprint: it heels at arm's length, never inside you
+const petA = { walkPhase: 0, kh: 5, atkT: 0, tx: 1, px: 1, tz: 0, pz: 0, limbs: null, mesh: null };   // stand-in npc state: animateNpc reads only these
 function petFrame(dt) {
   if (!P.pet || !invCount(P.pet)) {
     if (petMesh) { scene.remove(petMesh); petMesh = null; petFor = ''; }
@@ -10107,16 +10136,22 @@ function petFrame(dt) {
     petR = Math.max(0.35, Math.max(sz.x, sz.z) * shrink * 0.5);
     petMesh.position.set(P.rx + 1 + petR, Math.max(P.ry, 0), P.rz + 1);
     scene.add(petMesh);
-    petFor = P.pet;
+    petFor = P.pet; petA.walkPhase = 0;
   }
   const keep = 1.1 + petR;
   const dx = petMesh.position.x - P.rx, dz = petMesh.position.z - P.rz, dd = Math.hypot(dx, dz) || 1;
   if (dd > 14) petMesh.position.set(P.rx + keep, 0, P.rz + 1);                    // pets do not get lost; they get impatient
+  const ox = petMesh.position.x, oz = petMesh.position.z;
   const gx = P.rx + dx / dd * keep, gz = P.rz + dz / dd * keep, e = Math.min(1, dt * 5);
   petMesh.position.x += (gx - petMesh.position.x) * e;
   petMesh.position.z += (gz - petMesh.position.z) * e;
-  petMesh.position.y = Math.max(groundY(petMesh.position.x, petMesh.position.z), 0) + Math.sin(tSec * 3.2) * 0.05;
+  const moved = Math.hypot(petMesh.position.x - ox, petMesh.position.z - oz) > dt * 0.9;
+  petMesh.position.y = Math.max(groundY(petMesh.position.x, petMesh.position.z), 0) + (moved ? 0 : Math.sin(tSec * 3.2) * 0.05);
   petMesh.rotation.y = Math.atan2(P.rx - petMesh.position.x, P.rz - petMesh.position.z);
+  if (petMesh.limbs && petMesh.limbs.length) {              // the miniature walks like its monster: wings beat, spider legs row, paws trot
+    petA.limbs = petMesh.limbs; petA.mesh = petMesh; petA.px = moved ? 0 : 1;
+    animateNpc(petA, dt);
+  }
 }
 /* the insurer keeps her ledger in every city; the price is the book's — TODO: verify the 2007 figures */
 const INSURE_GP = 500000, RECLAIM_GP = 1000000;
