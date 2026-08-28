@@ -70,8 +70,9 @@
   #wmBtn{top:139px;padding:0;cursor:pointer}
   #wmBtn:hover{box-shadow:inset 0 0 0 1px var(--amber)}
   #wmBtn svg{display:block;filter:drop-shadow(1px 1px 0 #000)}
-  #signout{display:block;width:100%;margin-top:6px;padding:5px 0;font-size:9px;letter-spacing:.14em;text-transform:uppercase}
-  #signout:hover{box-shadow:inset 0 0 0 1px var(--bevel-2)}
+  #signout,#adminBtn{display:block;width:100%;margin-top:6px;padding:5px 0;font-size:9px;letter-spacing:.14em;text-transform:uppercase}
+  #signout:hover,#adminBtn:hover{box-shadow:inset 0 0 0 1px var(--bevel-2)}
+  #adminBtn{color:var(--amber)}
   #posr{display:block;text-align:center;margin-top:5px;font-size:10px;letter-spacing:.1em;color:var(--dim);font-variant-numeric:tabular-nums}
   /* click-through backdrops: only the box takes the pointer */
   #tradeWrap,#modal,#dev{position:fixed;inset:0;display:none;place-items:center;padding-right:232px;pointer-events:none}
@@ -394,6 +395,7 @@
   </svg></button>
   <span id="posr">0, 0</span>
   <button id="signout" title="Save your character and return to the world list">Sign out</button>
+  <button id="adminBtn" style="display:none" title="The sandbox admin console">Admin</button>
 </div>
 <div id="tradeWrap"><div id="tradeBox" class="panel">
   <div class="mhead"><span id="tradeTitle">Trade</span><b id="tradeX">×</b></div>
@@ -452,7 +454,8 @@
     <div class="dsec"><h4>Skills</h4><div class="drow"><select id="devSkill"></select><input id="devLvl" type="number" min="1" max="99" value="99">
       <button id="devSet">Set</button><button id="devAll">Set all</button><button id="devReset">Reset</button></div></div>
     <div class="dsec"><h4>World</h4><div class="drow">
-      <button data-d="heal">Heal</button><button data-d="coins">+10k gp</button><button data-d="runes">Runes</button><button data-d="kit">Rune kit</button>
+      <button data-d="heal">Heal</button><button data-d="coins">+10k gp</button><button data-d="runes">Runes</button>
+      <button data-d="kitm">Melee kit</button><button data-d="kitg">Mage kit</button><button data-d="kitr">Range kit</button>
       <button data-d="clear">Empty pack</button><button data-d="budget" id="devBudget">World state panel</button></div></div>
     <div class="dsec"><h4>Teleport</h4><div class="drow"><input id="devTx" type="number" placeholder="x" value="0"><input id="devTz" type="number" placeholder="z" value="0">
       <button data-d="tp">Go</button><button data-d="here">Use current</button><button data-d="city">Nearest city</button><button data-d="ge">Nearest exchange</button></div>
@@ -5401,7 +5404,7 @@ function drawOpts() {
 on(optList, 'click', e => {
   const d = e.target.closest('[data-o]'); if (!d) return;
   const k = d.dataset.o;
-  if (k === 'dev') return openDev();
+  if (k === 'dev') return devGate();
   const r = OPT_ROWS.find(x => x.k === k);
   if (r.tog) OPT[k] = OPT[k] ? 0 : 1; else { OPT[k] += r.step; if (OPT[k] > r.max + 1e-6) OPT[k] = r.min; }
   applyOpts(r); drawOpts();
@@ -5509,6 +5512,22 @@ function xpFrame(dt) {
 const devEl = el('dev'), devItems = el('devItems'), devFind = el('devFind'), devMons = el('devMons'), devMonFind = el('devMonFind');
 el('devSkill').innerHTML = SKILLS.map((s, i) => s.locked ? '' : '<option value="' + i + '">' + skName(i) + '</option>').join('');
 function openDev() { devEl.classList.add('on'); drawDevItems(); drawDevMons(); devFind.focus(); }
+/* the console is open ground offline and on the sandbox; elsewhere a one-time password unlocks it per character per world */
+const devOK = () => OFFLINE || SEED === 'lumbridge(sandbox)' || store.get('seedworld.devok.' + (PID || 'anon') + '.' + SEED) === '1';
+function devGate() {
+  if (devOK()) return openDev();
+  showModal('Developer console', '<p class="smsg">This console is for world admins. Enter the password to unlock it.</p>' +
+    '<div class="wrow2"><input id="devPw" type="password" autocomplete="off" aria-label="Console password"><button id="devPwGo">Unlock</button></div><p id="devPwMsg" class="lmsg"></p>',
+    'Once entered, it stays unlocked for this character on this world.');
+  const go = () => {
+    if (el('devPw').value === '1904') { store.set('seedworld.devok.' + (PID || 'anon') + '.' + SEED, '1'); closeOverlays(); openDev(); }
+    else { el('devPwMsg').textContent = 'That is not the password.'; el('devPwMsg').className = 'lmsg warn'; }
+  };
+  el('devPwGo').onclick = go;
+  el('devPw').onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') go(); };
+  el('devPw').focus();
+}
+el('adminBtn').onclick = devGate;
 const closeDev = () => devEl.classList.remove('on');
 el('devX').onclick = closeDev;
 devEl.onclick = e => { if (e.target === devEl) closeDev(); };
@@ -5561,11 +5580,72 @@ function setLevel(i, L) {
 el('devSet').onclick = () => { const i = +el('devSkill').value; setLevel(i, +el('devLvl').value); say('Set ' + skName(i) + ' to ' + lvl[i] + '.', 'lv'); };
 el('devAll').onclick = () => { for (let i = 0; i < NSK; i++) if (!SKILLS[i].locked) setLevel(i, +el('devLvl').value); say('All skills set to ' + clamp(+el('devLvl').value | 0, 1, MAXL) + '.', 'lv'); };
 el('devReset').onclick = () => { resetSkills(); P.maxhp = P.hp = lvl[SK.hitpoints]; P.maxpray = P.pray = 1; dirty.sk = dirty.orb = 1; say('Skills reset.', 'lv'); };
+/* the three dev kits scan the whole armoury per slot at press time, so tomorrow's gear outfits itself: melee weighs damage
+   and defence together (and a two-hander against sword-and-board), range weighs the quiver into the launcher, mage chases mdmg */
+const KIT_SCORE = {
+  m: it => (it.str || 0) * 3 + (it.def || 0) * 2 + (it.atk || 0) * 0.05,
+  r: it => (it.rst || 0) * 8 + (it.rat || 0) + (it.def || 0) * 0.05,
+  g: it => (it.mdmg || 0) * 20 + (it.mag || 0) + (it.def || 0) * 0.05
+};
+const KIT_FIT = {                                           // an item fits melee when its melee worth outweighs its mage/range character — a fire cape's stray +1s must not exile it
+  m: it => !it.bow && ((it.str || 0) > 0 || (it.def || 0) > 0) && (it.str || 0) * 3 + (it.def || 0) * 2 >= ((it.rat || 0) + (it.mag || 0)) * 2,
+  r: it => (it.rst || 0) > 0 || (it.rat || 0) > 0,
+  g: it => (it.mdmg || 0) > 0 || (it.mag || 0) > 0
+};
+function kitBest(spec, slot, alsoFit) {
+  let best = null, bs = 0;
+  for (const id in ITEMS) {
+    const it = ITEMS[id];
+    if (!it.equip || it.slot !== slot || it.thrown || !KIT_FIT[spec](it) || (alsoFit && !alsoFit(it))) continue;
+    const s = KIT_SCORE[spec](it) + (it.val || 0) * 1e-8;   // value breaks ties toward the prestige piece
+    if (s > bs) { bs = s; best = it; }
+  }
+  return best && { it: best, s: bs };
+}
+function devKit(spec) {
+  const wear = (slot, id, n) => {
+    const old = eq[slot], oldN = slot === 'ammo' ? P.ammoN : 1;
+    if (old && old !== id) { const got = invAdd(old, oldN); if (got < oldN) dropItem(old, oldN - got, P.tx, P.tz); }
+    eq[slot] = id || null;
+    if (slot === 'ammo') P.ammoN = id ? (n || 0) : 0;
+  };
+  for (const slot of EQ_SLOTS) {
+    if (slot === 'weapon' || slot === 'shield' || slot === 'ammo') continue;
+    const b = kitBest(spec, slot);
+    if (b) wear(slot, b.it.id);
+  }
+  if (spec === 'r') {
+    let bw = null, ba = null, bs = 0;
+    for (const id in ITEMS) {                               // a launcher is judged with the best quiver it can draw
+      const w = ITEMS[id];
+      if (!w.equip || w.slot !== 'weapon' || !w.bow) continue;
+      const a = w.selfAmmo ? null : (kitBest('r', 'ammo', x => x.ammo && (w.ammoT || 'arrow') === (x.aT || 'arrow')) || {}).it;
+      const s = (w.rst || 0) + (a ? a.rst || 0 : 0) + (w.rat || 0) * 0.02 - (w.spd || 4) * 0.001 + (w.val || 0) * 1e-8;
+      if (s > bs) { bs = s; bw = w; ba = a; }
+    }
+    if (bw) { wear('weapon', bw.id); wear('ammo', ba && ba.id, 1000); }
+    const sh = bw && !bw.two ? kitBest('r', 'shield') : null;
+    wear('shield', sh ? sh.it.id : null);
+  } else if (spec === 'g') {
+    const w = kitBest('g', 'weapon');
+    if (w) wear('weapon', w.it.id);
+    const sh = !(w && w.it.two) ? kitBest('g', 'shield') : null;
+    wear('shield', sh ? sh.it.id : null);
+    wear('ammo', null);
+  } else {
+    const one = kitBest('m', 'weapon', x => !x.two), two = kitBest('m', 'weapon', x => x.two), sh = kitBest('m', 'shield');
+    if (two && two.s > (one ? one.s : 0) + (sh ? sh.s : 0)) { wear('weapon', two.it.id); wear('shield', null); }   // both hands only when they beat sword-and-board
+    else { if (one) wear('weapon', one.it.id); wear('shield', sh ? sh.it.id : null); }
+    wear('ammo', null);
+  }
+  say('You dress for ' + (spec === 'm' ? 'melee' : spec === 'g' ? 'magic' : 'ranging') + ' in the best the armoury holds.', 'lv');
+  gearChanged();
+}
 const DEV = {
   heal() { P.hp = P.maxhp; P.pray = P.maxpray; P.energy = 100; dirty.orb = 1; say('Restored.', 'lv'); },
   coins() { invAdd('coins', 10000); },
   runes() { for (const r of RUNES) invAdd(r.id, 500); },
-  kit() { for (const p of ['med_helm', 'platebody', 'platelegs', 'kiteshield', 'scimitar', 'hatchet', 'pickaxe']) if (ITEMS['rune_' + p]) invAdd('rune_' + p, 1); },
+  kitm() { devKit('m'); }, kitg() { devKit('g'); }, kitr() { devKit('r'); },
   clear() { inv.fill(null); dirty.inv = 1; say('Pack emptied.', 'lv'); },
   budget() { OPT.budget = OPT.budget ? 0 : 1; applyOpts(); say('World state panel ' + (OPT.budget ? 'shown' : 'hidden') + '.', 'lv'); },
   here() { el('devTx').value = P.tx; el('devTz').value = P.tz; },
@@ -5772,7 +5852,7 @@ on(window, 'keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Space') { P.run = P.run ? 0 : 1; dirty.orb = 1; say('Run mode ' + (P.run ? 'enabled' : 'disabled') + '.'); }
   if (KEY_TAB[e.code]) { if ('IEK'.indexOf(e.code[3]) >= 0) closeOverlays(); showTab(KEY_TAB[e.code]); }
-  if (e.code === 'Backquote') { e.preventDefault(); devEl.classList.contains('on') ? closeDev() : openDev(); }
+  if (e.code === 'Backquote') { e.preventDefault(); devEl.classList.contains('on') ? closeDev() : devGate(); }
   if (e.code === 'Escape') { closeCtx(); closeOverlays(); closeDev(); clearUse(); closeWorldMap(); }
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].indexOf(e.code) >= 0) e.preventDefault();
 });
@@ -7275,6 +7355,7 @@ async function enterWorld(seed) {
   setGo('Enter this world', 0);
   started = 1;
   document.body.classList.add('ingame');
+  el('adminBtn').style.display = SEED === 'lumbridge(sandbox)' ? '' : 'none';   // the sandbox wears its admin door openly
   if (!OFFLINE && AUTH) { connect(); if (isNew || !(blob && blob.v === 1)) markDirty(1); geGreet(); }   // a loaded character need not write back the byte-identical blob it just read
 }
 let started = 0;
