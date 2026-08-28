@@ -3,3 +3,6 @@ wrangler.toml
 .assetsignore
 .wrangler
 .git
+CLAUDE.md
+MAP.md
+tools/

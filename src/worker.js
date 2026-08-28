@@ -17,8 +17,8 @@
 
 import { DurableObject } from 'cloudflare:workers';
 
-const VIEW = 48;      // interest radius in tiles; render radius is ~7 chunks
-const RATE = 25;      // client messages per second before we start dropping
+const VIEW = 48;   // interest radius in tiles; render radius is ~7 chunks
+const RATE = 25;   // client messages per second before we start dropping
 const MAXSAVE = 8192; // save blob ceiling, enforced here not client-side
 /* Two limits, because a save is a different animal from a chat line. The
    transport cap has to clear MAXSAVE plus its wrapper or a save can never
@@ -26,7 +26,7 @@ const MAXSAVE = 8192; // save blob ceiling, enforced here not client-side
    silently ate every save from a character with more than a few items in the
    pack, which is every character that has actually been played. */
 const MAXMSG = MAXSAVE + 2048;   // hard transport ceiling
-const MAXSMALL = 512;            // everything that is not a save
+const MAXSMALL = 512;   // everything that is not a save
 
 /* The one distance test outside flush(): ops 11, 14 and 15 are delivered straight
    to one socket by pid, bypassing interest management — unchecked, a trade request
@@ -93,7 +93,7 @@ export class World extends DurableObject {
     this.pending = new Map();   // dedupe key -> message
     this.timer = null;
 
-    /* Shared world state: nodes depleted and monsters dead, each a key mapped
+   /* Shared world state: nodes depleted and monsters dead, each a key mapped
        to the shared tick it comes back on. In memory only, self-expiring, and
        bounded by what players near each other have touched lately — if the
        object hibernates and loses them, the cost is a node reappearing a
@@ -101,16 +101,16 @@ export class World extends DurableObject {
     this.depleted = new Map();
     this.monDead = new Map();
 
-    /* Player houses: pid -> {x, z, d} where d is the client's compact house
+   /* Player houses: pid -> {x, z, d} where d is the client's compact house
        object. Loaded from D1 once per object lifetime, written back only when
        an edit has sat for a few seconds — a build session costs one read and
        a handful of writes, not a write per wall. */
-    this.houses = null;          // null until loadHouses has run
+    this.houses = null;   // null until loadHouses has run
     this.hDirty = new Set();
     this.hFlushT = 0;
 
-    // With the hibernation API this object can be evicted between messages and
-    // rebuilt. Per-connection state therefore lives on the socket, not here.
+   // With the hibernation API this object can be evicted between messages and
+   // rebuilt. Per-connection state therefore lives on the socket, not here.
     for (const ws of ctx.getWebSockets()) {
       const a = ws.deserializeAttachment();
       if (a) this.players.set(a.pid, { ws, ...a, seen: new Set(), n: 0, t0: 0 });
@@ -120,7 +120,7 @@ export class World extends DurableObject {
   async fetch(req) {
     const u = new URL(req.url);
 
-    // cheap population probe for the world-select screen; no socket involved
+   // cheap population probe for the world-select screen; no socket involved
     if (u.pathname === '/count') {
       return new Response(JSON.stringify({ n: this.players.size }),
         { headers: { 'content-type': 'application/json' } });
@@ -131,16 +131,16 @@ export class World extends DurableObject {
     if (!pid) return new Response('no pid', { status: 400 });
 
     const [client, server] = Object.values(new WebSocketPair());
-    this.ctx.acceptWebSocket(server);          // NOT server.accept() — that kills hibernation
+    this.ctx.acceptWebSocket(server);   // NOT server.accept() — that kills hibernation
 
     const seed = cleanSeed(u.searchParams.get('seed'));
 
-    /* A reconnecting pid is a new socket wearing an old name. If the previous
+   /* A reconnecting pid is a new socket wearing an old name. If the previous
        close was missed — an abrupt tab kill, or this object hibernating in
        between — the survivors still list this pid as seen and will therefore
        never be sent an enter for it again. Forget it everywhere so the next
        flush rediscovers them. */
-    /* The older socket is told why it is going: 4001 means "your account
+   /* The older socket is told why it is going: 4001 means "your account
        just arrived on another connection". A client that hears it stands
        down rather than reconnecting — otherwise the two windows kick each
        other off every second for as long as both stay open. */
@@ -148,10 +148,10 @@ export class World extends DurableObject {
     if (old && old.ws !== server) { try { old.ws.close(4001, 'replaced'); } catch {} }
     for (const q of this.players.values()) q.seen.delete(pid);
 
-    // savedSeed starts as what the players row already says, so a session in
-    // the same world never rewrites it — that UPDATE used to fire once per
-    // connection (and again after every hibernation wake) for nothing.
-    /* A reconnecting pid keeps its last known position and gear, and `pos` — has this
+   // savedSeed starts as what the players row already says, so a session in
+   // the same world never rewrites it — that UPDATE used to fire once per
+   // connection (and again after every hibernation wake) for nothing.
+   /* A reconnecting pid keeps its last known position and gear, and `pos` — has this
        connection ever reported a position — rides the record so nobody is announced,
        or seated at 0,0, before a real move arrives. */
     const rec = { pid, name, seed, x: (old && old.x) | 0, z: (old && old.z) | 0,
@@ -160,10 +160,10 @@ export class World extends DurableObject {
     server.serializeAttachment(rec);
     this.players.set(pid, { ws: server, ...rec, seen: new Set(), n: 0, t0: 0 });
 
-    // extra fields appended, so older clients reading only [1] and [2] still work
+   // extra fields appended, so older clients reading only [1] and [2] still work
     server.send(JSON.stringify([[0, pid, Date.now(), name, seed, BUILD, SPAWN_REV]]));
 
-    /* A late arrival must see the stumps and absences everyone else does.
+   /* A late arrival must see the stumps and absences everyone else does.
        Snapshots go only to the joiner; live traffic covers everyone else. */
     this.pruneWorld(1);
     const snap = [];
@@ -172,8 +172,8 @@ export class World extends DurableObject {
     for (let i = 0; i < snap.length; i += 100) {
       try { server.send(JSON.stringify(snap.slice(i, i + 100))); } catch {}
     }
-    // every standing house, in pages — and a house stands only while its owner is connected,
-    // so the joiner sees just the living (their own record they ignore client-side)
+   // every standing house, in pages — and a house stands only while its owner is connected,
+   // so the joiner sees just the living (their own record they ignore client-side)
     await this.loadHouses(seed);
     const hs = [];
     for (const [hp, h] of this.houses) if (this.players.has(hp)) hs.push([23, hp, h.d]);
@@ -181,7 +181,7 @@ export class World extends DurableObject {
       try { server.send(JSON.stringify(hs.slice(i, i + 20))); } catch {}
     }
 
-    /* Interest management only runs inside flush(), and flush only runs when
+   /* Interest management only runs inside flush(), and flush only runs when
        somebody queues traffic. Without this, a join is invisible to a room
        where nobody happens to be moving. */
     if (!this.timer) this.timer = setTimeout(() => this.flush(), 40);
@@ -205,10 +205,10 @@ export class World extends DurableObject {
     let m;
     try { m = JSON.parse(raw); } catch { return; }
     if (!Array.isArray(m)) return;
-    // Size is judged after the type is known, and a rejection is never silent:
-    // a save that vanishes without a word is indistinguishable from one that
-    // was never sent, which is exactly how this went unnoticed.
-    /* Build 5 clients pack a tick's routine traffic into ONE socket send — an
+   // Size is judged after the type is known, and a rejection is never silent:
+   // a save that vanishes without a word is indistinguishable from one that
+   // was never sent, which is exactly how this went unnoticed.
+   /* Build 5 clients pack a tick's routine traffic into ONE socket send — an
        array of messages instead of a message — so a fighting player costs one
        billable request a tick instead of several. Inner messages still count
        against the rate, and saves never ride a batch (their own size lane). */
@@ -234,7 +234,7 @@ export class World extends DurableObject {
   async handle(me, ws, m, now) {
     switch (m[0]) {
 
-      case 1: {                                  // move
+      case 1: {   // move
         const [, tick, x, z, face, flags] = m;
         if (!Number.isInteger(x) || !Number.isInteger(z)) return;
         if (Math.abs(x) > 1e6 || Math.abs(z) > 1e6) return;
@@ -244,7 +244,7 @@ export class World extends DurableObject {
         me.face = (face | 0) & 15;
         me.flags = (flags | 0) & 3;
         this.queue('1:' + me.pid, [1, [[me.pid, tick | 0, x, z, me.face, me.flags]]]);
-        /* The attachment refreshes every 16th step: a walk needs no precision across a
+   /* The attachment refreshes every 16th step: a walk needs no precision across a
            hibernation wake — the next move fixes it. A teleport is not a step: hibernate
            before the next boundary and the object wakes holding the pre-respawn position,
            and flush() hands out an enter for a player who is towns away (the ghost). So a
@@ -254,26 +254,26 @@ export class World extends DurableObject {
         return;
       }
 
-      case 2:                                    // action animation
+      case 2:   // action animation
         this.queue('2:' + me.pid, [2, me.pid, (m[2] | 0) & 255]);
         return;
 
-      case 3:                                    // equipment — 11 slots plus riders (d: defence, sk: skull) past them
+      case 3:   // equipment — 11 slots plus riders (d: defence, sk: skull) past them
         me.eq = Array.isArray(m[1])
           ? m[1].slice(0, 14).map(v => (v == null ? null : String(v).slice(0, 32)))
           : [];
         this.queue('3:' + me.pid, [3, me.pid, me.eq]);
-        this.saveAtt(ws, me);                    // gear matters across a wake: onlookers dress you from it
+        this.saveAtt(ws, me);   // gear matters across a wake: onlookers dress you from it
         return;
 
-      case 19: {                                  // an arrow was loosed, and where
+      case 19: {   // an arrow was loosed, and where
         this.queue('19:' + me.pid + ':' + now,
           [19, me.pid, m[1] | 0, m[2] | 0, (m[3] | 0) & 0xffffff]);
         break;
       }
 
-      case 20:                                    // a node was depleted
-      case 22: {                                  // a monster was killed
+      case 20:   // a node was depleted
+      case 22: {   // a monster was killed
         const key = String(m[1] || '').slice(0, 48);
         const due = m[2] | 0, gt = wTick();
         if (!key || due <= gt || due > gt + 20000) return;
@@ -283,7 +283,7 @@ export class World extends DurableObject {
         break;
       }
 
-      case 21: {                                  // a live monster, owner-driven
+      case 21: {   // a live monster, owner-driven
         const key = String(m[1] || '').slice(0, 48);
         if (!key) return;
         this.queue('21:' + key,
@@ -292,31 +292,31 @@ export class World extends DurableObject {
         break;
       }
 
-      case 18: {                                  // a spell was cast, and at what
+      case 18: {   // a spell was cast, and at what
         this.queue('18:' + me.pid + ':' + now,
           [18, me.pid, (m[1] | 0) & 31, m[2] | 0, m[3] | 0]);
         break;
       }
 
-      case 13: {                                  // hitpoints, so onlookers can draw a bar
+      case 13: {   // hitpoints, so onlookers can draw a bar
         const hp = m[1] | 0, mx = m[2] | 0;
         this.queue('13:' + me.pid, [13, me.pid, hp, mx]);
         break;
       }
 
-      /* Trading is two private conversations, not a broadcast: only the other
+   /* Trading is two private conversations, not a broadcast: only the other
          party hears an offer, and only they can answer it. */
-      case 14: {                                  // trade signal
+      case 14: {   // trade signal
         const other = this.players.get(String(m[1] || ''));
         const act = (m[2] | 0) & 7;
-        // act 2 is "called off" and must always land, or the other party is stranded in an open trade window
+   // act 2 is "called off" and must always land, or the other party is stranded in an open trade window
         if (other && (act === 2 || near(me, other))) {
           try { other.ws.send(JSON.stringify([[14, me.pid, me.name, act]])); } catch {}
         }
         return;
       }
 
-      case 15: {                                  // trade offer
+      case 15: {   // trade offer
         const other = this.players.get(String(m[1] || ''));
         const offer = Array.isArray(m[2]) ? m[2].slice(0, 28).map(it => [
           String((it && it[0]) || '').slice(0, 32), Math.max(0, (it && it[1] | 0) || 0)
@@ -327,8 +327,8 @@ export class World extends DurableObject {
         return;
       }
 
-      case 11: {                                 // pvp hit, delivered to one player
-        /* Attacker-authoritative by design, but budgeted: a single hit is capped at 60
+      case 11: {   // pvp hit, delivered to one player
+   /* Attacker-authoritative by design, but budgeted: a single hit is capped at 60
            and a rolling four-tick window at 110, which clears any legitimate spec chain
            and shuts the 25-messages-a-second firehose a modified client could open. */
         const d = (m[2] | 0) & 255;
@@ -343,22 +343,22 @@ export class World extends DurableObject {
         return;
       }
 
-      case 12: {                                  // died here, dropped this; element 4 names the killer (loot is theirs for a minute), 5 stamps the tick
+      case 12: {   // died here, dropped this; element 4 names the killer (loot is theirs for a minute), 5 stamps the tick
         const items = Array.isArray(m[3]) ? m[3].slice(0, 40) : [];
         this.queue('12:' + me.pid + ':' + now, [12, me.pid, m[1] | 0, m[2] | 0, items, String(m[4] || '').slice(0, 40), m[5] | 0]);
         break;
       }
 
-      case 4: {                                  // chat
+      case 4: {   // chat
         const text = String(m[1] ?? '').slice(0, 120);
         if (text) this.queue('4:' + me.pid + ':' + now, [4, me.pid, text]);
         break;
       }
 
-      case 8: {                                  // save blob
-        // New shape is [8, seed, blob]. The old [8, blob] still arrives from
-        // account-test.html, so a non-string second element means legacy and
-        // the connection's own seed applies.
+      case 8: {   // save blob
+   // New shape is [8, seed, blob]. The old [8, blob] still arrives from
+   // account-test.html, so a non-string second element means legacy and
+   // the connection's own seed applies.
         const legacy = typeof m[1] !== 'string';
         const seed = legacy ? (me.seed || 'lumbridge') : cleanSeed(m[1]);
         const payload = legacy ? m[1] : m[2];
@@ -373,7 +373,7 @@ export class World extends DurableObject {
           return;
         }
         try {
-          /* combat and total level ride the same write as columns, so /characters can
+   /* combat and total level ride the same write as columns, so /characters can
              select two integers instead of parsing forty 8 KB blobs. Rows older than
              the columns migrate lazily: the ALTER runs once, on the first save that
              finds them missing. */
@@ -388,19 +388,19 @@ export class World extends DurableObject {
             await this.env.DB.prepare('ALTER TABLE characters ADD COLUMN total_level INTEGER').run().catch(() => {});
             await put();
           }
-          // Remember the last world played so login can preselect it — but only
-          // when it actually changes. Writing it on every flush doubled the D1
-          // cost of a save for a column that changes once a session.
+   // Remember the last world played so login can preselect it — but only
+   // when it actually changes. Writing it on every flush doubled the D1
+   // cost of a save for a column that changes once a session.
           if (me.savedSeed !== seed) {
             me.savedSeed = seed;
             await this.env.DB.prepare('UPDATE players SET seed=?, updated=? WHERE pid=?')
               .bind(seed, now, me.pid).run();
             this.saveAtt(ws, me);
           }
-          // confirm the write, so a client can tell "saved" from "swallowed"
+   // confirm the write, so a client can tell "saved" from "swallowed"
           try { ws.send(JSON.stringify([[10, seed, blob.length]])); } catch {}
         } catch (e) {
-          // Silence here is how a missing table costs somebody their session.
+   // Silence here is how a missing table costs somebody their session.
           const msg = String(e);
           console.log('save failed', me.pid, msg);
           try {
@@ -408,17 +408,17 @@ export class World extends DurableObject {
               ? 'the characters table does not exist' : msg.slice(0, 120)]]));
           } catch {}
         }
-        return;                                  // no attachment change
+        return;   // no attachment change
       }
 
-      case 23: {                                 // house claimed, edited or demolished: [23, houseObj | 0]
+      case 23: {   // house claimed, edited or demolished: [23, houseObj | 0]
         const h = m[1];
         await this.loadHouses(me.seed);
         if (!h) { this.houses.delete(me.pid); }
         else {
           if (!Number.isInteger(h.x) || !Number.isInteger(h.z) || Math.abs(h.x) > 1e6 || Math.abs(h.z) > 1e6 || !Array.isArray(h.rm)) return;
           let d; try { d = JSON.stringify(h); } catch { return; }
-          /* a refusal must never be silent: the owner keeps seeing their own copy and would never learn the world holds a stale one */
+   /* a refusal must never be silent: the owner keeps seeing their own copy and would never learn the world holds a stale one */
           if (d.length > 4000 || h.rm.length > 12) { try { ws.send(JSON.stringify([[24, d.length]])); } catch {} return; }
           this.houses.set(me.pid, { x: h.x, z: h.z, d: h });
         }
@@ -428,7 +428,7 @@ export class World extends DurableObject {
         break;
       }
 
-      case 9:                                    // clock ping
+      case 9:   // clock ping
         ws.send(JSON.stringify([[9, m[1], Date.now()]]));
         return;
 
@@ -446,7 +446,7 @@ export class World extends DurableObject {
     const gt = wTick();
     for (const [k, d] of this.depleted) if (d <= gt) this.depleted.delete(k);
     for (const [k, d] of this.monDead) if (d <= gt) this.monDead.delete(k);
-    // a runaway client cannot grow these without bound: oldest entries fall off
+   // a runaway client cannot grow these without bound: oldest entries fall off
     while (this.depleted.size > 800) this.depleted.delete(this.depleted.keys().next().value);
     while (this.monDead.size > 800) this.monDead.delete(this.monDead.keys().next().value);
   }
@@ -508,7 +508,7 @@ export class World extends DurableObject {
     const msgs = [...this.pending.values()];
     this.pending.clear();
 
-    /* Interest management on a VIEW-sized grid: anyone within the view radius of p
+   /* Interest management on a VIEW-sized grid: anyone within the view radius of p
        sits in p's 3x3 cell neighbourhood, so each player scans local density, not
        the whole room. Leaves (and reaping the departed) fall out of the seen set. */
     const grid = new Map();
@@ -539,7 +539,7 @@ export class World extends DurableObject {
       }
 
       for (const m of msgs) {
-        /* A death spills loot and teleports the corpse away in the same breath.
+   /* A death spills loot and teleports the corpse away in the same breath.
            Judging that message by whether the dead player is still visible
            loses it exactly when it matters, so ground items are delivered by
            where they fell rather than by who dropped them. */
@@ -548,13 +548,13 @@ export class World extends DurableObject {
           if (m[1] !== p.pid && Math.abs(dx - p.x) <= VIEW && Math.abs(dz - p.z) <= VIEW) out.push(m);
           continue;
         }
-        /* World state is room-wide: a stump matters to whoever walks up next,
+   /* World state is room-wide: a stump matters to whoever walks up next,
            seen-set or not. Live monster frames only matter near the fight. */
         if (m[0] === 20 || m[0] === 22) {
           if (m[3] !== p.pid) out.push(m);
           continue;
         }
-        if (m[0] === 23) {                       // houses are landscape: everyone in the room hears of one
+        if (m[0] === 23) {   // houses are landscape: everyone in the room hears of one
           if (m[1] !== p.pid) out.push(m);
           continue;
         }
@@ -577,19 +577,19 @@ export class World extends DurableObject {
   drop(ws) {
     const a = ws.deserializeAttachment();
     if (!a) return;
-    /* A reconnect replaces the record and closes the old socket, and that
+   /* A reconnect replaces the record and closes the old socket, and that
        close lands here later wearing the same pid. Deleting by pid alone
        would evict the live connection — the room then ignores everything it
        sends, saves included. Only the socket that owns the record removes it. */
     const cur = this.players.get(a.pid);
     if (!cur || cur.ws !== ws) return;
     this.players.delete(a.pid);
-    /* the leaver's house folds with them: houses stand only while their owner walks the world.
+   /* the leaver's house folds with them: houses stand only while their owner walks the world.
        Their record leaves memory and D1 too — the character blob is the one true copy, and the
        client re-announces it on every join. A row surviving an evicted object without this close
        is filtered from snapshots by the connected-pids check above. */
     if (this.houses && this.houses.delete(a.pid)) this.hDirty.add(a.pid);
-    this.flushHouses(1);                         // a leaver's pending house edits (now including the fold) go to disk
+    this.flushHouses(1);   // a leaver's pending house edits (now including the fold) go to disk
     this.queue('23:' + a.pid, [23, a.pid, 0]);
     for (const p of this.players.values()) {
       if (p.seen.delete(a.pid)) {
@@ -616,8 +616,8 @@ export class World extends DurableObject {
    emptied, finished offer frees its slot. */
 
 const GE_SLOTS = 8;
-const GE_MAXQ = 100000;          // per offer; arrows are the volume case
-const GE_MAXP = 1000000000;      // coins per item
+const GE_MAXQ = 100000;   // per offer; arrows are the volume case
+const GE_MAXP = 1000000000;   // coins per item
 
 export class Exchange extends DurableObject {
   constructor(ctx, env) {
@@ -656,7 +656,7 @@ export class Exchange extends DurableObject {
     const u = new URL(req.url);
     const pid = u.searchParams.get('pid') || '';
     if (!pid) return Response.json({ e: 'no pid' }, { status: 400 });
-    /* The 10-second poll from every open GE panel is a plain read: serving it
+   /* The 10-second poll from every open GE panel is a plain read: serving it
        outside the lock means the whole world's polls no longer queue behind
        one player's fills. A read racing a fill sees the book a beat stale,
        which the next poll corrects. Mutations still run strictly in turn. */
@@ -700,7 +700,7 @@ export class Exchange extends DurableObject {
       'INSERT INTO ge_offers (pid, slot, kind, item, price, qty, filled, coins_box, items_box, state, created, updated) ' +
       'VALUES (?,?,?,?,?,?,0,0,0,0,?,?)').bind(pid, slot, kind, item, price, qty, now, now).run();
 
-    /* One page of candidates in one query, matches bounded per request: a large
+   /* One page of candidates in one query, matches bounded per request: a large
        order against a fragmented book fills against up to twenty resting offers
        now and meets the rest of the book on later placements, instead of holding
        the global lock for a round-trip per row. */
@@ -713,17 +713,17 @@ export class Exchange extends DurableObject {
     for (const c of (page.results || [])) {
       if (remaining <= 0) break;
       const t = Math.min(remaining, c.qty - c.filled);
-      if (t <= 0) continue;                          // a corrupt row must not spin forever
-      const tp = c.price;                            // the resting offer sets the price
+      if (t <= 0) continue;   // a corrupt row must not spin forever
+      const tp = c.price;   // the resting offer sets the price
       const doneC = c.filled + t >= c.qty ? 1 : 0;
       mineFilled += t;
       const doneM = mineFilled >= qty ? 1 : 0;
-      // both sides of the trade land in one transaction, or neither does
+   // both sides of the trade land in one transaction, or neither does
       await this.env.DB.batch(kind === 0
-        ? [this.env.DB.prepare(upd).bind(t, t * tp, 0, doneC, now, c.pid, c.slot),               // seller is paid the ask
-           this.env.DB.prepare(upd).bind(t, t * (price - tp), t, doneM, now, pid, slot)]         // buyer gets goods + change
-        : [this.env.DB.prepare(upd).bind(t, 0, t, doneC, now, c.pid, c.slot),                    // buyer's offer receives goods
-           this.env.DB.prepare(upd).bind(t, t * tp, 0, doneM, now, pid, slot)]);                 // seller is paid the bid
+        ? [this.env.DB.prepare(upd).bind(t, t * tp, 0, doneC, now, c.pid, c.slot),   // seller is paid the ask
+           this.env.DB.prepare(upd).bind(t, t * (price - tp), t, doneM, now, pid, slot)]   // buyer gets goods + change
+        : [this.env.DB.prepare(upd).bind(t, 0, t, doneC, now, c.pid, c.slot),   // buyer's offer receives goods
+           this.env.DB.prepare(upd).bind(t, t * tp, 0, doneM, now, pid, slot)]);   // seller is paid the bid
       remaining -= t;
     }
     return { offer: await this.row(pid, slot) };
@@ -731,8 +731,8 @@ export class Exchange extends DurableObject {
   async abort(pid, b) {
     const o = await this.row(pid, b.slot | 0);
     if (!o) return { e: 'no offer' };
-    if (o.state !== 0) return { offer: o };          // already finished: nothing to abort
-    // the unfilled escrow comes back through the collection box, as it did in 2007
+    if (o.state !== 0) return { offer: o };   // already finished: nothing to abort
+   // the unfilled escrow comes back through the collection box, as it did in 2007
     const backC = o.kind === 0 ? (o.qty - o.filled) * o.price : 0;
     const backI = o.kind === 1 ? (o.qty - o.filled) : 0;
     await this.env.DB.prepare(
@@ -743,7 +743,7 @@ export class Exchange extends DurableObject {
   async collect(pid, b) {
     const o = await this.row(pid, b.slot | 0);
     if (!o) return { e: 'no offer' };
-    /* The client asks for what its pack can hold; the box keeps the rest.
+   /* The client asks for what its pack can hold; the box keeps the rest.
        Clamped here, so a hopeful request can never mint anything. */
     const tc = Math.max(0, Math.min(Math.floor(+b.coins || 0), o.coins_box));
     const ti = Math.max(0, Math.min(Math.floor(+b.items || 0), o.items_box));
@@ -804,7 +804,7 @@ async function population(env, u, origin) {
     const j = await r.json();
     body = { seed, n: j.n | 0, build: BUILD };
   } catch {
-    // an empty world has never been instantiated; that is not an error
+   // an empty world has never been instantiated; that is not an error
     body = { seed, n: 0, build: BUILD };
   }
   try {
@@ -832,7 +832,7 @@ async function characters(env, u, origin) {
         'SELECT seed, save, updated FROM characters WHERE pid=? ORDER BY updated DESC LIMIT 40'
       ).bind(row.pid).all();
     } catch {
-      // no table yet: an account with no characters, not a server fault
+   // no table yet: an account with no characters, not a server fault
       return json({ pid: row.pid, name: row.name, last: row.seed, characters: [], build: BUILD }, 200, origin);
     }
   }
@@ -852,26 +852,26 @@ export default {
     const origin = req.headers.get('Origin') || '';
     const list = (env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 
-    /* Browsers omit Origin entirely on same-origin GET requests, and always send
+   /* Browsers omit Origin entirely on same-origin GET requests, and always send
        it for POST and for anything cross-origin. So an absent Origin means the
        request is same-origin (or not from a browser at all, where an Origin
        check was never a security boundary anyway — it can simply be forged).
        An Origin equal to our own is same-origin by definition. */
     const originOk =
-      !origin ||                       // same-origin GET
-      origin === u.origin ||           // same-origin, header present
-      list.length === 0 ||             // allow-list disabled
-      list.includes(origin);           // explicitly permitted cross-origin
+      !origin ||   // same-origin GET
+      origin === u.origin ||   // same-origin, header present
+      list.length === 0 ||   // allow-list disabled
+      list.includes(origin);   // explicitly permitted cross-origin
 
     if (req.method === 'OPTIONS') {
       return new Response(null, { headers: cors(originOk ? origin : 'null') });
     }
 
-    /* ---------------- /ws : the only hot path ---------------- */
+   /* ---------------- /ws : the only hot path ---------------- */
     if (u.pathname === '/ws') {
-      // WebSocket upgrades skip CORS preflight entirely, so check this yourself
+   // WebSocket upgrades skip CORS preflight entirely, so check this yourself
       if (!originOk) return new Response('forbidden origin', { status: 403 });
-      // case-insensitive: some proxies send "WebSocket"
+   // case-insensitive: some proxies send "WebSocket"
       if ((req.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') {
         return new Response('expected websocket', { status: 426 });
       }
@@ -893,7 +893,7 @@ export default {
       return stub.fetch(new Request(target, req));
     }
 
-    /* ---------------- /ge : the grand exchange ---------------- */
+   /* ---------------- /ge : the grand exchange ---------------- */
     if (u.pathname === '/ge' || u.pathname.startsWith('/ge/')) {
       if (!originOk) return json({ e: 'origin' }, 403, 'null');
       let body = null;
@@ -917,7 +917,7 @@ export default {
       }
     }
 
-    /* ---------------- /register ---------------- */
+   /* ---------------- /register ---------------- */
     if (u.pathname === '/register' && req.method === 'POST') {
       if (!originOk) return json({ e: 'origin' }, 403, 'null');
 
@@ -935,12 +935,12 @@ export default {
       const authHash = await sha256('v1|' + auth);
 
       try {
-        // Is this key already an account? Then the answer is "log in", not "error".
+   // Is this key already an account? Then the answer is "log in", not "error".
         const mine = await env.DB.prepare('SELECT pid, name FROM players WHERE auth_hash=?')
           .bind(authHash).first();
         if (mine) return json({ e: 'key_registered', pid: mine.pid, name: mine.name }, 409, origin);
 
-        // Name uniqueness is case-insensitive, so Vlad and vlad cannot coexist.
+   // Name uniqueness is case-insensitive, so Vlad and vlad cannot coexist.
         const taken = await env.DB.prepare(
           'SELECT 1 AS x FROM players WHERE name = ? COLLATE NOCASE'
         ).bind(name).first();
@@ -964,7 +964,7 @@ export default {
       return json({ ok: 1, pid, name }, 200, origin);
     }
 
-    /* ---------------- /name-check ---------------- */
+   /* ---------------- /name-check ---------------- */
     if (u.pathname === '/name-check' && req.method === 'GET') {
       if (!originOk) return json({ e: 'origin' }, 403, 'null');
       const name = (u.searchParams.get('name') || '').trim();
@@ -979,11 +979,11 @@ export default {
       } catch { return json({ e: 'db error' }, 500, origin); }
     }
 
-    /* ---------------- /save : one character, per seed ---------------- */
+   /* ---------------- /save : one character, per seed ---------------- */
     if (u.pathname === '/save' && req.method === 'GET') {
       if (!originOk) return json({ e: 'origin' }, 403, 'null');
 
-      // ?pop=1 needs no account, so answer before authenticating
+   // ?pop=1 needs no account, so answer before authenticating
       if (u.searchParams.get('pop')) return population(env, u, origin);
       if (u.searchParams.get('list')) return characters(env, u, origin);
 
@@ -991,7 +991,7 @@ export default {
       if (who.e) return json({ e: who.e }, who.code, origin);
       const row = who.row;
 
-      // no seed given means "wherever I was last"
+   // no seed given means "wherever I was last"
       const seed = cleanSeed(u.searchParams.get('seed') || row.seed);
 
       let ch = null, note = null;
@@ -999,7 +999,7 @@ export default {
         ch = await env.DB.prepare('SELECT save FROM characters WHERE pid=? AND seed=?')
           .bind(row.pid, seed).first();
       } catch (e) {
-        /* Before the characters table exists there is still one legacy blob on
+   /* Before the characters table exists there is still one legacy blob on
            the player row. Serving it keeps an account that predates per-seed
            characters from looking wiped. */
         note = 'characters table missing';
@@ -1017,7 +1017,7 @@ export default {
       return json(body, 200, origin);
     }
 
-    /* ---------------- /characters and /population ---------------- */
+   /* ---------------- /characters and /population ---------------- */
     if (u.pathname === '/characters' && req.method === 'GET') {
       if (!originOk) return json({ e: 'origin' }, 403, 'null');
       return characters(env, u, origin);
@@ -1027,11 +1027,11 @@ export default {
       return population(env, u, origin);
     }
 
-    /* ---------------- /health ---------------- */
+   /* ---------------- /health ---------------- */
     if (u.pathname === '/health') {
       try {
         await env.DB.prepare('SELECT 1').first();
-        /* the indexes every hot query assumes; IF NOT EXISTS makes /health the
+   /* the indexes every hot query assumes; IF NOT EXISTS makes /health the
            one-call migration to run after a deploy */
         for (const q of [
           'CREATE INDEX IF NOT EXISTS idx_players_auth ON players (auth_hash)',
@@ -1047,12 +1047,12 @@ export default {
       }
     }
 
-    /* ---------------- /play : friendly alias for the game ---------------- */
+   /* ---------------- /play : friendly alias for the game ---------------- */
     if (u.pathname === '/play' || u.pathname === '/play/') {
       return env.ASSETS.fetch(new Request(new URL('/seedworld.html', u), req));
     }
 
-    /* ---------------- everything else: static files ----------------
+   /* ---------------- everything else: static files ----------------
        Your own index.html at the repo root is served at / untouched. */
     return env.ASSETS.fetch(req);
   }
