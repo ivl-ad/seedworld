@@ -49,7 +49,7 @@ const BUILD = 8;   // 6: player houses (op 23); 7: wider house lane, size refusa
    (element 6). A client whose own SPAWN_REV differs keeps its world private
    rather than sharing keys that name different monsters. Keep in step with the
    client's SPAWN_REV when deploying both. */
-const SPAWN_REV = 7;
+const SPAWN_REV = 8;   // 8: region layer + named sites (mines/groves/waypoints), tame() removed, pen/waypoint spawns
 
 /* The clients' shared clock, mirrored so world deadlines can be sanity-checked
    and expired entries pruned. Same epoch, same 600 ms tick. */
