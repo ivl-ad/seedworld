@@ -636,7 +636,7 @@ function villageAt(cx, cz) {
   if (wildLvAt(px, pz)) { villageCache.set(k, v); return v; }   // nothing settles the wilderness
   const A = regionAt(px, pz).a;
   // civilisation clusters: each kingdom keeps a dense heart and true emptiness between, so arriving somewhere means leaving nowhere
-  const civ = fbm(px * 0.00018, pz * 0.00018, S + 72, 2) * 1.6 + A.civ + smoothstep(2600, 500, Math.hypot(px, pz)) * 0.45;
+  const civ = fbm(px * 0.00018, pz * 0.00018, S + 72, 2) * 1.6 + A.civ + smoothstep(3600, 700, Math.hypot(px, pz)) * 0.45;   // the whole larger heart keeps its towns
   if ((hash2(cx, cz, S + 21) % 1000) < 120 + 780 * smoothstep(-0.62, 0.55, civ)) {
     const y = macroHeight(px, pz);
     if (y > 1.9 && y < 34) {
@@ -778,6 +778,7 @@ function finish(x, z, m) {
     h = m + (n.v.y - m) * flat;
   }
   if (flat < 0.999 && z < 500000) h += microRelief(x, z) * (1 - flat) * smoothstep(-3, 2, h);   // the dungeon band stays smooth: relief turned its walls into rows of spikes
+  if (z < 500000 && h > 2.4 && inDitch(x, z)) h -= 2.6;     // the wilderness ditch: a sheer little trench at the law's exact line — land only, jumped, never walked
   return h;
 }
 const heightAt = (x, z) => finish(x, z, macroHeight(x, z));
@@ -897,13 +898,16 @@ const MINE_T = [
 ];
 /* groves: the only home of the rare woods — a yew is somewhere, not a lottery ticket */
 const GROVE_T = [{ k: 1, pw: 0 }, { k: 2, pw: 0 }, { k: 3, pw: 0.5 }, { k: 6, pw: 1.0, warm: 1 }, { k: 4, pw: 1.0 }, { k: 5, pw: 1.9 }];
-/* waypoints between towns: k picks the furniture, sp the tenants; shore kinds wait for the right ground */
+/* waypoints between towns: k picks the furniture, sp the tenants; shore kinds wait for the right ground.
+   wild 1 = only in the wilderness (its broken places), wild 2 = at home on either side of the ditch */
 const POI_T = [
-  { k: 0, f: 'the X Stones' }, { k: 1, f: 'X Digs', res: [[0, 1], [1, 1]] }, { k: 2, f: "X's Rest", sp: ['monk'] },
-  { k: 3, f: 'the X Wreck', shore: 1 }, { k: 4, f: 'X Cart' }, { k: 5, f: 'X Bones', sp: ['skeleton'] },
+  { k: 0, f: 'the X Stones', wild: 2 }, { k: 1, f: 'X Digs', res: [[0, 1], [1, 1]] }, { k: 2, f: "X's Rest", sp: ['monk'] },
+  { k: 3, f: 'the X Wreck', shore: 1 }, { k: 4, f: 'X Cart' }, { k: 5, f: 'X Bones', sp: ['skeleton'], wild: 2 },
   { k: 6, f: 'X Farm', sp: ['chicken', 'chicken'] }, { k: 7, f: 'X Shack', shore: 1, fish: 1 },
-  { k: 8, f: 'the X Circle', sp: ['darkwizard', 'darkwizard'] }, { k: 9, f: 'X Barrow', sp: ['ghost'] },
-  { k: 10, f: 'X Watch', sp: ['guard'] }, { k: 11, f: 'X Camp', sp: ['bandit', 'bandit'] }
+  { k: 8, f: 'the X Circle', sp: ['darkwizard', 'darkwizard'], wild: 2 }, { k: 9, f: 'X Barrow', sp: ['ghost'], wild: 2 },
+  { k: 10, f: 'X Watch', sp: ['guard'] }, { k: 11, f: 'X Camp', sp: ['bandit', 'bandit'], wild: 2 },
+  { k: 12, f: 'the X Ruins', sp: ['skeleton'], wild: 1 }, { k: 13, f: 'the X Temple', sp: ['zamorakmonk', 'zamorakmonk'], wild: 1 },
+  { k: 14, f: 'X Keep', sp: ['blackknight', 'blackknight'], wild: 1 }
 ];
 function siteAt(gx, gz) {
   if (siteCache.S !== S) { siteCache.clear(); siteCache.S = S; }
@@ -948,7 +952,8 @@ function siteAt(gx, gz) {
       const G2 = lean(pool, hh >>> 20, 0.65);
       s = { t: 2, x, z, y, r: spiral([[G2.k, 5 + ((hh >>> 24) & 3)]], 1, 2.0, 0.85) + 1, res, gk: G2.k, name: wordOf(h, A) + ' ' + TREES[G2.k].n + ' Grove' };
     } else {
-      const pool = POI_T.filter(w => !w.shore || shore), W = pool[(hh >>> 20) % pool.length];
+      const isW = wildLvAt(x, z) > 0;
+      const pool = POI_T.filter(w => (!w.shore || shore) && (isW ? w.wild : w.wild !== 1)), W = pool[(hh >>> 20) % pool.length];
       s = { t: 3, k: W.k, x, z, y, r: 6, w: W, name: W.f.replace('X', wordOf(h, A)), sp: W.sp || null };
       if (W.res) { s.res = res; spiral(W.res, 0, 1.6, 1.1); }
       else s.res = null;
@@ -1006,24 +1011,34 @@ const fishSpotAt = (x, z, key) => { const c = fishCellAt(Math.floor(x / FISH_CEL
    compass direction and thin in another, pinching clean through here and there. The level is the depth in from the
    nearest open ground, one level per 16 tiles, capped at 99: only the heart of a far ring reads high. PvP lives only
    here. Below ground the mirrored surface tile answers, so a cave under the wilds is wilderness too. Wire format. ---- */
-const WILD0 = 1400;
-let _wlx = 1e9, _wlz = 1e9, _wlv = 0;
-function wildLvAt(x, z) {
+let _wlx = 1e9, _wlz = 1e9, _wld = -999;
+function wildD(x, z) {                                      // signed tiles into (+) or short of (−) the nearest band; every consumer derives from this one memo
   if (z > 500000) z -= 524288;                              // the dungeon plane wears its surface's colours (DUN_Z, spelled out: it evals far below)
   const ix = Math.floor(x), iz = Math.floor(z);
-  if (ix === _wlx && iz === _wlz) return _wlv;
+  if (ix === _wlx && iz === _wlz) return _wld;
   _wlx = ix; _wlz = iz;
   const d = Math.hypot(ix, iz);
-  if (d < WILD0 - 300) return _wlv = 0;                     // the heartland never wilds: skip the noise entirely
-  const wIn = fbm(ix * 0.0011, iz * 0.0011, S + 801, 3), wOut = fbm(ix * 0.0011 + 51.7, iz * 0.0011 - 13.2, S + 802, 3);
-  const q = Math.floor(Math.max(0, (-1220 + Math.sqrt(1488400 + 1840 * (Math.max(d, WILD0) - WILD0))) / 920));
+  if (d < 2310) return _wld = -999;                         // the heartland never wilds: skip the noise entirely
+  // each band is a MEANDERING RIVER of wilderness: a centreline dragged radially by slow noise, and a width of its
+  // own that runs from a rare ~70-tile neck to an uncapped bulge (the S-curve keeps the band a TERRITORY — most of
+  // its run is hundreds of tiles deep). Bands, their widths AND the calm safelands between them all grow with the
+  // index; every ray from the origin still crosses every band, so the belts stay closed. Wire format.
+  const m = fbm(ix * 0.00085, iz * 0.00085, S + 801, 3);    // where the band wanders
+  const th = fbm(ix * 0.00052, iz * 0.00052, S + 802, 3);   // how fat it runs there
+  const q = Math.floor(Math.max(0, (-2400 + Math.sqrt(5760000 + 2800 * (Math.max(d, 4200) - 4200))) / 1400));
+  let best = -999;
   for (let i = Math.max(0, q - 1); i <= q + 1; i++) {
-    const Si = WILD0 + 1220 * i + 460 * i * i, Ei = Si + 480 + 420 * i, A = Math.min(430, 190 + 60 * i);
-    const uIn = d + wIn * A, uOut = d + wOut * A;
-    if (uIn >= Si && uOut <= Ei) return _wlv = clamp(Math.ceil(Math.min(uIn - Si, Ei - uOut) / 16), 1, 99);
+    const T = 700 + 500 * i, C = 4200 + 2400 * i + 700 * i * i, gap = 3100 + 1400 * i;
+    const Rc = C + m * gap * 0.38;
+    let H = 36 + T * 0.92 * Math.pow(smoothstep(-0.55, 0.45, th + 0.10 + Math.min(0.25, 0.035 * i)), 1.15);
+    if (!i) H = Math.min(H, Rc - 2400);                     // the first band never presses the heart below ~2400 tiles
+    best = Math.max(best, H - Math.abs(d - Rc));
   }
-  return _wlv = 0;
+  return _wld = best;
 }
+const wildLvAt = (x, z) => { const dp = wildD(x, z); return dp > 0 ? clamp(Math.ceil(dp / 16), 1, 99) : 0; };
+const wildBlend = (x, z) => clamp((wildD(x, z) + 40) / 80, 0, 1);   // the ash creeps in over ~40 tiles each side; the LAW changes at the middle
+const inDitch = (x, z) => { if (z > 500000) return false; const wd = wildD(x, z); return wd > -0.95 && wd < 0.95; };   // the trench band at the exact line
 
 /* ---- 3. PALETTE: colour per quad, light baked into the vertex ---- */
 const PAL = {
@@ -1035,7 +1050,7 @@ const PAL = {
   lawn: [0.302, 0.475, 0.216], swamp: [0.271, 0.345, 0.224], till: [0.443, 0.345, 0.220],
   wildG: [0.155, 0.135, 0.125], lavaDeep: [0.96, 0.42, 0.10], lavaEdge: [0.42, 0.13, 0.05]   // the wilderness wears ash; its waters burn
 };
-const out = [0, 0, 0], mixOut = [0, 0, 0];
+const out = [0, 0, 0], mixOut = [0, 0, 0], _lav = [0, 0, 0];
 function mix(a, b, t) {
   for (let i = 0; i < 3; i++) mixOut[i] = a[i] + (b[i] - a[i]) * t;
   return mixOut;
@@ -1076,10 +1091,10 @@ function colorAt(x, z, h, slope) {
     const rg = regionAt(x, z);
     if (rg.vs > 0.02) c = mix(c, rg.veg, rg.vs);
   }
-  const wl = wildLvAt(x, z);
-  if (wl) {                                             // the wilderness: ash-black ground, and every water a bed of lava
-    if (h < SEA + 0.2) c = h < -2.5 ? PAL.lavaDeep : mix(PAL.lavaEdge, PAL.lavaDeep, smoothstep(0.2, -2.5, h));
-    else c = mix(c, PAL.wildG, 0.78 + Math.min(0.14, wl * 0.0015));
+  const wb = wildBlend(x, z), wl = wb > 0.5 ? wildLvAt(x, z) : 0;
+  if (wb > 0.002) {                                     // the wilderness creeps in: ash over the grass, lava bleeding into the water
+    if (h < SEA + 0.2) { const lt = smoothstep(0.2, -2.5, h); for (let q2 = 0; q2 < 3; q2++) _lav[q2] = PAL.lavaEdge[q2] + (PAL.lavaDeep[q2] - PAL.lavaEdge[q2]) * lt; c = mix(c, _lav, wb); }
+    else c = mix(c, PAL.wildG, (0.78 + Math.min(0.14, wl * 0.0015)) * wb);
   }
   const cell = h > 1.2 ? cityCell(x, z) : 0;            // the town's own plan, then the highways
   if (cell === G_ROAD) c = PAL.road;
@@ -1878,13 +1893,13 @@ const water = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000, 64, 64), new TH
 water.rotation.x = -PI / 2; water.renderOrder = 2;
 scene.add(water);
 let _wpx = 1e9, _wpz = 1e9;
-function waterPaint() {                                     // repainted as you travel: blue seas, and lava wherever the wilds reach
+function waterPaint() {                                     // repainted as you travel: blue seas shading into lava across the wilderness buffer
   if (Math.abs(P.rx - _wpx) + Math.abs(P.rz - _wpz) < 12) return;
   _wpx = P.rx; _wpz = P.rz;
   const pos = water.geometry.attributes.position, col = water.geometry.attributes.color;
   for (let i = 0; i < pos.count; i++) {
-    if (wildLvAt(_wpx + pos.getX(i), _wpz - pos.getY(i))) col.setXYZ(i, 1.0, 0.44, 0.10);
-    else col.setXYZ(i, 0.184, 0.435, 0.549);
+    const b = wildBlend(_wpx + pos.getX(i), _wpz - pos.getY(i));
+    col.setXYZ(i, 0.184 + 0.816 * b, 0.435 + 0.005 * b, 0.549 - 0.449 * b);
   }
   col.needsUpdate = true;
 }
@@ -3724,7 +3739,7 @@ function scatterResources(rec, cx, cz, ring) {
       if (z < 500000 && fishSpotAt(x, z, key)) rec.objs.push({ t: 2, k: y < -4.5 ? 1 : 0, x, z, y: 0, key, n: 'Fishing spot' });
       continue;
     }
-    if (y < 1.7 || y > 70 || blocked.has(key) || floorMap.has(key) || cityCell(x, z) !== 0) continue;
+    if (y < 1.7 || y > 70 || blocked.has(key) || floorMap.has(key) || inDitch(x, z) || cityCell(x, z) !== 0) continue;
     if (z > 500000) {                                       // dungeon ground grows nothing; it only bares its marked veins
       const dk = dunVein(x, z);
       if (dk >= 0 && rm.length < RCAP) {
@@ -3797,7 +3812,7 @@ function scatterDecor(rec, cx, cz, ring) {
     for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
       if (n > 150) break;
       const x = ox + i, z = oz + j, y = recH(rec, x, z), key = tk(x, z);
-      if (z > 500000 || blocked.has(key) || floorMap.has(key) || (y > 1.2 && cityCell(x, z) !== 0)) continue;
+      if (z > 500000 || blocked.has(key) || floorMap.has(key) || inDitch(x, z) || (y > 1.2 && cityCell(x, z) !== 0)) continue;
       const h = hash2(x, z, S + 103), r1 = (h & 1023) / 1024, r2 = ((h >>> 10) & 1023) / 1024, rot = ((h >>> 20) & 63) / 64 * TAU;
       const jx = x + ((h >>> 26) & 7) / 8 - 0.5, jz = z + ((h >>> 6) & 7) / 8 - 0.5;
       if (y > -0.5 && y < 1.15) {                            // reed beds — nothing green fringes a lava shore
@@ -4332,7 +4347,7 @@ function stepsThisTick(E) {
 const SAFE_RM = 1.75, TOWN_CAP = [20, 26, 32, 40, 48];      // spawn-level ceiling inside the belt, by rank (wire format)
 function townCore(x, z) { const n = nearVillage(x, z); return !!(n && n.d < n.v.r * 1.05); }
 let pvpAck = 0, pvpHold = 0;
-function askPvp() {
+function askPvp(onGo) {
   pvpHold = 1;
   showModal('Entering the Wilderness',
     '<p class="smsg">The scorched ground ahead is the <b>Wilderness</b>: other players can attack you, its level climbs the deeper you go, and dying to one while skulled costs everything you carry.</p>' +
@@ -4340,9 +4355,40 @@ function askPvp() {
     '<div class="wrow2"><button id="pvpGo">Continue</button><button id="pvpStay">Cancel</button></div>',
     'It can be turned back on in Setup under "PvP border warning".');
   const remember = () => { if (el('pvpNo').checked) { OPT.pvpWarn = 0; applyOpts(); drawOpts(); } };
-  el('pvpGo').onclick = () => { remember(); pvpAck = 1; pvpHold = 0; closeOverlays(); };
+  el('pvpGo').onclick = () => { remember(); pvpAck = 1; pvpHold = 0; closeOverlays(); if (onGo) onGo(); };
   el('pvpStay').onclick = () => { remember(); closeOverlays(); };
 }
+/* ---- the wilderness ditch: click the trench anywhere and the character runs up and leaps it. Going in asks (once,
+   unless silenced); coming out never does. The trench itself is never walkable, so the leap is the only dry crossing. ---- */
+let petHop = null;
+function ditchClick(cx, cz) {
+  const gdx = wildD(cx + 1, cz) - wildD(cx - 1, cz), gdz = wildD(cx, cz + 1) - wildD(cx, cz - 1);
+  const L = Math.hypot(gdx, gdz) || 1, nx2 = gdx / L, nz2 = gdz / L;   // uphill in the field: toward the deep wilds
+  const dir = wildD(P.tx, P.tz) > 0 ? -1 : 1;               // leap to whichever side you are not on
+  const lip = s => {
+    for (let k = 1; k <= 6; k++) {
+      const x = Math.round(cx + nx2 * s * k), z = Math.round(cz + nz2 * s * k), wd = wildD(x, z);
+      if (wd * s > 0.95 && !isWater(tileH(x, z)) && !blocked.has(tk(x, z)) && !floorMap.has(tk(x, z))) return { x, z };
+    }
+    return null;
+  };
+  const a = lip(-dir), b = lip(dir);
+  if (!a || !b) return walkTo(cx, cz);                      // a crumbled bank: nothing to vault from
+  startTask({ x: a.x, z: a.z, fx: b.x, fz: b.z, ent: dir > 0 ? 1 : 0, key: tk(cx, cz) }, 'ditch');
+}
+TASKS.ditch = (t, o) => {
+  if (P.afloat) return fail("You can't do that from a boat.");
+  if (!t.on) { t.on = 1; return; }                          // one beat to gather yourself, like the agility vault
+  P.task = null;
+  const go = () => {
+    P.faceT = Math.atan2(o.fx - P.tx, o.fz - P.tz);
+    teleport(o.fx, o.fz, 60);
+    P.pose = 4; P.acting = 1; P.actSpan = 2;
+    say(o.ent ? 'You leap the ditch, into the Wilderness.' : 'You leap the ditch back to gentler ground.', o.ent ? 'bad' : '');
+    if (petMesh) petHop = { s: tSec, x0: petMesh.position.x, z0: petMesh.position.z, x1: o.fx + 1.1, z1: o.fz + 0.8 };
+  };
+  if (o.ent && OPT.pvpWarn && !pvpAck) askPvp(go); else go();
+};
 const stopWalk = () => { P.path.length = 0; P.goal = null; };
 function walkTick() {
   if (pvpHold) { P.px = P.tx; P.pz = P.tz; P.span = 1; P.moved = 0; return; }   // anchor stays synced while asked
@@ -4356,7 +4402,7 @@ function walkTick() {
   for (let i = 0; i < want && P.path.length; i++) {
     const n = P.path[0];
     if (!canStep(P.tx, P.tz, n.x, n.z)) { stopWalk(); break; }
-    if (OPT.pvpWarn && !pvpAck && !P.afloat && wildLvAt(n.x, n.z) && !wildLvAt(P.tx, P.tz)) { askPvp(); break; }   // the wilderness ditch asks once
+    if (OPT.pvpWarn && !pvpAck && wildLvAt(n.x, n.z) && !wildLvAt(P.tx, P.tz)) { askPvp(); break; }   // the border asks once — afloat too: lava has no ditch to dig
     P.path.shift();
     P.tx = n.x; P.tz = n.z; took++;
     if (pvpAck && !wildLvAt(P.tx, P.tz)) pvpAck = 0;
@@ -6223,8 +6269,12 @@ let mapOX = 1e9, mapOZ = 0, mapRow = MW, mapImg = null, imgX = 0, imgZ = 0, imgS
 /* paint one map pixel: water by depth, land by the terrain palette shaded by the eastward gradient */
 function mapPixel(data, p, x, z, h, grad, tpp, k, lo) {
   let R, G, B;
-  if (h < 0 && wildLvAt(x, z)) { const t = clamp(-h / 10, 0, 1); R = 175 + t * 70; G = 62 + t * 42; B = 18; }   // the maps show the lava too
-  else if (h < 0) { const t = clamp(-h / 14, 0, 1); R = 46 - t * 22; G = 92 - t * 44; B = 116 - t * 50; }
+  if (h < 0) {                                              // the maps blend the lava in across the buffer too
+    const t = clamp(-h / 14, 0, 1), b = wildBlend(x, z);
+    R = 46 - t * 22 + (175 + clamp(-h / 10, 0, 1) * 70 - (46 - t * 22)) * b;
+    G = 92 - t * 44 + (62 + clamp(-h / 10, 0, 1) * 42 - (92 - t * 44)) * b;
+    B = 116 - t * 50 + (18 - (116 - t * 50)) * b;
+  }
   else { const c = colorAt(x, z, h, Math.abs(grad) / tpp), sh = clamp(0.94 - grad * k, lo, 1.3); R = c[0] * 255 * sh; G = c[1] * 255 * sh; B = c[2] * 255 * sh; }
   data[p] = R; data[p + 1] = G; data[p + 2] = B; data[p + 3] = 255;
 }
@@ -6319,13 +6369,20 @@ on(dom, 'pointerup', e => {
   if (useSel && !o) clearUse();                              // bare ground with an item armed puts it away
   if (o) { const opts = optionsFor(o); if (opts.length) { closeOverlays(); opts[0].f(); return; } }
   const g = rayGround(ray);
-  if (g) walkTo(g.x, g.z);
+  if (g) {
+    const dx2 = Math.round(g.x), dz2 = Math.round(g.z);
+    if (inDitch(dx2, dz2) && !isWater(tileH(dx2, dz2))) ditchClick(dx2, dz2); else walkTo(g.x, g.z);
+  }
 });
 on(dom, 'contextmenu', e => {
   e.preventDefault();
   if (trade && trade.open) return;
   const ray = rayAt(e.clientX, e.clientY), opts = optionsFor(pickObject(ray)), g = rayGround(ray);
-  if (g) opts.push({ t: 'Walk here', o: '', f: () => walkTo(g.x, g.z) });
+  if (g) {
+    const dx2 = Math.round(g.x), dz2 = Math.round(g.z);
+    if (inDitch(dx2, dz2) && !isWater(tileH(dx2, dz2))) opts.push({ t: 'Jump over', o: 'Wilderness ditch', f: () => ditchClick(dx2, dz2) });
+    opts.push({ t: 'Walk here', o: '', f: () => walkTo(g.x, g.z) });
+  }
   openCtx(e.clientX, e.clientY, opts);
 });
 on(dom, 'wheel', e => { e.preventDefault(); dist = clamp(dist * (1 + Math.sign(e.deltaY) * 0.12), 8, 190); }, { passive: false });
@@ -8314,6 +8371,25 @@ function emitPOI(B, s, rec, h) {
     B.add(BOX, x, y + 4.5, z, 3.1, 0.35, 3.1, 0, C_FLOOR); B.add(PYR, x, y + 5.7, z, 3.6, 1.9, 3.6, 0, C_ROOF2);
     B.add(BOX, x, y + 5.1, z + 1.5, 3.1, 0.8, 0.16, 0, C_BEAM); B.add(BOX, x + 1.5, y + 5.1, z, 0.16, 0.8, 3.1, 0, C_BEAM);
     for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) rec.blk.push(tk(x + a, z + b));
+  } else if (k === 12) {                                   // a roofless ruin kneeling in the ash: OSRS wilderness furniture
+    for (const [dx2, dz2, w2, hh2, dd] of [[0, -2.2, 4.6, 2.2, 0.4], [-2.2, 0.5, 0.4, 1.5, 3.4], [2.2, 0, 0.4, 2.6, 4.2], [0.6, 2.2, 2.4, 1.1, 0.4]])
+      B.add(BOX, x + dx2, y + hh2 / 2, z + dz2, w2, hh2, dd, 0, C_STONE2);
+    B.add(BLOB, x - 1.4, y + 0.3, z + 1.6, 1.6, 0.7, 1.4, 1, STONE); B.add(BLOB, x + 1.2, y + 0.25, z - 1.2, 1.2, 0.5, 1.1, 2, STONE);
+    for (const [a2, b2] of [[0, -2], [-2, 0], [2, 0]]) rec.blk.push(tk(x + a2, z + b2));
+  } else if (k === 13) {                                   // a chaos temple: the dark altar still answers, whoever kneels
+    B.add(BOX, x, y - 1.9, z, 7.0, 4.4, 7.0, 0, C_FOUND);
+    B.add(BOX, x, y + 0.55, z, 2.0, 1.1, 0.9, 0, C_DARK); B.add(BOX, x, y + 1.14, z, 2.2, 0.14, 1.05, 0, [0.45, 0.10, 0.12]);
+    for (let i2 = 0; i2 < 6; i2++) {
+      const a2 = i2 / 6 * TAU, px = Math.round(x + Math.sin(a2) * 3.1), pz = Math.round(z + Math.cos(a2) * 3.1), bh = i2 % 2 ? 1.1 : 2.6;
+      B.add(BOX, px, y + bh / 2, pz, 0.8, bh, 0.8, -a2, C_STONE2); rec.blk.push(tk(px, pz));
+    }
+    rec.objs.push(keeperObj(8, 0, x, z, y, 'Chaos altar')); rec.blk.push(tk(x, z));
+  } else if (k === 14) {                                   // a fallen keep: one tower stands of the four
+    B.add(CYL8, x - 2, y + 2.6, z - 2, 3.4, 5.2, 3.4, 0, C_STONE); B.add(DRUM8, x - 2, y + 5.4, z - 2, 3.9, 0.5, 3.9, 0, C_STONE2);
+    B.add(BOX, x + 1.5, y + 1.0, z - 2, 4.0, 2.0, 1.0, 0, C_STONE); B.add(BOX, x - 2, y + 0.7, z + 1.5, 1.0, 1.4, 3.6, 0, C_STONE);
+    B.add(BLOB, x + 2, y + 0.4, z + 1.8, 2.2, 0.9, 1.8, 1, STONE);
+    B.add(BOX, x - 2, y + 6.6, z - 2, 0.18, 2.0, 0.18, 0, C_BEAM); B.add(BOX, x - 1.55, y + 7.2, z - 2, 0.8, 0.55, 0.1, 0, C_BANNER);
+    for (const [a2, b2] of [[-2, -2], [-1, -2], [-3, -2], [-2, -1], [-2, -3], [-2, 1], [-2, 2]]) rec.blk.push(tk(x + a2, z + b2));
   } else {                                                  // a camp: two tents, a smoking ring, a log to sit on
     B.add(GABLE, x - 2, y + 0.8, z, 2.6, 1.5, 2.2, 0, C_CLOTH); B.add(GABLE, x + 2.1, y + 0.7, z + 0.8, 2.3, 1.3, 2.0, 0.6, C_BANNER);
     for (let i = 0; i < 6; i++) { const a = i / 6 * TAU; B.add(BLOB, x + Math.sin(a) * 0.9, y + 0.12, z - 1.6 + Math.cos(a) * 0.9, 0.38, 0.3, 0.38, 0, STONE); }
@@ -8467,6 +8543,7 @@ structHooks.push((rec, vs, inChunk) => {
     } else if (!(h & 31) && open(x, z)) {                   // rocks: a ledge 2.5-6 units up, two tiles over; the object sits on the step between
       for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
         const mx = x + dx / 2, mz = z + dz / 2, rise = hAt(x + dx, z + dz) - y;
+        if (inDitch(x, z) || inDitch(x + dx, z + dz)) continue;   // the wilderness ditch is jumped at its own price, never scrambled for free
         if (rise < 2.5 || rise > 6 || !open(x + dx, z + dz) || !open(mx, mz)) continue;
         const lv = clamp(5 + Math.round(rise * 6), 5, 70);
         objs.push({ t: 16, k: 1, x: mx, z: mz, y: y + rise / 2, key: tk(mx, mz), n: AGIL_N[1], lv, xp: lv * 1.4 + 6, ax: x, az: z, bx: x + dx, bz: z + dz, noMark: 1 });
@@ -10306,6 +10383,17 @@ function petFrame(dt) {
     petMesh.position.set(P.rx + 1 + petR, Math.max(P.ry, 0), P.rz + 1);
     scene.add(petMesh);
     petFor = P.pet; petA.walkPhase = 0;
+  }
+  if (petHop) {                                             // the little one takes the ditch at a bound, right behind you
+    const t = (tSec - petHop.s) / 0.45;
+    if (t >= 1) petHop = null;
+    else {
+      petMesh.position.x = petHop.x0 + (petHop.x1 - petHop.x0) * t;
+      petMesh.position.z = petHop.z0 + (petHop.z1 - petHop.z0) * t;
+      petMesh.position.y = Math.max(groundY(petHop.x1, petHop.z1), 0) + Math.sin(t * PI) * 1.35;
+      petMesh.rotation.y = Math.atan2(petHop.x1 - petHop.x0, petHop.z1 - petHop.z0);
+      return;
+    }
   }
   const keep = 1.1 + petR;
   const dx = petMesh.position.x - P.rx, dz = petMesh.position.z - P.rz, dd = Math.hypot(dx, dz) || 1;
