@@ -451,6 +451,8 @@
       <button data-d="run">Apply</button><span class="dnote" id="devRunNow">1x · 2 tiles/tick</span></div>
     <div class="drow"><span class="dlab">Random event ×</span><input id="devRand" value="1" autocomplete="off">
       <span class="dnote">multiplies the genie and evil chicken odds during the right activities</span></div>
+    <div class="drow"><span class="dlab">Damage ×</span><input id="devDmg" value="1" autocomplete="off">
+      <span class="dnote">multiplies the damage you deal (1 = normal)</span></div>
   </div>
 </div></div>
 <div id="chatwrap"><b id="chatmin" class="mini" title="minimise the chat log">–</b><div id="chat" class="panel"></div></div>
@@ -4188,7 +4190,11 @@ function spawnBosses() {
     if (spot) spawnNpc(L.t, spot.x, spot.z, key, powerAt(spot.x, spot.z));
   }
 }
-function removeNpc(n) { if (n.fpK) { for (const k of n.fpK) unblock(k); n.fpK = null; } scene.remove(n.mesh); const i = npcs.indexOf(n); if (i >= 0) npcs.splice(i, 1); }
+function removeNpc(n) {
+  if (n._bar && !n.dead) { const i = bars.indexOf(n._bar); if (i >= 0) bars.splice(i, 1); fxFree(n._bar.f); n._bar = null; }   // culled alive (teleport, despawn): no ghost bar; a kill keeps its linger
+  if (n.fpK) { for (const k of n.fpK) unblock(k); n.fpK = null; }
+  scene.remove(n.mesh); const i = npcs.indexOf(n); if (i >= 0) npcs.splice(i, 1);
+}
 function refreshNpcs() {
   for (let i = npcs.length - 1; i >= 0; i--) { const n = npcs[i]; if (Math.abs(n.tx - P.tx) > 92 || Math.abs(n.tz - P.tz) > 92) removeNpc(n); }
   spawnBosses();
@@ -4460,6 +4466,7 @@ function retaliate(attacker) {
 }
 function die(byPlayer) {
   P.dead = 1; P.task = null; P.path.length = 0;
+  for (const n of npcs) if (n.target === P) { n.target = null; releaseMon(n); }   // your death ends the fight: they reset and walk home
   sfx(512);
   say('Oh dear, you are dead!', 'bad');
   deathSpot = { x: P.tx, z: P.tz, t: tickN };               // the skull stands where you fell, on every map, for the pile's quarter hour
@@ -4503,6 +4510,8 @@ function die(byPlayer) {
 
 /* ---- 24. ACTIONS: one roll every four ticks; chance rises with level over the requirement and the tool ---- */
 const ACT_TICKS = 4, MAGIC_RANGE = 10;
+let devDmgMul = 1;                                        // dev console: multiplies damage the player deals
+const devMul = d => devDmgMul === 1 || !(d > 0) ? d : Math.round(d * devDmgMul);
 const rollChance = (l, req, tier) => clamp(0.10 + (l - req) * 0.011 + tier * 0.035, 0.05, 0.92);
 const gatherChance = (l, req, tier) => clamp((0.10 + (l - req) * 0.011 + tier * 0.045) * 60 / (60 + req), 0.04, 0.9);   // the material resists too
 function deplete(o, ticks) {                              // tickN is the shared clock, so the deadline needs no translation
@@ -4576,7 +4585,7 @@ function swing(o) {
     if (spc) { P.specArm = 0; P.spec = Math.max(0, P.spec - spc.cost); drawStyles(); }
     dmg = 0;
     for (let h = 0, hn = spc && spc.n || 1; h < hn; h++) { dmg += Math.max(roll(ch, M), mn); if (h && P.ammoN > 0) spendArrow(); }
-    dmg = boltProc(o, dmg, ch, M);                        // enchanted bolts have their say
+    dmg = devMul(boltProc(o, dmg, ch, M));                // enchanted bolts have their say
     if (spc && spc.heal && dmg > 0) { P.hp = Math.min(P.maxhp, P.hp + Math.floor(dmg * spc.heal)); dirty.orb = 1; }   // the blowpipe drinks
     const bw = bowItem();                                 // an envenomed launcher bites one time in four, and its venom deepens
     if (dmg > 0 && o.npc && bw && bw.psn && !o.psn && Math.random() < 0.25) { o.psn = bw.psn; o.venomF = bw.venom || 0; o.psnN = 0; o.psnT = tickN + 30; say('Venom rides your dart into the ' + o.name + '.'); }
@@ -4607,7 +4616,7 @@ function swing(o) {
       // gear buys accuracy, and mdmg gear a share of damage; a monster defends a spell with its Magic level and magic defence bonus
       const spl = sp || ps;
       const [ml, mb] = o.npc ? [o.t.mag * (o.defDr > tickN ? 0.95 : 1) + 9, o.t.mdb] : [dl, db];
-      dmg = roll(hitChance((Math.floor(eff('magic') * prayerMul('mag')) + 8) * (voidSet('mage') ? 1.45 : 1), bonus('mag'), ml, mb), mdmgMax(spl.max)); castFx(o, spl, dmg); sfx(spellSnd(spl));   // the wiki's 45% void magic accuracy
+      dmg = devMul(roll(hitChance((Math.floor(eff('magic') * prayerMul('mag')) + 8) * (voidSet('mage') ? 1.45 : 1), bonus('mag'), ml, mb), mdmgMax(spl.max))); castFx(o, spl, dmg); sfx(spellSnd(spl));   // the wiki's 45% void magic accuracy
       if (dmg > 0 && o.npc && barrowsSet('ahrim') && Math.random() < 0.25) { o.strDr = tickN + 100; say("Ahrim's curse saps its strength."); }
       if (P.cstyle) { gainXp('magic', spl.xp + dmg * 4 / 3); if (dmg > 0) gainXp('defence', dmg); }   // defensive casting splits the 2007 way
       else gainXp('magic', spl.xp + dmg * 2);
@@ -4643,6 +4652,7 @@ function swing(o) {
       drawStyles();
     } else if (barrowsSet('verac') && Math.random() < 0.25) dmg = randInt(1, Math.floor(maxHit() * bm) + 1);   // Verac strikes through guard and prayer alike
     else dmg = roll(hitChance(aEff, bonus('atk'), dl, db), Math.floor(maxHit() * bm));
+    dmg = devMul(dmg);
     if (dmg > 0 && barrowsSet('guthan') && Math.random() < 0.25) { P.hp = Math.min(P.maxhp, P.hp + dmg); dirty.orb = 1; say("Guthan's spear drinks the wound."); }
     if (dmg > 0) { sfx(meleeSnd()); if (!o.npc) sfx(513, 0.9); } else parrySnd();
     const wp = ITEMS[eq.weapon];                           // an envenomed blade bites one time in four; venom deepens instead of fading
@@ -5401,10 +5411,18 @@ const splats = [];
 function hitsplat(x, y, z, dmg) { const f = fxGet('hs ' + (dmg ? 'd' : 'z')); f.el.textContent = dmg; splats.push({ f, x, y, z, t: 1.1, vy: 0.9 }); }
 const bars = [];
 function healthBar(target, h) {
-  if (target._bar) { target._bar.t = 5; if (h) target._bar.h = h; return; }
+  const b0 = target._bar;                                   // trust the cached bar only while it is live, listed and whole — anything else heals itself
+  if (b0 && b0.f.live && b0.f.el.firstChild && bars.indexOf(b0) >= 0) { b0.t = 5; if (h) b0.h = h; return; }
+  if (b0) { const i = bars.indexOf(b0); if (i >= 0) bars.splice(i, 1); if (b0.f.live) fxFree(b0.f); target._bar = null; }
   const f = fxGet('hb');
   f.el.innerHTML = '<i></i>';
   bars.push(target._bar = { f, target, t: 5, h: h || 2.0 });
+}
+function fxRepair(e) {                                      // a corrupt element must not kill the fx loop for good: reset the layer clean
+  console.warn('fx layer reset', e);
+  for (const b of bars) b.target._bar = null;
+  bars.length = 0; splats.length = 0;
+  for (const f of fxPool) fxFree(f);
 }
 function fxFrame(dt) {
   for (let i = splats.length - 1; i >= 0; i--) {
@@ -5420,7 +5438,9 @@ function fxFrame(dt) {
     const p = b.t <= 0 ? null : project(t.rx, t.ry + b.h, t.rz) || project(t.rx, t.ry + 0.9, t.rz);   // a giant's crown can leave the frame: fall back to its chest
     if (!p) { fxFree(b.f); t._bar = null; bars.splice(i, 1); continue; }
     p[1] = Math.max(8, p[1]);                               // pinned to the top edge rather than lost above it
-    place(b.f.el, p); b.f.el.firstChild.style.width = Math.max(0, t.hp / t.maxhp * 100) + '%';
+    place(b.f.el, p);
+    let w = b.f.el.firstChild; if (!w) { b.f.el.innerHTML = '<i></i>'; w = b.f.el.firstChild; }   // a gutted element regrows its fill
+    w.style.width = Math.max(0, t.hp / t.maxhp * 100) + '%';
   }
 }
 /* respawn clocks own their elements outright: a borrowed pool element could be stolen by the next hitsplat */
@@ -5510,7 +5530,7 @@ on(devItems, 'click', e => {
   say(got ? 'Spawned ' + got + ' x ' + ITEMS[d.dataset.i].name.toLowerCase() + '.' : 'No room in your pack.', got ? 'lv' : 'bad');
 });
 function setLevel(i, L) {
-  L = clamp(L | 0, 1, MAXL);
+  L = clamp(L | 0, i === SK.hitpoints ? 10 : 1, MAXL);     // hitpoints never sits below 10, as 2007
   lvl[i] = L; xp[i] = XP_TABLE[L];
   if (i === SK.hitpoints) { P.maxhp = L; P.hp = L; }
   if (i === SK.prayer) { P.maxpray = L; P.pray = L; }
@@ -5540,6 +5560,7 @@ const DEV = {
   }
 };
 on(el('devBody'), 'click', e => { const b = e.target.closest('[data-d]'); if (b && DEV[b.dataset.d]) DEV[b.dataset.d](); });
+el('devDmg').oninput = () => { devDmgMul = Math.max(0, parseFloat(el('devDmg').value) || 1); };
 
 /* ---- 28. HOVER + CONTEXT MENU: left click runs the top option, the corner names it, right click lists the rest ---- */
 const hoverEl = el('hover'), ctxEl = el('ctx');
@@ -6441,7 +6462,8 @@ function frame(now) {
   boltFrame(dt);
   fogCenter.value.set(P.rx, P.ry, P.rz);
   if (!wmOpen) renderer.render(scene, camera);              // the world map covers the screen: no point painting behind it
-  fxFrame(dt); xpFrame(dt);
+  try { fxFrame(dt); } catch (e) { fxRepair(e); }           // bars must outlive any one bad frame
+  xpFrame(dt);
   if (OPT.timers) timerFrame(); else clearTimers();
   if (++hoverFrame % 3 === 0 && mx >= 0 && !drag) {
     const o = pickObject(rayAt(mx, my));
@@ -6614,6 +6636,7 @@ function applySave(b) {
   if (!b || b.v !== 1) return 0;
   const xs = b.xp || [];
   for (let i = 0; i < NSK; i++) { xp[i] = +xs[i] || 0; lvl[i] = levelFor(xp[i]); }
+  if (lvl[SK.hitpoints] < 10) { xp[SK.hitpoints] = XP_TABLE[10]; lvl[SK.hitpoints] = 10; b.maxhp = b.hp = 10; }   // saves from before the 2007 floor rise to it
   inv.fill(null);
   for (const row of (b.inv || [])) { const i = row[0] | 0, id = idOf(row[1]); if (i >= 0 && i < INV_N && ITEMS[id]) inv[i] = { id, n: Math.max(1, row[2] | 0) }; }
   bank = (b.bank || []).map(r => [idOf(r[0]), r[1] | 0]).filter(r => ITEMS[r[0]] && r[1] > 0).slice(0, BANK_N).map(r => ({ id: r[0], n: r[1] }));
