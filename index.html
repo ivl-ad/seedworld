@@ -1892,12 +1892,12 @@ function drawIcon(glyph, c, c2) {
   _iconCache.set(k, u = _ic.toDataURL());
   return u;
 }
-/* 07 icons: wiki-true sprites served from i07/ (items) and c07/ (UI). The generated lookup maps (ICON07 item->sprite,
+/* 07 icons: wiki-true sprites served from assets/i07/ (items) and assets/c07/ (UI). The generated lookup maps (ICON07 item->sprite,
    SK07/PR07/SP07 by k, US07 by display name, MK07 by MK_ART key, TINT07 worn tints) live in icons07.js — regenerate with
    node icons07-genmap.mjs / node icons07-tint.mjs after editing icons07-map.csv; drawn glyphs remain the fallback. */
 if (typeof ICON07 === 'undefined') for (const k of ['ICON07', 'SK07', 'PR07', 'SP07', 'US07', 'MK07', 'TINT07']) globalThis[k] = {};   // lone-file boot: sprites/tints degrade to glyphs
-const i07p = f => (f.indexOf('/') < 0 ? 'i07/' + f : f) + '.png', c07p = n => 'c07/' + n + '.png';
-const mk07p = n => n.indexOf('/') < 0 ? c07p(n) : n + '.png';   // markers default to the c07 map set; a folder means an item sprite stands in
+const i07p = f => 'assets/' + (f.indexOf('/') < 0 ? 'i07/' + f : f) + '.png', c07p = n => 'assets/c07/' + n + '.png';
+const mk07p = n => n.indexOf('/') < 0 ? c07p(n) : 'assets/' + n + '.png';   // markers default to the c07 map set; a folder means an item sprite stands in
 function icon(id) {
   let u = _iconCache.get(id);
   if (u) return u;
@@ -7229,7 +7229,7 @@ bgm.volume = vol; bgm.muted = vol <= 0;
 drawVol(); bgmPlay();
 on(window, 'pointerdown keydown', () => { if (vol > 0 && bgm.paused) bgmPlay(); }, { passive: true });
 
-/* ---- SOUND EFFECTS: one-shot wavs in sound/<id>.wav, fetched on first use and decoded once; the music's gesture unlocks these too ---- */
+/* ---- SOUND EFFECTS: one-shot wavs in assets/sound/<id>.wav, fetched on first use and decoded once; the music's gesture unlocks these too ---- */
 const sfxSaved = store.get('seedworld.sfxvol');
 let acx = null, sfxBus = null, sfxN = 0, sndWarm = 0, hurtSnd = 0, fireLoop = null;
 let sfxVol = sfxSaved === '' ? 0.8 : clamp(parseFloat(sfxSaved) || 0, 0, 1);
@@ -7245,7 +7245,7 @@ on(window, 'pointerdown keydown', sndUnlock, { passive: true });
 function sndLoad(id) {
   let b = sndBufs.get(id);
   if (b === undefined) {
-    b = fetch('sound/' + id + '.wav').then(r => r.arrayBuffer()).then(a => acx.decodeAudioData(a))
+    b = fetch('assets/sound/' + id + '.wav').then(r => r.arrayBuffer()).then(a => acx.decodeAudioData(a))
       .then(bf => (sndBufs.set(id, bf), bf), () => sndBufs.set(id, null));
     sndBufs.set(id, b);
   }
