@@ -778,7 +778,11 @@ function finish(x, z, m) {
     h = m + (n.v.y - m) * flat;
   }
   if (flat < 0.999 && z < 500000) h += microRelief(x, z) * (1 - flat) * smoothstep(-3, 2, h);   // the dungeon band stays smooth: relief turned its walls into rows of spikes
-  if (z < 500000 && h > 2.4 && inDitch(x, z)) h -= 2.6;     // the wilderness ditch: a sheer little trench at the law's exact line — land only, jumped, never walked
+  if (z < 500000 && h > 0.35) {                             // the wilderness ditch: a sheer trench between two raised banks, continuous over every
+    const t = ditchT(x, z);                                 // scrap of land (open water alone interrupts it) — berms keep the wall tall even on marsh,
+    if (t < 1.25) h = Math.max(h - 3.8, -0.25);             // and the tile-normalised profile keeps one width on any slope of the field
+    else if (t < 3.2) h += 0.85;
+  }
   return h;
 }
 const heightAt = (x, z) => finish(x, z, macroHeight(x, z));
@@ -1036,9 +1040,21 @@ function wildD(x, z) {                                      // signed tiles into
   }
   return _wld = best;
 }
-const wildLvAt = (x, z) => { const dp = wildD(x, z); return dp > 0 ? clamp(Math.ceil(dp / 16), 1, 99) : 0; };
+const wildLvAt = (x, z) => { const dp = wildD(x, z); return dp > 0 ? clamp(Math.ceil(dp / 26), 1, 99) : 0; };   // one level per 26 tiles: a level is a RUN, not a step
 const wildBlend = (x, z) => clamp((wildD(x, z) + 40) / 80, 0, 1);   // the ash creeps in over ~40 tiles each side; the LAW changes at the middle
-const inDitch = (x, z) => { if (z > 500000) return false; const wd = wildD(x, z); return wd > -0.95 && wd < 0.95; };   // the trench band at the exact line
+let _dtx = 1e9, _dtz = 1e9, _dtv = 99;
+function ditchT(x, z) {                                     // distance from the law's line in TILES: the field's own slope normalises it, so the trench keeps one width everywhere
+  if (z > 500000) return 99;
+  const ix = Math.floor(x), iz = Math.floor(z);
+  if (ix === _dtx && iz === _dtz) return _dtv;
+  _dtx = ix; _dtz = iz;
+  const wd = wildD(ix, iz);
+  if (wd < -9 || wd > 9) return _dtv = 99;
+  const gx2 = wildD(ix + 1, iz) - wildD(ix - 1, iz), gz2 = wildD(ix, iz + 1) - wildD(ix, iz - 1);
+  return _dtv = Math.abs(wd) / Math.max(0.55, Math.hypot(gx2, gz2) / 2);
+}
+const inDitch = (x, z) => ditchT(x, z) < 1.25;              // the trench itself
+const onDitchBank = (x, z) => ditchT(x, z) < 3.6;           // trench + berms + a cleared step: no tree or stone interrupts the line
 
 /* ---- 3. PALETTE: colour per quad, light baked into the vertex ---- */
 const PAL = {
@@ -3739,7 +3755,7 @@ function scatterResources(rec, cx, cz, ring) {
       if (z < 500000 && fishSpotAt(x, z, key)) rec.objs.push({ t: 2, k: y < -4.5 ? 1 : 0, x, z, y: 0, key, n: 'Fishing spot' });
       continue;
     }
-    if (y < 1.7 || y > 70 || blocked.has(key) || floorMap.has(key) || inDitch(x, z) || cityCell(x, z) !== 0) continue;
+    if (y < 1.7 || y > 70 || blocked.has(key) || floorMap.has(key) || onDitchBank(x, z) || cityCell(x, z) !== 0) continue;
     if (z > 500000) {                                       // dungeon ground grows nothing; it only bares its marked veins
       const dk = dunVein(x, z);
       if (dk >= 0 && rm.length < RCAP) {
@@ -3812,7 +3828,7 @@ function scatterDecor(rec, cx, cz, ring) {
     for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
       if (n > 150) break;
       const x = ox + i, z = oz + j, y = recH(rec, x, z), key = tk(x, z);
-      if (z > 500000 || blocked.has(key) || floorMap.has(key) || inDitch(x, z) || (y > 1.2 && cityCell(x, z) !== 0)) continue;
+      if (z > 500000 || blocked.has(key) || floorMap.has(key) || onDitchBank(x, z) || (y > 1.2 && cityCell(x, z) !== 0)) continue;
       const h = hash2(x, z, S + 103), r1 = (h & 1023) / 1024, r2 = ((h >>> 10) & 1023) / 1024, rot = ((h >>> 20) & 63) / 64 * TAU;
       const jx = x + ((h >>> 26) & 7) / 8 - 0.5, jz = z + ((h >>> 6) & 7) / 8 - 0.5;
       if (y > -0.5 && y < 1.15) {                            // reed beds — nothing green fringes a lava shore
@@ -3976,7 +3992,7 @@ function refresh() {
   for (const [k, rec] of chunks) if (Math.max(Math.abs(rec.cx - pcx), Math.abs(rec.cz - pcz)) > RADIUS + 1) { disposeChunk(rec); chunks.delete(k); }
   for (const k of mhCache.keys()) { const [cx, cz] = k.split(':'); if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > RADIUS + 2) mhCache.delete(k); }
   capMap(villageCache, 3000); capMap(nbrCache, 3000); capMap(roadCache, 2000); capMap(ruinCache, 600);
-  capMap(siteCache, 1600); capMap(fishCache, 1600); capMap(regCache, 400); capMap(caveCache, 400);
+  capMap(siteCache, 1600); capMap(fishCache, 1600); capMap(regCache, 400); capMap(caveCache, 400); capMap(bridgeCache, 600);
   nearDirty = 1;
 }
 const popQueue = [];
@@ -4366,9 +4382,9 @@ function ditchClick(cx, cz) {
   const L = Math.hypot(gdx, gdz) || 1, nx2 = gdx / L, nz2 = gdz / L;   // uphill in the field: toward the deep wilds
   const dir = wildD(P.tx, P.tz) > 0 ? -1 : 1;               // leap to whichever side you are not on
   const lip = s => {
-    for (let k = 1; k <= 6; k++) {
+    for (let k = 2; k <= 9; k++) {
       const x = Math.round(cx + nx2 * s * k), z = Math.round(cz + nz2 * s * k), wd = wildD(x, z);
-      if (wd * s > 0.95 && !isWater(tileH(x, z)) && !blocked.has(tk(x, z)) && !floorMap.has(tk(x, z))) return { x, z };
+      if (wd * s > 0 && ditchT(x, z) > 3.3 && !isWater(tileH(x, z)) && !blocked.has(tk(x, z)) && !floorMap.has(tk(x, z))) return { x, z };
     }
     return null;
   };
@@ -4527,7 +4543,8 @@ function wildPack(gx, gz) {
     return t ? { h, pc: d.pw, n: 2 + (h >>> 7) % 3, t, d } : null;
   }
   const pc = powerAt(x, z), wl = wildLvAt(x, z);
-  return (h % 100) > (wl ? 68 : 58) + Math.min(30, Math.max(0, pc) * 8) ? null : { h, pc, n: 1 + (h >>> 7) % 4 + (wl ? 1 : 0), t: pickMonster(x, z, h, pc) };   // the wilds teem: more cells taken, bigger packs, still clustered
+  return (h % 100) > (wl ? 62 + Math.min(22, wl * 0.28) : 58) + Math.min(30, Math.max(0, pc) * 8) ? null
+    : { h, pc, n: 1 + (h >>> 7) % 4 + (wl ? (wl > 50 ? 2 : 1) : 0), t: pickMonster(x, z, h, pc) };   // the wilds teem, and teem HARDER with the level: more cells taken, bigger packs, still clustered
 }
 const wildSpot = (gx, gz, i) => { const hh = hash2(gx * 31 + i, gz * 17 - i, S + 113); return { x: gx * WILD_CELL + (hh % WILD_CELL), z: gz * WILD_CELL + ((hh >>> 8) % WILD_CELL) }; };
 function spawnWild() {
@@ -6769,7 +6786,7 @@ function hashSeed(str) {
   return h >>> 0;
 }
 const resetLookups = () => { _lcx = _lcz = 1e9; _llist = []; _nvx = _nvz = 1e9; _nvr = null; roadCache.clear(); _rcx = _rcz = 1e9; _rlist = [];
-  _rgx = _rgz = 1e9; _rgv = null; _stx = _stz = 1e9; _str = null; _wlx = _wlz = 1e9; };
+  _rgx = _rgz = 1e9; _rgv = null; _stx = _stz = 1e9; _str = null; _wlx = _wlz = 1e9; _dtx = _dtz = 1e9; };
 function loadSeed(str) {
   tickN = globalTick() - 1;                                 // join the world's clock, not a fresh one
   S = hashSeed(str) | 0;
@@ -8543,7 +8560,7 @@ structHooks.push((rec, vs, inChunk) => {
     } else if (!(h & 31) && open(x, z)) {                   // rocks: a ledge 2.5-6 units up, two tiles over; the object sits on the step between
       for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
         const mx = x + dx / 2, mz = z + dz / 2, rise = hAt(x + dx, z + dz) - y;
-        if (inDitch(x, z) || inDitch(x + dx, z + dz)) continue;   // the wilderness ditch is jumped at its own price, never scrambled for free
+        if (onDitchBank(x, z) || onDitchBank(x + dx, z + dz)) continue;   // the wilderness ditch is jumped at its own price, never scrambled for free
         if (rise < 2.5 || rise > 6 || !open(x + dx, z + dz) || !open(mx, mz)) continue;
         const lv = clamp(5 + Math.round(rise * 6), 5, 70);
         objs.push({ t: 16, k: 1, x: mx, z: mz, y: y + rise / 2, key: tk(mx, mz), n: AGIL_N[1], lv, xp: lv * 1.4 + 6, ax: x, az: z, bx: x + dx, bz: z + dz, noMark: 1 });
@@ -9819,6 +9836,65 @@ structHooks.push((rec, vs, inChunk) => {
         B.add(BOX, c.x, c.y + 0.18, c.z, 1.6, 0.14, 1.6, 0, C_DARK);
         B.add(BOX, c.x + 0.45, c.y + 0.28, c.z, 0.42, 0.1, 0.18, 0, C_STONE2);
       }
+    });
+  }
+});
+/* ---- BRIDGES: now and then a plank crossing over a narrow water — or, in the wilds, over lava — where both banks
+   agree. A sparse lattice keeps them rare enough to matter; the deck rides the floor map, so it simply walks. ---- */
+const BRIDGE_CELL = 176, bridgeCache = new Map();
+function bridgeAt(gx, gz) {
+  if (bridgeCache.S !== S) { bridgeCache.clear(); bridgeCache.S = S; }
+  const key = gx * 8191 + gz;
+  let c = bridgeCache.get(key);
+  if (c !== undefined) return c;
+  c = null;
+  const h = hash2(gx * 11 + 6, gz * 13 + 2, S + 820);
+  if (gz * BRIDGE_CELL > 499000 - BRIDGE_CELL || h % 100 >= 55) { bridgeCache.set(key, c); return c; }
+  for (let i = 0; i < 14 && !c; i++) {
+    const hh = hash2(gx * 37 + i, gz * 41 - i, S + 821 + i);
+    const ax = gx * BRIDGE_CELL + 12 + hh % (BRIDGE_CELL - 24), az = gz * BRIDGE_CELL + 12 + (hh >>> 9) % (BRIDGE_CELL - 24);
+    const dx = (hh >>> 20) & 1 ? 1 : 0, dz = 1 - dx;
+    let bank = null, w = 0;                                 // walk the axis: firm bank, a 3-12 tile channel, firm bank again
+    for (let k2 = 0; k2 < 30; k2++) {
+      const x = ax + dx * k2, z = az + dz * k2, y = heightAt(x, z);
+      if (y >= SEA) { if (w) { if (w >= 3 && w <= 12 && bank) { const hA = heightAt(bank.x, bank.z), hB = y; const dy = clamp((hA + hB) / 2, 1.1, 2.6);
+          if (hA > 1.2 && hA < 3.4 && hB > 1.2 && hB < 3.4 && Math.abs(hA - dy) <= 1.1 && Math.abs(hB - dy) <= 1.1) { c = { x: bank.x, z: bank.z, dx, dz, len: w, y: dy }; } }
+          break; }
+        bank = { x, z }; }
+      else { if (!bank) break; w++; }
+    }
+    if (c) {
+      const nv = nearVillage(c.x, c.z);
+      if ((nv && nv.d < nv.v.r * 1.05) || onDitchBank(c.x, c.z)) c = null;   // towns build their own; the ditch line stays bare
+    }
+  }
+  bridgeCache.set(key, c);
+  return c;
+}
+structHooks.push((rec, vs, inChunk) => {
+  if (inDunPlane(rec.cz * CHUNK)) return;
+  const gx0 = Math.floor(rec.cx * CHUNK / BRIDGE_CELL), gz0 = Math.floor(rec.cz * CHUNK / BRIDGE_CELL);
+  for (let a = 0; a <= 1; a++) for (let b2 = 0; b2 <= 1; b2++) {
+    const b = bridgeAt(gx0 + a, gz0 + b2);
+    if (!b || !inChunk(b.x, b.z)) continue;
+    const wild = wildLvAt(b.x, b.z) > 0, deckC = wild ? [0.30, 0.24, 0.20] : C_FLOOR, railC = wild ? [0.20, 0.17, 0.15] : C_BEAM;
+    const dk = { y: b.y - FLOOR_TOP, deck: 1 };
+    batchInto(rec, B => {
+      for (let q = 1; q <= b.len; q++) {
+        const px = b.x + b.dx * q, pz = b.z + b.dz * q;
+        floorMap.set(tk(px, pz), dk);
+        B.add(BOX, px, b.y - 0.1, pz, b.dx ? 1.04 : 1.6, 0.18, b.dx ? 1.6 : 1.04, 0, deckC);
+        for (const sg of [-1, 1]) {
+          B.add(BOX, px + (b.dz ? sg * 0.72 : 0), b.y + 0.5, pz + (b.dx ? sg * 0.72 : 0), b.dx ? 1.06 : 0.12, 0.1, b.dx ? 0.12 : 1.06, 0, railC);
+          if (q & 1) {
+            B.add(BOX, px + (b.dz ? sg * 0.68 : 0), b.y - 0.9, pz + (b.dx ? sg * 0.68 : 0), 0.2, 2.0, 0.2, 0, railC);
+            B.add(BOX, px + (b.dz ? sg * 0.72 : 0), b.y + 0.22, pz + (b.dx ? sg * 0.72 : 0), 0.13, 0.55, 0.13, 0, railC);
+          }
+        }
+      }
+      B.add(BOX, b.x, heightAt(b.x, b.z) + 0.1, b.z, 1.4, 0.2, 1.4, 0, C_STONE2);   // a stone step at each end
+      const ex = b.x + b.dx * (b.len + 1), ez = b.z + b.dz * (b.len + 1);
+      B.add(BOX, ex, heightAt(ex, ez) + 0.1, ez, 1.4, 0.2, 1.4, 0, C_STONE2);
     });
   }
 });
