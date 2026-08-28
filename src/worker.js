@@ -43,7 +43,7 @@ const cleanSeed = s => (String(s || '').trim().toLowerCase().slice(0, 32)) || 'l
    invisible from the browser: assets update instantly and the Worker does not,
    so the game looks new while the server is months old and silently dropping
    everything it does not understand. */
-const BUILD = 8;   // 6: player houses (op 23); 7: wider house lane, size refusal echoed as op 24; 8: houses stand only while their owner is connected
+const BUILD = 9;   // 7: wider house lane, op 24 refusal echo; 8: houses stand only while owner connected; 9: op 12 killer+tick elements, eq lane 14 (skull rider)
 
 /* The spawn-table revision this deployment expects, echoed in the socket hello
    (element 6). A client whose own SPAWN_REV differs keeps its world private
@@ -258,9 +258,9 @@ export class World extends DurableObject {
         this.queue('2:' + me.pid, [2, me.pid, (m[2] | 0) & 255]);
         return;
 
-      case 3:                                    // equipment — 11 slots as of the armoury expansion
+      case 3:                                    // equipment — 11 slots plus riders (d: defence, sk: skull) past them
         me.eq = Array.isArray(m[1])
-          ? m[1].slice(0, 12).map(v => (v == null ? null : String(v).slice(0, 32)))
+          ? m[1].slice(0, 14).map(v => (v == null ? null : String(v).slice(0, 32)))
           : [];
         this.queue('3:' + me.pid, [3, me.pid, me.eq]);
         this.saveAtt(ws, me);                    // gear matters across a wake: onlookers dress you from it
@@ -343,9 +343,9 @@ export class World extends DurableObject {
         return;
       }
 
-      case 12: {                                  // died here, dropped this
+      case 12: {                                  // died here, dropped this; element 4 names the killer (loot is theirs for a minute), 5 stamps the tick
         const items = Array.isArray(m[3]) ? m[3].slice(0, 40) : [];
-        this.queue('12:' + me.pid + ':' + now, [12, me.pid, m[1] | 0, m[2] | 0, items]);
+        this.queue('12:' + me.pid + ':' + now, [12, me.pid, m[1] | 0, m[2] | 0, items, String(m[4] || '').slice(0, 40), m[5] | 0]);
         break;
       }
 

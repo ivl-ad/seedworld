@@ -4338,7 +4338,7 @@ function walkTo(wx, wz) {
 }
 
 /* ---- 22. GROUND ITEMS ---- */
-const drops = [];
+const drops = [], pendingPiles = [];                        // pendingPiles: another player's spill, sealed until its tick comes (their safe half, or the killer's minute)
 function dropItem(id, n, x, z, life) {
   if (drops.length > 200) drops.shift();                    // roomy enough that a boss pile can't evict a death pile
   drops.push({ drop: 1, id, n: n || 1, x, z, y: Math.max(walkY(x, z), 0), name: ITEMS[id].name, life: life || 200 });
@@ -4795,6 +4795,34 @@ function hurtPlayer(dmg, byPlayer) {
   if (P.hp <= 0) die(byPlayer);
   healthBar(P);
 }
+/* ---- THE SKULL: strike first and it rises; strike back and it doesn't. The timer is one saved tick (`sku`), refreshed by every
+   initiated attack; the grudge list (who may be answered freely) lives only for the session and empties on death. Skulled, a
+   player's death forfeits everything carried — Protect Item alone clutches one thing back. Monsters collect no such price. ---- */
+let pvpFoes = new Set();                                    // pids that struck me since my last death or login
+const SKULL_T = 2000;                                       // twenty minutes, as 2007 counted them
+const skulled = () => P.skull > tickN;
+function skullUp() {
+  const was = skulled();
+  P.skull = tickN + SKULL_T;
+  if (!was) { say('A skull rises over your head: all you carry is forfeit to your killer.', 'bad'); sendEquip(); markDirty(1); }
+}
+const skullTex = new THREE.CanvasTexture(_dmc); skullTex.magFilter = THREE.NearestFilter;
+const mkSkull = () => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: skullTex, transparent: true, fog: false, depthTest: false })); s.scale.set(0.5, 0.5, 1); s.renderOrder = 6; return s; };
+let mySkull = null, skullHad = 0;
+function skullFrame() {                                     // the mark floats over every skulled head, yours included
+  const on = skulled() && !P.dead && started;
+  if (on && !mySkull) { mySkull = mkSkull(); scene.add(mySkull); }
+  if (mySkull) { mySkull.visible = on; if (on) mySkull.position.set(P.rx, P.ry + 2.75, P.rz); }
+  for (const R of remotes.values()) {
+    const rOn = !!(R.eq && R.eq.indexOf('sk:1') >= 0);
+    if (rOn && !R.skullSpr) { R.skullSpr = mkSkull(); scene.add(R.skullSpr); }
+    if (R.skullSpr) { R.skullSpr.visible = rOn; if (rOn) R.skullSpr.position.set(R.rx, R.ry + 2.75, R.rz); }
+  }
+}
+tickHooks.push(() => {                                      // the sentence served, the mark fades — and the wire hears of it
+  if (skullHad && !skulled()) { skullHad = 0; say('The skull over your head fades.', 'lv'); sendEquip(); }
+  else if (!skullHad && skulled()) skullHad = 1;
+});
 function retaliate(attacker) {
   if (!OPT.retaliate || P.dead || !attacker) return;
   if (P.task && (P.task.k === 'attack' || P.task.k === 'ui' || P.task.k === 'take')) return;
@@ -4821,15 +4849,25 @@ function die(byPlayer) {
   }
   P.pet = null;
   all.sort((a, b) => ITEMS[b.id].val - ITEMS[a.id].val);
-  const K = 3 + (prayHas('item') ? 1 : 0);                  // Protect Item keeps a fourth
+  // three items stay with you, four under Protect Item — unless a player killed you while skulled: then the prayer's one thing is all
+  const wasSkulled = skulled();
+  const K = byPlayer && wasSkulled ? (prayHas('item') ? 1 : 0) : 3 + (prayHas('item') ? 1 : 0);
   if (prayHas('retri')) for (const n of npcs) if (!n.dead && chebDist(n.tx, n.tz, dx, dz) <= 1) {   // Retribution: a last blast at whatever stands beside you
     const d = randInt(0, lvl[SK.prayer] >> 2); n.hp -= d; hitsplat(n.rx, n.ry + 1.2, n.rz, d); if (n.hp <= 0) killNpc(n);
   }
   let keep = K;
-  for (const s of all) { const k = Math.min(keep, s.n); keep -= k; if (k) invAdd(s.id, k); if (s.n > k) { spill.push([s.id, s.n - k]); dropItem(s.id, s.n - k, dx, dz, 1500); } }
+  for (const s of all) {
+    const k = Math.min(keep, s.n); keep -= k;
+    if (k) invAdd(s.id, k);
+    if (s.n > k) { spill.push([s.id, s.n - k]); if (!byPlayer) dropItem(s.id, s.n - k, dx, dz, 1500); }   // a player's kill leaves nothing for you: the pile is the killer's
+  }
   dirty.inv = dirty.eq = 1; dressAvatar();
-  if (byPlayer && spill.length) wsSend([12, dx, dz, spill.slice(0, 40)]);
-  if (spill.length) say('You keep your ' + (K - keep) + ' most valuable items; the rest lies where you fell for 15 minutes.', 'bad');
+  if (spill.length) netWorld([12, dx, dz, spill.slice(0, 40), byPlayer || '', tickN]);   // monsters' kills go out too: the pile turns public after its safe half
+  if (spill.length) say(byPlayer
+    ? (wasSkulled ? 'The skull takes its due: ' + (K - keep ? 'you clutch one thing; the rest' : 'everything you carried') + ' falls to your killer.'
+                  : 'You keep your ' + (K - keep) + ' most valuable items; the rest falls to your killer.')
+    : 'You keep your ' + (K - keep) + ' most valuable items; the rest lies where you fell — yours alone for a while, gone in 15 minutes.', 'bad');
+  P.skull = 0; pvpFoes.clear(); sendEquip();                 // death lifts the skull and settles every grudge; the wire hears the bare corpse
   markDirty(1);
   setTimeout(() => {                                        // any death sends you to the nearest settlement — measured from the dungeon door if you fell below
     const rf = tpFrom(), v = nearestVillageTo(rf.x, rf.z, 12);
@@ -5042,6 +5080,7 @@ function taskTick() {
       healthBar(o, 2.0);
       // each client owns its own hitpoints: we roll with our stats and send it; town ground ends a fight mid-chase
       if (inSafe(P.tx, P.tz) || inSafe(o.tx, o.tz)) return fail('The town watch does not allow fighting here.');
+      if (!pvpFoes.has(o.pid)) skullUp();                    // striking anyone but a standing aggressor marks you, and re-marks you every swing
       const dmg = swing(o);
       if (dmg >= 0) wsSend([11, o.pid, dmg, prayHas('smite') ? 1 : 0, P.spell !== null || pstaffOn() ? 'g' : bowRange() ? 'r' : 'm']);   // extra elements are ignored by older builds; the class lets their overhead answer
       return;
@@ -6593,7 +6632,7 @@ function loadSeed(str) {
   for (const [, rec] of chunks) disposeChunk(rec);
   chunks.clear(); pending.length = 0; tilesGenerated = 0;
   blocked.clear(); depleted.clear(); objIndex.clear(); floorMap.clear();
-  drops.length = 0; fires.length = 0; npcDead.clear(); indoors = null; mhCache.clear(); popQueue.length = 0;
+  drops.length = 0; fires.length = 0; pendingPiles.length = 0; pvpFoes.clear(); npcDead.clear(); indoors = null; mhCache.clear(); popQueue.length = 0;   // a fresh world settles every grudge
   for (const pid of [...housesReg.keys()]) clearHouse(pid);  // houses belong to a world; the next save and snapshot restock them
   hghosts.length = 0; litMap.clear(); bmOn = 0; moveSel = null;
   hsAsked = 0; if (hsBarEl) hsBarEl.style.display = 'none'; hsHintClear();   // a fresh world asks fresh questions
@@ -6695,6 +6734,10 @@ function gameTick() {
     if (++P.psnN % 5 === 0 && --P.psn <= 0) { P.psn = 0; say('The poison has worn off.', 'good'); }
   }
   for (let i = drops.length - 1; i >= 0; i--) if (--drops[i].life <= 0) drops.splice(i, 1);
+  for (let i = pendingPiles.length - 1; i >= 0; i--) if (tickN >= pendingPiles[i].due) {   // a sealed spill comes due: the pile appears for everyone
+    const p = pendingPiles.splice(i, 1)[0];
+    for (const it of p.rows) dropItem(it[0], it[1] | 0, p.x, p.z, p.life);
+  }
   for (let i = fires.length - 1; i >= 0; i--) if (--fires[i].life <= 0) fires.splice(i, 1);
   for (const [k, t] of npcDead) if (t <= tickN) npcDead.delete(k);
   if ((tickN & 7) === 0) refreshNpcs();
@@ -6883,6 +6926,7 @@ function frame(now) {
     labelAt(deathSpot, 'mk', deathSpot.x, deathMark.position.y + 3.2, deathSpot.z, DEATH_HTML, 'plate mk boss');
   animate(P, avatar.parts, dt);
   petFrame(dt);
+  skullFrame();
   updateRemotes(dt, alpha);
   labelsEnd();
   const key = ck(Math.floor(P.rx / CHUNK), Math.floor(P.rz / CHUNK));
@@ -7076,7 +7120,7 @@ function packSave() {
     bd: [...npcDead].filter(([k, t]) => k && k[0] === 'b' && t > tickN),    // slain boss lairs: the cell key is stable, so the timer survives a reload
     hs: P.hs || 0,
     cl: [...P.cl], pet: P.pet || 0, ins: P.ins, pl: P.petLost, dy: P.dy, ca: P.ca,
-    dr: P.dunRet || 0, cs: P.cstyle, bs: Array.from(bst) };
+    dr: P.dunRet || 0, cs: P.cstyle, bs: Array.from(bst), sku: P.skull || 0 };   // sku: the skull's expiry on the shared clock — one entry, refreshed per initiated attack
 }
 /* renames must not eat a save: an old id folds into its new name here before the ITEMS checks discard it */
 const OLD_IDS = Object.create(null);                       // old id -> current id; add a row with any rename, forever
@@ -7116,6 +7160,7 @@ function applySave(b) {
   P.dunRet = b.dr && isFinite(b.dr.x) ? { x: b.dr.x | 0, z: b.dr.z | 0 } : null;
   const bs = b.bs || [];                                     // boosts and drains ride the blob, as 2007 logouts kept them
   for (let i = 0; i < NSK; i++) bst[i] = clamp(bs[i] | 0, -99, 99);
+  P.skull = Math.min(b.sku | 0, tickN + SKULL_T);            // the skull serves out its saved sentence; a doctored future tick is clipped
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
   return b;
 }
@@ -7127,7 +7172,7 @@ function freshCharacter() {
   P.maxhp = P.hp = lvl[SK.hitpoints]; P.maxpray = P.pray = lvl[SK.prayer];
   P.energy = 100; P.run = 1; P.style = 0; P.cstyle = 0; P.prayers = 0; P.spell = null; P.slay = null; P.clue = null; P.farm = Object.create(null); bst.fill(0);
   P.hs = null;                                              // loadSeed already tore any standing house down
-  P.cl = new Set(); P.pet = null; P.ins = []; P.petLost = []; P.dy = {}; P.ca = {}; P.dunRet = null;
+  P.cl = new Set(); P.pet = null; P.ins = []; P.petLost = []; P.dy = {}; P.ca = {}; P.dunRet = null; P.skull = 0;
   for (const [id, n] of [['bronze_hatchet', 1], ['bronze_pickaxe', 1], ['tinderbox', 1], ['hammer', 1], ['small_net', 1], ['coins', 120]]) invAdd(id, n);
   eq.weapon = 'bronze_sword';
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
@@ -7299,10 +7344,11 @@ function onNet(m) {
     case 11: {                                              // someone hit us
       const R = ensureRemote(m[1]); let dmg = clamp(m[2] | 0, 0, 60);
       if (P.dead || inSafe(P.tx, P.tz)) break;
+      pvpFoes.add(String(m[1]));                            // they struck first (or struck at all): answering them costs no skull
       if (!pvpOn) { pvpOn = 1; say('You are under attack!', 'bad'); }
       if (m[4] && dmg > 0 && prayHas('prot', m[4])) { dmg = Math.floor(dmg * 0.6); say('Your prayer turns part of the blow aside.'); }   // overheads soften another player's hit by 40%
       if (m[3] && dmg > 0 && P.pray > 0) { P.pray = Math.max(0, P.pray - Math.floor(dmg / 4)); say('You feel your prayer being smitten!', 'bad'); dirty.orb = 1; }
-      hurtPlayer(dmg, 1); retaliate(R);
+      hurtPlayer(dmg, String(m[1])); retaliate(R);          // the killer's name rides into die(): their kill, their pile
       break;
     }
     case 14: {                                              // trade signal
@@ -7354,12 +7400,15 @@ function onNet(m) {
     case 19: { const R = ensureRemote(m[1]); if (R) { shootArrow(R, aimAt(m[2] | 0, groundY(m[2] | 0, m[3] | 0), m[3] | 0), null, (m[4] | 0) || 0xc3c8d0); sfxAt(2692, R.tx, R.tz, 14, 0.7); } break; }
     case 18: { const R = ensureRemote(m[1]), sp = SPELLS[m[2] | 0]; if (R && sp) { remoteBolt(R, sp, m[3] | 0, m[4] | 0); sfxAt(spellSnd(sp), R.tx, R.tz, 14, 0.8); } break; }
     case 13: { const R = ensureRemote(m[1]); if (!R) break; R.hp = m[2] | 0; R.maxhp = Math.max(1, m[3] | 0); R.hurt = tickN; if (R.hp < R.maxhp) healthBar(R, 2.0); break; }
-    case 12: {                                              // a player died near us and spilled
-      const R = remotes.get(m[1]);
+    case 12: {                                              // a player died near us and spilled; the pile answers to its clock
+      const R = remotes.get(m[1]), rows = (m[4] || []).filter(it => ITEMS[it[0]] && (it[1] | 0) > 0);
+      const killer = String(m[5] || ''), t0 = m[6] | 0;
       sfxAt(512, m[2] | 0, m[3] | 0);
       say((R ? R.name : 'Someone') + ' has been defeated.', 'lv');
-      for (const it of (m[4] || [])) dropItem(it[0], it[1], m[2] | 0, m[3] | 0);
-      break;
+      if (!rows.length) break;
+      if (!t0 || killer === PID) { for (const it of rows) dropItem(it[0], it[1] | 0, m[2] | 0, m[3] | 0, 1500); break; }   // your kill: the pile is yours this minute
+      if (pendingPiles.length < 40) pendingPiles.push({ due: t0 + (killer ? 100 : 750), x: m[2] | 0, z: m[3] | 0, rows, life: killer ? 1400 : 750 });
+      break;                                                // a killer's minute, or the fallen's safe half, then the pile opens to all
     }
     case 10:                                                // write confirmed
       ackPending = 0; ackWarned = 0;
@@ -7419,6 +7468,7 @@ function sendEquip() {
   if (!ws || ws.readyState !== 1) return;
   const arr = EQ_SLOTS.map(s => eq[s] || null);
   arr.push('d:' + lvl[SK.defence]);
+  if (skulled()) arr.push('sk:1');                          // the mark travels with the gear; its absence, resent on fade, clears it
   const sig = arr.join('|');
   if (sig === lastEqSent) return;
   lastEqSent = sig;
@@ -7470,6 +7520,7 @@ const freeP = (o, k) => { if (o[k]) { freePlate(o[k]); o[k] = null; } };
 function dropRemote(pid) {
   const R = remotes.get(pid); if (!R) return;
   if (R.g) { giveRig(R.g); R.g = null; R.parts = null; }
+  if (R.skullSpr) { scene.remove(R.skullSpr); R.skullSpr = null; }
   freeP(R, 'plate'); freeP(R, 'bub');
   R.lod = -1;
   remotes.delete(pid);
