@@ -1,4 +1,4 @@
-/* icons07-genmap.mjs — regenerate index.html's 07-icon lookup maps from icons07-map.csv.
+/* icons07-genmap.mjs — regenerate icons07.js's 07-icon lookup maps from icons07-map.csv.
    Rerun after editing the map; rewrites only the block between the ICON07-GEN sentinels.
    ICON07: item id -> i07 name (or 'c07/name'); SK07/PR07/SP07 by k; US07 by display name; MK07 by MK_ART key. */
 import fs from 'node:fs';
@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const HTML = path.join(HERE, 'index.html');
+const HTML = path.join(HERE, 'icons07.js');
 const maps = { item: {}, skill: {}, prayer: {}, spell: {}, uspell: {}, marker: {} };
 for (const ln of fs.readFileSync(path.join(HERE, 'icons07-map.csv'), 'utf8').trim().split(/\r?\n/).slice(1)) {
   const icon = ln.slice(ln.lastIndexOf(',') + 1).trim();
@@ -29,9 +29,9 @@ new Function('"use strict";' + block)();                    // refuse to write a
 
 const html = fs.readFileSync(HTML, 'utf8');
 const re = /(\/\* ICON07-GEN start \*\/\n)[\s\S]*?(\n\/\* ICON07-GEN end \*\/)/;
-if (!re.test(html)) throw new Error('ICON07-GEN sentinels not found in index.html');
+if (!re.test(html)) throw new Error('ICON07-GEN sentinels not found in icons07.js');
 const out = html.replace(re, '$1' + block + '$2');
 fs.writeFileSync(HTML, out);
 const n = k => Object.keys(maps[k]).length;
 console.log('maps: ' + n('item') + ' items, ' + n('skill') + ' skills, ' + n('prayer') + ' prayers, ' + n('spell') + ' spells, '
-  + n('uspell') + ' uspells, ' + n('marker') + ' markers; block ' + (block.length / 1024).toFixed(1) + ' KB; index.html ' + (out.length / 1024).toFixed(0) + ' KB');
+  + n('uspell') + ' uspells, ' + n('marker') + ' markers; block ' + (block.length / 1024).toFixed(1) + ' KB; icons07.js ' + (out.length / 1024).toFixed(0) + ' KB');

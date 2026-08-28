@@ -1,5 +1,5 @@
 /* icons07-tint.mjs — sample worn-model tints (c/c2) from every item icon in icons07-map.csv and splice the
-   TINT07 map into index.html between the TINT07-GEN sentinels. Replaces icons07-tint.ps1. Rerun after
+   TINT07 map into icons07.js between the TINT07-GEN sentinels. Replaces icons07-tint.ps1. Rerun after
    changing the map, the sprites, or icons07-glyphs.csv. `--json <path>` also writes an audit report.
 
    Region-aware: each glyph samples the icon band that feeds that part of the 3D model (a staff's c is its
@@ -192,11 +192,11 @@ for (const ln of csv('icons07-map.csv')) {
 }
 const block = 'const TINT07 = { ' + entries.join(', ') + ' };';
 new Function('"use strict";' + block)();                     // refuse to splice a block that does not parse
-const htmlPath = path.join(HERE, 'index.html');
-const html = fs.readFileSync(htmlPath, 'utf8');
+const jsPath = path.join(HERE, 'icons07.js');
+const js = fs.readFileSync(jsPath, 'utf8');
 const re = /(\/\* TINT07-GEN start \*\/\n)[\s\S]*?(\n\/\* TINT07-GEN end \*\/)/;
-if (!re.test(html)) throw new Error('TINT07-GEN sentinels not found');
-fs.writeFileSync(htmlPath, html.replace(re, (_, a, b) => a + block + b));
+if (!re.test(js)) throw new Error('TINT07-GEN sentinels not found in icons07.js');
+fs.writeFileSync(jsPath, js.replace(re, (_, a, b) => a + block + b));
 const ja = process.argv.indexOf('--json');
 if (ja > -1) fs.writeFileSync(process.argv[ja + 1], JSON.stringify(report, null, 1));
 console.log(entries.length + ' tints spliced (' + (block.length / 1024).toFixed(1) + ' KB), ' + missing + ' skipped');
