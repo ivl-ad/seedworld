@@ -6176,12 +6176,19 @@ function packSave() {
    the rest of the session. Now the pack knows its own size, so the game can
    refuse to enter a state it cannot store, and say why. */
 const saveBytes = () => { try { return JSON.stringify(packSave()).length; } catch { return 0; } };
+/* The ONE place that knows which blob versions this build can read. Every gate
+   outside applySave used to spell `b.v === 1` inline, so bumping packSave to v2
+   quietly turned every returning character into "could not be read" — the login
+   branch rejected the very blob the previous session had written. Bump this list
+   with the format, never the call sites. */
+const SAVE_VERSIONS = [1, 2];
+const readableSave = b => !!b && SAVE_VERSIONS.includes(b.v);
 const SAVE_CAP = 8192, SAVE_WARN = 7200;   // SAVE_CAP mirrors MAXSAVE in src/worker.js — change both together
 /* renames must not eat a save: an old id folds into its new name here before the ITEMS checks discard it */
 const OLD_IDS = Object.create(null);   // old id -> current id; add a row with any rename, forever
 const idOf = id => OLD_IDS[id] || id;
 function applySave(b) {
-  if (!b || !(b.v === 1 || b.v === 2)) return 0;
+  if (!readableSave(b)) return 0;
   const v2 = b.v === 2;
   const xs = b.xp || [];
   for (let i = 0; i < NSK; i++) { xp[i] = +xs[i] || 0; lvl[i] = levelFor(xp[i]); }
@@ -6854,21 +6861,21 @@ async function enterWorld(seed) {
     freshCharacter();
     say('Your saved character could not be loaded, so nothing will be stored', 'bad');
     say('this session. Your progress so far is safe — reload to try again.', 'bad');
-  } else if (blob && blob.v === 1 && !isNew) {
+  } else if (readableSave(blob) && !isNew) {
     applySave(blob);
     saveArmed = 1;
     if (Number.isInteger(blob.tx)) teleport(blob.tx, blob.tz, 300);   // resume where you stood
     say('Welcome back, ' + (NAME || 'Adventurer') + '.', 'lv');
   } else if (OFFLINE) {   // offline: this browser is the database
     let ob = null; try { ob = JSON.parse(store.get('seedworld.off.' + seed) || 'null'); } catch {}
-    if (ob && ob.v === 1) {
+    if (readableSave(ob)) {
       applySave(ob);
       if (Number.isInteger(ob.tx)) teleport(ob.tx, ob.tz, 300);
       say('Welcome back. This device remembered your character.', 'lv');
     } else { freshCharacter(); say('A new life begins in ' + seed + ', kept on this device.', 'lv'); }
     saveArmed = 1;
     store.set('seedworld.off.last', seed);
-  } else if (isNew === 1 && !(blob && blob.v)) {
+  } else if (isNew === 1 && !readableSave(blob)) {
     freshCharacter();
     saveArmed = 1;
     say('A new life begins in ' + seed + '.', 'lv');
@@ -6890,7 +6897,7 @@ async function enterWorld(seed) {
   started = 1;
   document.body.classList.add('ingame');
   el('adminBtn').style.display = SEED === 'lumbridge(sandbox)' ? '' : 'none';   // the sandbox wears its admin door openly
-  if (!OFFLINE && AUTH) { connect(); if (isNew || !(blob && blob.v === 1)) markDirty(2); geGreet(); }   // a loaded character need not write back the byte-identical blob it just read
+  if (!OFFLINE && AUTH) { connect(); if (isNew || !readableSave(blob)) markDirty(2); geGreet(); }   // a loaded character need not write back the byte-identical blob it just read
 }
 let started = 0;
 
@@ -7148,7 +7155,7 @@ function offChars() {   // the character list the server would send, read from t
     const k = localStorage.key(i);
     if (!k || !k.startsWith('seedworld.off.') || k === 'seedworld.off.last') continue;
     let b = null; try { b = JSON.parse(localStorage[k]); } catch {}
-    if (!b || b.v !== 1) continue;
+    if (!readableSave(b)) continue;
     const xs = b.xp || [], L = si => levelFor(+xs[si] || 0);
     let tot = 0; for (let si = 0; si < NSK; si++) if (!SKILLS[si].locked) tot += L(si);
     const cb = Math.floor(0.25 * (L(SK.defence) + Math.max(10, L(SK.hitpoints)) + Math.floor(L(SK.prayer) / 2)) +
