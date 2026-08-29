@@ -36,6 +36,29 @@ const HIT_MAX = 130;   // a single pvp hit: a claws cascade off a max-hit 59 rea
 const HIT_WIN = 6000, HIT_SUM = 150;   // and a sustained budget over six seconds, above any legitimate dps
 const TRADE_MAX = 2147483647;   // per-stack ceiling on a trade offer; the pack cannot carry more than an int
 const GE_MIN = 2000, GE_BURST = 6;   // exchange mutations: one every two seconds, six in hand
+
+/* ===================== THE ARCHIVE (D1 is a cache) =======================
+   D1 is capped at 10 GB and the cap cannot be raised, so `characters` cannot be
+   where ten million saves live. It is instead a hot cache: a character sits in
+   D1 while it is being played and for ARCH_IDLE afterwards, then a cron sweep
+   writes the blob to R2 and deletes the row. The table therefore never grows
+   past roughly the concurrent player count, whatever the account count is — and
+   because it stays small, the sweep's `WHERE updated < ?` can scan it without an
+   index, which matters: indexing `updated` would put a written row back on every
+   save, the exact cost this whole design removes.
+
+   R2 is the permanent copy and is never pruned. Storage is $0.015/GB-month
+   against D1's $0.75 — fifty times cheaper — with no ceiling to plan around.
+
+   The key is keyed by player FIRST so that one prefix list gives a player every
+   character they have ever had, which is what the world-select screen needs once
+   their rows have left D1.
+
+   Everything here degrades: with no R2 binding the game runs exactly as it did
+   before, in D1 alone. */
+const ARCH_IDLE = 5 * 60 * 1000;   // a character idle this long is moved to R2
+const ARCH_BATCH = 200;            // characters archived per cron tick
+const archKey = (pid, seed) => 'char/' + pid + '/' + seed + '.json';
 /* Two limits, because a save is a different animal from a chat line. The
    transport cap has to clear MAXSAVE plus its wrapper or a save can never
    arrive at all; movement and chat stay on a tight leash. A single cap of 512
@@ -525,11 +548,20 @@ export class World extends DurableObject {
   }
 
   /* The one D1 write on the hot path, so every clause here is a line on the bill.
-     `characters` carries no secondary index, and nothing in this SET list is
-     indexed, so the statement costs exactly one row. The WHERE predicate makes an
-     unchanged blob cost nothing at all — which is most of what a hidden tab and a
-     closing window send, since the unload handlers fire whether or not anything
-     actually moved. */
+     `characters` carries no secondary index and nothing in this SET list is
+     indexed, so the statement costs exactly one row.
+
+     `updated` moves on EVERY save, even one whose blob is byte-identical. There
+     used to be a `WHERE characters.save <> excluded.save` predicate here making
+     an unchanged blob free, and it had to go: `updated` is now the liveness
+     signal the archive sweep reads, and a player standing still with full
+     hitpoints produces an identical blob for minutes at a time. Under the old
+     predicate that player's timestamp would freeze and the sweep would archive
+     them mid-session. The predicate was worth a few percent of saves; being
+     wrong about who is online is worth rather more.
+
+     A save also restores an archived character implicitly: the row may have been
+     deleted by the sweep, in which case this INSERTs it back. */
   async writeSave(ws, me, seed, blob, payload) {
     const now = Date.now();
     me.saveT = now;
@@ -538,7 +570,7 @@ export class World extends DurableObject {
       await this.env.DB.prepare(
         'INSERT INTO characters (pid, seed, save, combat, total_level, created, updated) VALUES (?,?,?,?,?,?,?) ' +
         'ON CONFLICT(pid, seed) DO UPDATE SET save=excluded.save, combat=excluded.combat, ' +
-        'total_level=excluded.total_level, updated=excluded.updated WHERE characters.save <> excluded.save'
+        'total_level=excluded.total_level, updated=excluded.updated'
       ).bind(me.pid, seed, blob, s.combat, s.totalLevel, now, now).run();
    // Remember the last world played so login can preselect it — but only
    // when it actually changes. Writing it on every flush doubled the D1
@@ -1011,12 +1043,95 @@ async function characters(env, u, origin) {
    // no table yet: an account with no characters, not a server fault
     return json({ pid: row.pid, name: row.name, last: row.seed, characters: [], build: BUILD }, 200, origin);
   }
-  const list = (rows?.results || []).map(r =>
-    ({ seed: r.seed, updated: r.updated, combat: r.combat, totalLevel: r.total_level }));
+  const bySeed = new Map();
+  for (const r of (rows?.results || []))
+    bySeed.set(r.seed, { seed: r.seed, updated: r.updated, combat: r.combat, totalLevel: r.total_level });
+
+  /* The archived ones. Without this the world-select screen would show nothing
+     for anybody who has been away longer than the sweep interval — their rows are
+     gone from D1 and the character would look deleted. The R2 key is keyed by
+     player first precisely so this is one prefix list rather than a lookup per
+     seed, and the summary rides customMetadata so no blob has to be fetched or
+     parsed to draw the list. A live row always wins: it is the newer copy. */
+  if (env.ARCHIVE) {
+    try {
+      const ls = await env.ARCHIVE.list({ prefix: 'char/' + row.pid + '/', limit: 200 });
+      for (const o of (ls.objects || [])) {
+        const seed = o.key.slice(('char/' + row.pid + '/').length).replace(/\.json$/, '');
+        if (!seed || bySeed.has(seed)) continue;
+        const m = o.customMetadata || {};
+        bySeed.set(seed, { seed, updated: +m.updated || +new Date(o.uploaded) || 0,
+                           combat: +m.combat || 3, totalLevel: +m.totalLevel || 32, archived: 1 });
+      }
+    } catch (e) { console.log('archive list failed', row.pid, String(e).slice(0, 120)); }
+  }
+  const list = [...bySeed.values()].sort((a, b) => b.updated - a.updated).slice(0, 40);
   return json({ pid: row.pid, name: row.name, last: row.seed, characters: list, build: BUILD }, 200, origin);
 }
 
+/* ---------------------------- THE SWEEP ----------------------------------
+   A Workers cron trigger, not a Durable Object alarm: it runs, does its work and
+   stops, so it never keeps a room awake — the thing this file's header goes out
+   of its way to avoid.
+
+   The delete carries `AND updated = ?`. That is the whole concurrency story: if
+   the player saved between the SELECT and the DELETE their timestamp moved, the
+   predicate matches nothing, and the live row survives with the R2 copy merely a
+   beat stale — which the next sweep corrects. Without it there is a window where
+   a save lands and is then deleted. */
+async function sweepArchive(env, limit) {
+  if (!env.ARCHIVE || !env.DB) return { skipped: 'no archive binding' };
+  const cutoff = Date.now() - ARCH_IDLE;
+  let rows;
+  try {
+    rows = await env.DB.prepare(
+      'SELECT pid, seed, save, combat, total_level, created, updated FROM characters ' +
+      'WHERE updated < ? ORDER BY updated ASC LIMIT ?'
+    ).bind(cutoff, limit || ARCH_BATCH).all();
+  } catch (e) { console.log('sweep select failed', String(e).slice(0, 120)); return { e: 'select' }; }
+
+  const found = rows?.results || [];
+  if (!found.length) return { archived: 0, scanned: 0 };
+
+  const done = [];
+  for (const r of found) {
+    if (!r.save) { done.push(r); continue; }   // nothing to keep; just let the delete take it
+    try {
+      await env.ARCHIVE.put(archKey(r.pid, r.seed), r.save, {
+        httpMetadata: { contentType: 'application/json' },
+        customMetadata: { combat: String(r.combat | 0), totalLevel: String(r.total_level | 0),
+                          created: String(r.created | 0), updated: String(r.updated | 0) }
+      });
+      done.push(r);
+    } catch (e) { console.log('archive put failed', r.pid, r.seed, String(e).slice(0, 120)); }
+  }
+  if (!done.length) return { archived: 0, scanned: found.length };
+
+  // one batch, and each delete is guarded by the timestamp it was read at
+  try {
+    await env.DB.batch(done.map(r => env.DB.prepare(
+      'DELETE FROM characters WHERE pid=? AND seed=? AND updated=?'
+    ).bind(r.pid, r.seed, r.updated)));
+  } catch (e) { console.log('sweep delete failed', String(e).slice(0, 120)); return { e: 'delete' }; }
+  return { archived: done.length, scanned: found.length };
+}
+
 export default {
+  /* The cron trigger. Keeps sweeping while it is still filling batches, so a
+     backlog after a quiet deploy drains in one tick rather than over hours, but
+     stops the moment a batch comes back short. */
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil((async () => {
+      let total = 0;
+      for (let pass = 0; pass < 20; pass++) {
+        const r = await sweepArchive(env, ARCH_BATCH);
+        total += r.archived || 0;
+        if (!r.archived || r.archived < ARCH_BATCH) break;
+      }
+      if (total) console.log('archived', total, 'characters to R2');
+    })());
+  },
+
   async fetch(req, env, ctx) {
     const u = new URL(req.url);
     const origin = req.headers.get('Origin') || '';
@@ -1215,6 +1330,46 @@ export default {
         missing = 1;
       }
 
+   /* THE ARCHIVE READ. A row absent from D1 does not mean a new player — it
+           means the sweep has been past. This lookup must resolve BEFORE isNew is
+           decided, because isNew:1 is what tells the client to run freshCharacter()
+           and write a starter blob. Get this wrong and every returning player whose
+           row has aged out comes back to a bronze sword.
+
+           Only a D1 miss pays for it, so a player who was here in the last few
+           minutes never waits. A restore is a real hit and costs one R2 GET plus
+           one D1 write; the R2 object is deliberately left in place, so it stays a
+           permanent copy and the next sweep simply overwrites it. An R2 failure is
+           NOT treated as "no character" — it is a 503, for the same reason the D1
+           failure above is. */
+      let restored = 0;
+      if (!ch && env.ARCHIVE) {
+        let obj;
+        try { obj = await env.ARCHIVE.get(archKey(row.pid, seed)); }
+        catch (e) {
+          console.log('archive read failed', row.pid, seed, String(e).slice(0, 120));
+          return json({ e: 'character read failed' }, 503, origin);
+        }
+        if (obj) {
+          let text = null;
+          try { text = await obj.text(); } catch {}
+          if (!text) return json({ e: 'character read failed' }, 503, origin);
+          ch = { save: text };
+          restored = 1;
+          const m = obj.customMetadata || {};
+   /* Bring it home. ON CONFLICT DO NOTHING because two tabs can log in at
+               once and the second must not clobber the first — and because a save may
+               already have raced ahead of this restore, in which case the newer row
+               wins and this is correctly a no-op. */
+          ctx.waitUntil(env.DB.prepare(
+            'INSERT INTO characters (pid, seed, save, combat, total_level, created, updated) ' +
+            'VALUES (?,?,?,?,?,?,?) ON CONFLICT(pid, seed) DO NOTHING'
+          ).bind(row.pid, seed, text, (+m.combat || 3), (+m.totalLevel || 32),
+                 (+m.created || Date.now()), Date.now()).run()
+            .catch(e => console.log('restore failed', row.pid, seed, String(e).slice(0, 120))));
+        }
+      }
+
       let save = {}, bad = 0;
       try { save = JSON.parse((ch && ch.save) || '{}'); } catch { bad = 1; }
    /* isNew is the server's judgement, not something the client infers from an
@@ -1222,7 +1377,14 @@ export default {
            and saying so is what stops it being overwritten. */
       const body = { pid: row.pid, name: row.name, seed, save, isNew: ch ? 0 : 1 };
       if (missing) body.note = 'characters table missing — run sql/schema.sql';
+      if (restored) body.note = 'restored from the archive';
       if (bad) return json({ e: 'character blob is corrupt' }, 503, origin);
+   /* Every login stamps the account, whether or not anything about the character
+           changed. players.updated used to move only when somebody switched worlds,
+           which made it useless as a "when were they last here" signal. Fire and
+           forget — login must not wait on it. */
+      ctx.waitUntil(env.DB.prepare('UPDATE players SET updated=? WHERE pid=?')
+        .bind(Date.now(), row.pid).run().catch(() => {}));
       return json(body, 200, origin);
     }
 
@@ -1265,6 +1427,17 @@ export default {
       } catch (e) {
         return json({ ok: 0, db: 'down', err: String(e) }, 500, origin);
       }
+    }
+
+   /* ---------------- /archive : run the sweep by hand ----------------
+       Same code the cron runs, so you can watch it work without waiting five
+       minutes. Read-only about the world; it only moves cold rows to R2. */
+    if (u.pathname === '/archive') {
+      if (!originOk) return json({ e: 'origin' }, 403, 'null');
+      const r = await sweepArchive(env, Math.min(1000, Math.max(1, +u.searchParams.get('limit') || ARCH_BATCH)));
+      const live = await env.DB.prepare('SELECT COUNT(*) AS n FROM characters').first().catch(() => null);
+      return json({ ...r, idleMs: ARCH_IDLE, liveRowsLeft: live ? live.n : null,
+                    archiveBound: !!env.ARCHIVE }, 200, origin);
     }
 
    /* ---------------- /play : friendly alias for the game ---------------- */
