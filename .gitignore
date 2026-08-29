@@ -2,3 +2,5 @@
 node_modules/
 CLAUDE.md
 MAP.md
+icons07-genmap.mjs
+mapgen.mjs

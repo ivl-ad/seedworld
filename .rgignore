@@ -1,0 +1,7 @@
+# Keeps ripgrep out of generated/binary data: icons07.js is one 73KB line of maps, so a bare
+# item-id grep used to dump tens of thousands of characters into a session. Grep game.js and
+# data07.js freely — those are meant to be searched.
+icons07.js
+icons07-map.csv
+icons07-glyphs.csv
+assets/

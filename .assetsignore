@@ -1,8 +1,13 @@
 /src
 wrangler.toml
 .assetsignore
+.gitignore
+.rgignore
 .wrangler
 .git
 CLAUDE.md
 MAP.md
 tools/
+# build-time tooling and its inputs — never served (covers icons07-tint/sync.mjs and the csvs when restored)
+*.mjs
+*.csv
