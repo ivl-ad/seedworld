@@ -1434,6 +1434,13 @@ export default {
        minutes. Read-only about the world; it only moves cold rows to R2. */
     if (u.pathname === '/archive') {
       if (!originOk) return json({ e: 'origin' }, 403, 'null');
+   /* Authenticated, because an origin check is not one: browsers omit Origin on
+       same-origin GETs, so `!origin` waves through every curl. Unguarded, this is
+       an anonymous lever on your own D1 reads and R2 writes, and it hands out a
+       live player count. Any valid account key will do — it triggers only the work
+       the cron already does on a schedule. */
+      const who = await whoami(env, u.searchParams.get('auth') || '');
+      if (who.e) return json({ e: who.e }, who.code, origin);
       const r = await sweepArchive(env, Math.min(1000, Math.max(1, +u.searchParams.get('limit') || ARCH_BATCH)));
       const live = await env.DB.prepare('SELECT COUNT(*) AS n FROM characters').first().catch(() => null);
       return json({ ...r, idleMs: ARCH_IDLE, liveRowsLeft: live ? live.n : null,
