@@ -1,6 +1,19 @@
+# The repo tracks only what is needed to serve and deploy the game:
+#   index.html, style.css, game.js, data07.js, icons07.js, assets/, src/worker.js,
+#   wrangler.toml, .assetsignore (wrangler reads it at deploy time).
+# Everything below is local-only. Note these files still exist on disk, so .assetsignore
+# must keep listing them too — otherwise `wrangler deploy` would publish them.
+
 .wrangler/
 node_modules/
+
+# local dev tooling and working notes
+tools/
 CLAUDE.md
 MAP.md
-icons07-genmap.mjs
+.rgignore
+
+# build-time icon/map pipeline and its inputs (genmap, tint, sync, the csvs)
 mapgen.mjs
+icons07-*.mjs
+icons07-*.csv
