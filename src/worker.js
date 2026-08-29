@@ -18,8 +18,24 @@
 import { DurableObject } from 'cloudflare:workers';
 
 const VIEW = 48;   // interest radius in tiles; render radius is ~7 chunks
+const LEAVE = VIEW + 6;   // hysteresis: enter at VIEW, leave six tiles later, so a player walking the boundary is not popped in and out
 const RATE = 25;   // client messages per second before we start dropping
 const MAXSAVE = 8192; // save blob ceiling, enforced here not client-side
+/* The room drains its queue on this beat rather than 40 ms. Clients interpolate
+   between frames anyway and the latency-sensitive ops (11, 14, 15) bypass flush
+   entirely, so five sweeps a second buys the same feel for a fifth of the wake. */
+const FLUSH_MS = 200;
+/* Budgets, all per connection. Every one of these guards a lane that a modified
+   client could otherwise open at RATE: a save is a D1 write, a world edit is a
+   row of shared state, a death pile is items on other people's ground. */
+const SAVE_MIN = 2500;   // ms between accepted saves; a later blob supersedes, never drops (see case 8)
+const PILE_MIN = 5000;   // ms between death piles; an honest client sends one per death
+const EDIT_RATE = 120, EDIT_WIN = 60000;   // world edits (ops 20/22) per minute — generous for a maxed woodcutter
+const EDIT_MAX = 1000;   // ticks a client may hold a node down: ten minutes, over the longest honest respawn
+const HIT_MAX = 130;   // a single pvp hit: a claws cascade off a max-hit 59 reaches 116
+const HIT_WIN = 6000, HIT_SUM = 150;   // and a sustained budget over six seconds, above any legitimate dps
+const TRADE_MAX = 2147483647;   // per-stack ceiling on a trade offer; the pack cannot carry more than an int
+const GE_MIN = 2000, GE_BURST = 6;   // exchange mutations: one every two seconds, six in hand
 /* Two limits, because a save is a different animal from a chat line. The
    transport cap has to clear MAXSAVE plus its wrapper or a save can never
    arrive at all; movement and chat stay on a tight leash. A single cap of 512
@@ -43,7 +59,58 @@ const cleanSeed = s => (String(s || '').trim().toLowerCase().slice(0, 32)) || 'l
    invisible from the browser: assets update instantly and the Worker does not,
    so the game looks new while the server is months old and silently dropping
    everything it does not understand. */
-const BUILD = 9;   // 7: wider house lane, op 24 refusal echo; 8: houses stand only while owner connected; 9: op 12 killer+tick elements, eq lane 14 (skull rider)
+const BUILD = 10;   // 7: wider house lane, op 24 refusal echo; 8: houses stand only while owner connected; 9: op 12 killer+tick elements, eq lane 14 (skull rider); 10: server-stamped op 12 clock, op 21 ownership from the sender, budgeted saves and world edits
+
+/* The schema, in one place, so it is reproducible. /health runs exactly this
+   list, which makes it the migration: every statement is IF NOT EXISTS and a
+   second run is a no-op. sql/schema.sql is the same text for a cold start.
+
+   The indexes are deliberately few. D1 bills a row written per index the write
+   touches, so a column that changes on every save must not appear in one:
+   `characters` therefore carries no secondary index at all — its (pid, seed)
+   primary key already serves both `WHERE pid=?` (leading prefix) and the
+   per-seed lookup, and nothing in the save upsert's SET list is indexed, so a
+   save bills exactly one row. `houses` is keyed (seed, pid) rather than
+   (pid, seed)'s natural order because the only read is by seed; that lets the
+   primary key do the work an extra index used to. `ge_book` is partial on the
+   live offers alone, so a fill that does not finish an offer touches no index
+   and the book never scans rows that have already left it. */
+const DDL = {
+  players: `CREATE TABLE IF NOT EXISTS players (
+     pid TEXT PRIMARY KEY,
+     auth_hash TEXT NOT NULL UNIQUE,
+     name TEXT NOT NULL,
+     ip_hash TEXT,
+     seed TEXT,
+     created INTEGER NOT NULL,
+     updated INTEGER NOT NULL)`,
+  // uniqueness is the index's job, not a racing SELECT's
+  playersName: 'CREATE UNIQUE INDEX IF NOT EXISTS idx_players_name ON players (name COLLATE NOCASE)',
+  playersIp: 'CREATE INDEX IF NOT EXISTS idx_players_ip ON players (ip_hash, created)',
+  characters: `CREATE TABLE IF NOT EXISTS characters (
+     pid TEXT NOT NULL,
+     seed TEXT NOT NULL,
+     save TEXT NOT NULL,
+     combat INTEGER NOT NULL DEFAULT 3,
+     total_level INTEGER NOT NULL DEFAULT 32,
+     created INTEGER NOT NULL,
+     updated INTEGER NOT NULL,
+     PRIMARY KEY (pid, seed))`,
+  houses: `CREATE TABLE IF NOT EXISTS houses (
+     seed TEXT NOT NULL,
+     pid TEXT NOT NULL,
+     x INTEGER, z INTEGER, data TEXT, updated INTEGER,
+     PRIMARY KEY (seed, pid))`,
+  geOffers: `CREATE TABLE IF NOT EXISTS ge_offers (
+     pid TEXT NOT NULL, slot INTEGER NOT NULL, kind INTEGER NOT NULL,
+     item TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL,
+     filled INTEGER NOT NULL DEFAULT 0, coins_box INTEGER NOT NULL DEFAULT 0,
+     items_box INTEGER NOT NULL DEFAULT 0, state INTEGER NOT NULL DEFAULT 0,
+     created INTEGER NOT NULL, updated INTEGER NOT NULL,
+     PRIMARY KEY (pid, slot))`,
+  geBook: 'CREATE INDEX IF NOT EXISTS ge_book ON ge_offers (item, kind, price) WHERE state = 0'
+};
+const SCHEMA = Object.values(DDL);
 
 /* The spawn-table revision this deployment expects, echoed in the socket hello
    (element 6). A client whose own SPAWN_REV differs keeps its world private
@@ -76,7 +143,7 @@ function summarise(save) {
   const xp = Array.isArray(save && save.xp) ? save.xp : [];
   let total = 0;
   const lv = [];
-  for (let i = 0; i < 28; i++) { const L = levelFor(+xp[i] || 0); lv[i] = L; if (i < 24) total += L; }
+  for (let i = 0; i < 28; i++) { let L = levelFor(+xp[i] || 0); if (i === 8 && L < 10) L = 10; lv[i] = L; if (i < 24) total += L; }   // hitpoints starts at 10, the same floor applySave applies
   const base = 0.25 * (lv[2] + lv[8] + Math.floor(lv[4] / 2));
   const melee = 0.325 * (lv[0] + lv[1]);
   const range = 0.325 * Math.floor(lv[3] * 1.5), mage = 0.325 * Math.floor(lv[5] * 1.5);
@@ -184,7 +251,7 @@ export class World extends DurableObject {
    /* Interest management only runs inside flush(), and flush only runs when
        somebody queues traffic. Without this, a join is invisible to a room
        where nobody happens to be moving. */
-    if (!this.timer) this.timer = setTimeout(() => this.flush(), 40);
+    if (!this.timer) this.timer = setTimeout(() => this.flush(), FLUSH_MS);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -276,7 +343,14 @@ export class World extends DurableObject {
       case 22: {   // a monster was killed
         const key = String(m[1] || '').slice(0, 48);
         const due = m[2] | 0, gt = wTick();
-        if (!key || due <= gt || due > gt + 20000) return;
+   /* The deadline used to reach 20000 ticks — three hours a client could hold
+           any tile of the world down, at RATE, for as many tiles as it liked. The
+           ceiling is now the longest honest respawn and the rate is a bucket, so a
+           flood costs the flooder its own budget instead of the room's state. */
+        if (!key || due <= gt || due > gt + EDIT_MAX) return;
+        if (now - (me.eT || 0) > EDIT_WIN) { me.eT = now; me.eN = 0; }
+        if ((me.eN || 0) >= EDIT_RATE) return;   // check, then spend: a refusal must not keep charging the bucket
+        me.eN = (me.eN || 0) + 1;
         (m[0] === 20 ? this.depleted : this.monDead).set(key, due);
         this.pruneWorld();
         this.queue(m[0] + ':' + key, [m[0], key, due, me.pid]);
@@ -286,9 +360,17 @@ export class World extends DurableObject {
       case 21: {   // a live monster, owner-driven
         const key = String(m[1] || '').slice(0, 48);
         if (!key) return;
+   /* Ownership is the sender's, not whatever the sender claims. The honest
+           client already puts its own PID in element 6, so this substitution is
+           invisible to it — and it ends the trick where one socket names itself
+           the owner of every monster in the room and nobody else may fight.
+           act 255 is the release signal and carries no owner; it is passed through
+           because the client checks it before reading ownership. */
+        const act = (m[7] | 0) & 255, owner = act === 255 ? '' : me.pid;
+        const mx = m[2] | 0, mz = m[3] | 0;
+        if (Math.abs(mx - me.x) > VIEW * 2 || Math.abs(mz - me.z) > VIEW * 2) return;   // you may only drive a monster you could see
         this.queue('21:' + key,
-          [21, key, m[2] | 0, m[3] | 0, (m[4] | 0) & 15, m[5] | 0,
-           String(m[6] || '').slice(0, 40), (m[7] | 0) & 255, me.pid]);
+          [21, key, mx, mz, (m[4] | 0) & 15, m[5] | 0, owner, act, me.pid]);
         break;
       }
 
@@ -318,8 +400,9 @@ export class World extends DurableObject {
 
       case 15: {   // trade offer
         const other = this.players.get(String(m[1] || ''));
+   // quantity is clamped to what a pack slot can physically carry: an int, not a wish
         const offer = Array.isArray(m[2]) ? m[2].slice(0, 28).map(it => [
-          String((it && it[0]) || '').slice(0, 32), Math.max(0, (it && it[1] | 0) || 0)
+          String((it && it[0]) || '').slice(0, 32), Math.min(TRADE_MAX, Math.max(0, (it && it[1] | 0) || 0))
         ]) : [];
         if (other && near(me, other)) {
           try { other.ws.send(JSON.stringify([[15, me.pid, offer]])); } catch {}
@@ -328,13 +411,18 @@ export class World extends DurableObject {
       }
 
       case 11: {   // pvp hit, delivered to one player
-   /* Attacker-authoritative by design, but budgeted: a single hit is capped at 60
-           and a rolling four-tick window at 110, which clears any legitimate spec chain
-           and shuts the 25-messages-a-second firehose a modified client could open. */
+   /* Attacker-authoritative by design, but budgeted. The old pair of numbers was
+           wrong in both directions: a 60 ceiling silently ate every top-tier special
+           (a claws cascade off a max hit of 59 lands 116, an armadyl godsword 81, a
+           Dharok's at one hitpoint 96) while 110 per four ticks still permitted almost
+           twice the highest honest damage per second. The ceiling now clears the
+           hardest real hit and the window is the one that actually holds the line —
+           and a refusal is echoed, because a spec that vanishes without a word is how
+           this went unnoticed for so long. */
         const d = (m[2] | 0) & 255;
-        if (d > 60) return;
-        if (now - (me.dmgT || 0) > 2400) { me.dmgT = now; me.dmgSum = 0; }
-        if ((me.dmgSum = (me.dmgSum || 0) + d) > 110) return;
+        if (d > HIT_MAX) { try { ws.send(JSON.stringify([[7, 'hit of ' + d + ' refused (ceiling ' + HIT_MAX + ')']])); } catch {} return; }
+        if (now - (me.dmgT || 0) > HIT_WIN) { me.dmgT = now; me.dmgSum = 0; }
+        if ((me.dmgSum = (me.dmgSum || 0) + d) > HIT_SUM) return;
         const target = this.players.get(String(m[1] || ''));
         if (target && near(me, target)) {
           const cls = typeof m[4] === 'string' ? m[4].slice(0, 1) : 0;   // element 4 carries the attack class so the victim's overhead can answer
@@ -344,8 +432,21 @@ export class World extends DurableObject {
       }
 
       case 12: {   // died here, dropped this; element 4 names the killer (loot is theirs for a minute), 5 stamps the tick
-        const items = Array.isArray(m[3]) ? m[3].slice(0, 40) : [];
-        this.queue('12:' + me.pid + ':' + now, [12, me.pid, m[1] | 0, m[2] | 0, items, String(m[4] || '').slice(0, 40), m[5] | 0]);
+   /* Three things the sender no longer chooses. The clock is stamped here: a
+           client-supplied 0 took the receiver's instant-drop branch, which turned a
+           death message into "spawn these items on that ground, now", at RATE, at any
+           coordinates in the cell. The rows are shaped and clamped. And the corpse has
+           to fall where the sender stands — die() computes the spot before the respawn
+           teleport, which happens a second and a half later, so an honest death is
+           comfortably inside the reach. */
+        const dx = m[1] | 0, dz = m[2] | 0;
+        if (Math.abs(dx - me.x) > 8 || Math.abs(dz - me.z) > 8) return;
+        if (now - (me.pileT || 0) < PILE_MIN) return;
+        me.pileT = now;
+        const items = (Array.isArray(m[3]) ? m[3].slice(0, 40) : [])
+          .map(it => [String((it && it[0]) || '').slice(0, 32), Math.min(TRADE_MAX, Math.max(0, (it && it[1] | 0) || 0))])
+          .filter(it => it[0] && it[1] > 0);
+        this.queue('12:' + me.pid + ':' + now, [12, me.pid, dx, dz, items, String(m[4] || '').slice(0, 40), wTick()]);
         break;
       }
 
@@ -356,12 +457,14 @@ export class World extends DurableObject {
       }
 
       case 8: {   // save blob
-   // New shape is [8, seed, blob]. The old [8, blob] still arrives from
-   // account-test.html, so a non-string second element means legacy and
-   // the connection's own seed applies.
-        const legacy = typeof m[1] !== 'string';
-        const seed = legacy ? (me.seed || 'lumbridge') : cleanSeed(m[1]);
-        const payload = legacy ? m[1] : m[2];
+   /* The seed is the connection's, never the message's. It used to be read
+           straight off the wire, and a client that rotated it turned every save into
+           an INSERT of a fresh row — four billed rows apiece, storage that nothing
+           ever reclaims, and the month's whole write allowance inside six hours.
+           The socket already knows which world it joined. Element 1 is still read
+           past for the payload, so the shape [8, seed, blob] is unchanged. */
+        const seed = me.seed || 'lumbridge';
+        const payload = typeof m[1] === 'string' ? m[2] : m[1];
         let blob;
         try { blob = JSON.stringify(payload); } catch { return; }
         if (!blob || blob.length > MAXSAVE) {
@@ -372,42 +475,26 @@ export class World extends DurableObject {
           try { ws.send(JSON.stringify([[7, 'no D1 binding on the durable object']])); } catch {}
           return;
         }
-        try {
-   /* combat and total level ride the same write as columns, so /characters can
-             select two integers instead of parsing forty 8 KB blobs. Rows older than
-             the columns migrate lazily: the ALTER runs once, on the first save that
-             finds them missing. */
-          const s = summarise(payload);
-          const put = () => this.env.DB.prepare(
-            'INSERT INTO characters (pid, seed, save, combat, total_level, created, updated) VALUES (?,?,?,?,?,?,?) ' +
-            'ON CONFLICT(pid, seed) DO UPDATE SET save=excluded.save, combat=excluded.combat, total_level=excluded.total_level, updated=excluded.updated'
-          ).bind(me.pid, seed, blob, s.combat, s.totalLevel, now, now).run();
-          try { await put(); } catch (e) {
-            if (!/no column|no such column/i.test(String(e))) throw e;
-            await this.env.DB.prepare('ALTER TABLE characters ADD COLUMN combat INTEGER').run().catch(() => {});
-            await this.env.DB.prepare('ALTER TABLE characters ADD COLUMN total_level INTEGER').run().catch(() => {});
-            await put();
+   /* A save budget that never loses a save. An honest client can legitimately
+           produce two inside the window — it saves, then the tab is hidden a second
+           later and the unload path skips its own gap — so an early blob is held
+           rather than dropped, and the newest one lands when the window is up. The
+           ack is deferred with it, so the client's watchdog still measures a real
+           round trip. */
+        if (now - (me.saveT || 0) < SAVE_MIN) {
+          me.saveQ = { blob, payload, seed };
+          if (!me.saveW) {
+            me.saveW = 1;
+            const wait = SAVE_MIN - (now - (me.saveT || 0));
+            this.ctx.waitUntil(new Promise(r => setTimeout(r, wait)).then(() => {
+              me.saveW = 0;
+              const q = me.saveQ; me.saveQ = null;
+              if (q && this.players.get(me.pid) === me) return this.writeSave(ws, me, q.seed, q.blob, q.payload);
+            }));
           }
-   // Remember the last world played so login can preselect it — but only
-   // when it actually changes. Writing it on every flush doubled the D1
-   // cost of a save for a column that changes once a session.
-          if (me.savedSeed !== seed) {
-            me.savedSeed = seed;
-            await this.env.DB.prepare('UPDATE players SET seed=?, updated=? WHERE pid=?')
-              .bind(seed, now, me.pid).run();
-            this.saveAtt(ws, me);
-          }
-   // confirm the write, so a client can tell "saved" from "swallowed"
-          try { ws.send(JSON.stringify([[10, seed, blob.length]])); } catch {}
-        } catch (e) {
-   // Silence here is how a missing table costs somebody their session.
-          const msg = String(e);
-          console.log('save failed', me.pid, msg);
-          try {
-            ws.send(JSON.stringify([[7, /no such table/i.test(msg)
-              ? 'the characters table does not exist' : msg.slice(0, 120)]]));
-          } catch {}
+          return;
         }
+        await this.writeSave(ws, me, seed, blob, payload);
         return;   // no attachment change
       }
 
@@ -437,6 +524,44 @@ export class World extends DurableObject {
     }
   }
 
+  /* The one D1 write on the hot path, so every clause here is a line on the bill.
+     `characters` carries no secondary index, and nothing in this SET list is
+     indexed, so the statement costs exactly one row. The WHERE predicate makes an
+     unchanged blob cost nothing at all — which is most of what a hidden tab and a
+     closing window send, since the unload handlers fire whether or not anything
+     actually moved. */
+  async writeSave(ws, me, seed, blob, payload) {
+    const now = Date.now();
+    me.saveT = now;
+    try {
+      const s = summarise(payload);
+      await this.env.DB.prepare(
+        'INSERT INTO characters (pid, seed, save, combat, total_level, created, updated) VALUES (?,?,?,?,?,?,?) ' +
+        'ON CONFLICT(pid, seed) DO UPDATE SET save=excluded.save, combat=excluded.combat, ' +
+        'total_level=excluded.total_level, updated=excluded.updated WHERE characters.save <> excluded.save'
+      ).bind(me.pid, seed, blob, s.combat, s.totalLevel, now, now).run();
+   // Remember the last world played so login can preselect it — but only
+   // when it actually changes. Writing it on every flush doubled the D1
+   // cost of a save for a column that changes once a session.
+      if (me.savedSeed !== seed) {
+        me.savedSeed = seed;
+        await this.env.DB.prepare('UPDATE players SET seed=?, updated=? WHERE pid=?')
+          .bind(seed, now, me.pid).run();
+        this.saveAtt(ws, me);
+      }
+   // confirm the write, so a client can tell "saved" from "swallowed"
+      try { ws.send(JSON.stringify([[10, seed, blob.length]])); } catch {}
+    } catch (e) {
+   // Silence here is how a missing table costs somebody their session.
+      const msg = String(e);
+      console.log('save failed', me.pid, msg);
+      try {
+        ws.send(JSON.stringify([[7, /no such table/i.test(msg)
+          ? 'the characters table does not exist — run the schema in sql/schema.sql' : msg.slice(0, 120)]]));
+      } catch {}
+    }
+  }
+
   /* One-shot timer only, never a repeating alarm. A repeating alarm keeps the
      object awake forever and blocks hibernation, which is where the bill is. */
   pruneWorld(force) {
@@ -459,11 +584,12 @@ export class World extends DurableObject {
     this.housesSeed = seed;
     if (!this.env.DB) return;
     try {
+   // seed leads the primary key, so this is a range walk on it and needs no second index
       const q = () => this.env.DB.prepare('SELECT pid, data FROM houses WHERE seed=?').bind(seed).all();
       let rows;
       try { rows = await q(); } catch (e) {
         if (!/no such table/i.test(String(e))) throw e;
-        await this.env.DB.prepare('CREATE TABLE IF NOT EXISTS houses (pid TEXT NOT NULL, seed TEXT NOT NULL, x INTEGER, z INTEGER, data TEXT, updated INTEGER, PRIMARY KEY (pid, seed))').run().catch(() => {});
+        await this.env.DB.prepare(DDL.houses).run().catch(() => {});
         rows = await q();
       }
       for (const r of (rows.results || [])) {
@@ -481,26 +607,31 @@ export class World extends DurableObject {
     if (!force && t - this.hFlushT < 10000) return;
     this.hFlushT = t;
     const dirty = [...this.hDirty]; this.hDirty.clear();
+   /* One batch, not a round trip per pid: a build session that touched three
+       houses used to be three sequential awaits inside waitUntil. The statements
+       are independent, so ordering does not matter and a batch is one subrequest. */
+    const stmts = [];
+    for (const pid of dirty) {
+      const h = this.houses.get(pid);
+      stmts.push(h
+        ? this.env.DB.prepare('INSERT INTO houses (seed, pid, x, z, data, updated) VALUES (?,?,?,?,?,?) ON CONFLICT(seed, pid) DO UPDATE SET x=excluded.x, z=excluded.z, data=excluded.data, updated=excluded.updated')
+            .bind(this.housesSeed, pid, h.x, h.z, JSON.stringify(h.d), t)
+        : this.env.DB.prepare('DELETE FROM houses WHERE seed=? AND pid=?').bind(this.housesSeed, pid));
+    }
+    if (!stmts.length) return;
     this.ctx.waitUntil((async () => {
-      for (const pid of dirty) {
-        const h = this.houses.get(pid);
-        const run = () => h
-          ? this.env.DB.prepare('INSERT INTO houses (pid, seed, x, z, data, updated) VALUES (?,?,?,?,?,?) ON CONFLICT(pid, seed) DO UPDATE SET x=excluded.x, z=excluded.z, data=excluded.data, updated=excluded.updated')
-              .bind(pid, this.housesSeed, h.x, h.z, JSON.stringify(h.d), t).run()
-          : this.env.DB.prepare('DELETE FROM houses WHERE pid=? AND seed=?').bind(pid, this.housesSeed).run();
-        try { await run(); } catch (e) {
-          if (/no such table/i.test(String(e))) {
-            await this.env.DB.prepare('CREATE TABLE IF NOT EXISTS houses (pid TEXT NOT NULL, seed TEXT NOT NULL, x INTEGER, z INTEGER, data TEXT, updated INTEGER, PRIMARY KEY (pid, seed))').run().catch(() => {});
-            await run().catch(e2 => console.log('house write failed', pid, String(e2).slice(0, 120)));
-          } else console.log('house write failed', pid, String(e).slice(0, 120));
-        }
+      try { await this.env.DB.batch(stmts); } catch (e) {
+        if (/no such table/i.test(String(e))) {
+          await this.env.DB.prepare(DDL.houses).run().catch(() => {});
+          await this.env.DB.batch(stmts).catch(e2 => console.log('house write failed', String(e2).slice(0, 120)));
+        } else console.log('house write failed', String(e).slice(0, 120));
       }
     })());
   }
 
   queue(key, msg) {
     this.pending.set(key, msg);
-    if (!this.timer) this.timer = setTimeout(() => this.flush(), 40);
+    if (!this.timer) this.timer = setTimeout(() => this.flush(), FLUSH_MS);
   }
 
   flush() {
@@ -522,7 +653,9 @@ export class World extends DurableObject {
 
       for (const pid of p.seen) {
         const q = this.players.get(pid);
-        if (!q || Math.abs(q.x - p.x) > VIEW || Math.abs(q.z - p.z) > VIEW) { p.seen.delete(pid); out.push([5, pid]); }
+   // leave six tiles past the entry radius: an op 5 tears the rig down, so a
+   // player pacing the boundary used to pop out and back in every other flush
+        if (!q || Math.abs(q.x - p.x) > LEAVE || Math.abs(q.z - p.z) > LEAVE) { p.seen.delete(pid); out.push([5, pid]); }
       }
 
       const bx = Math.floor(p.x / VIEW), bz = Math.floor(p.z / VIEW);
@@ -623,7 +756,24 @@ export class Exchange extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.lock = Promise.resolve();
-    this.tables = 0;
+    this.tables = null;   // the ensure() promise, memoised — see below
+    this.buckets = new Map();   // pid -> {t, n} token bucket on mutations
+  }
+  /* Every mutation in the game queues on one promise chain in one object, so an
+     unthrottled client could hold the world's order book to itself. This runs
+     BEFORE serial() and before any INSERT, which matters: the client refunds its
+     escrow when a place is refused, so a limiter that fired after the row existed
+     would duplicate rather than protect. */
+  allow(pid) {
+    const t = Date.now(), b = this.buckets.get(pid);
+    if (!b) { this.buckets.set(pid, { t, n: 1 }); return 1; }
+   // one token back every GE_MIN, capped at GE_BURST in hand
+    const gained = Math.floor((t - b.t) / GE_MIN);
+    if (gained) { b.n = Math.max(0, b.n - gained); b.t += gained * GE_MIN; }
+    if (b.n >= GE_BURST) return 0;
+    b.n++;
+    if (this.buckets.size > 4000) for (const [k, v] of this.buckets) { if (t - v.t > 600000) this.buckets.delete(k); }
+    return 1;
   }
   /* D1 calls are subrequests, not DO storage, so the platform's input gate
      does not serialise them — this chain does. Handlers run strictly in turn. */
@@ -634,19 +784,17 @@ export class Exchange extends DurableObject {
   }
   /* The table makes itself on first use: no migration to run, nothing to
      forget. The index is what the matching query lives on. */
-  async ensure() {
-    if (this.tables) return;
-    await this.env.DB.prepare(
-      'CREATE TABLE IF NOT EXISTS ge_offers (' +
-      'pid TEXT NOT NULL, slot INTEGER NOT NULL, kind INTEGER NOT NULL, ' +
-      'item TEXT NOT NULL, price INTEGER NOT NULL, qty INTEGER NOT NULL, ' +
-      'filled INTEGER NOT NULL DEFAULT 0, coins_box INTEGER NOT NULL DEFAULT 0, ' +
-      'items_box INTEGER NOT NULL DEFAULT 0, state INTEGER NOT NULL DEFAULT 0, ' +
-      'created INTEGER NOT NULL, updated INTEGER NOT NULL, ' +
-      'PRIMARY KEY (pid, slot))').run();
-    await this.env.DB.prepare(
-      'CREATE INDEX IF NOT EXISTS ge_book ON ge_offers (item, kind, state, price)').run();
-    this.tables = 1;
+  ensure() {
+   /* Memoise the PROMISE, not a flag set after the awaits — every request that
+       landed inside the cold-start window used to re-run both statements. And
+       clear it on rejection, or one transient failure poisons the object for the
+       rest of its life. */
+    if (!this.tables) {
+      this.tables = this.env.DB.batch([
+        this.env.DB.prepare(DDL.geOffers), this.env.DB.prepare(DDL.geBook)
+      ]).catch(e => { this.tables = null; throw e; });
+    }
+    return this.tables;
   }
   row(pid, slot) {
     return this.env.DB.prepare('SELECT * FROM ge_offers WHERE pid=? AND slot=?')
@@ -664,6 +812,8 @@ export class Exchange extends DurableObject {
       try { await this.ensure(); return Response.json(await this.state(pid)); }
       catch (e) { console.log('ge error', String(e)); return Response.json({ e: 'exchange error' }, { status: 500 }); }
     }
+   // the bucket is spent before the lock is taken and before anything is inserted
+    if (!this.allow(pid)) return Response.json({ e: 'too many exchange requests' }, { status: 429 });
     return this.serial(async () => {
       try {
         await this.ensure();
@@ -704,27 +854,48 @@ export class Exchange extends DurableObject {
        order against a fragmented book fills against up to twenty resting offers
        now and meets the rest of the book on later placements, instead of holding
        the global lock for a round-trip per row. */
+   /* `created` is deliberately absent from the ORDER BY. It is not in the index,
+       so asking for it materialised every row at the marginal price into a temp
+       b-tree before the LIMIT could apply. Within an index prefix SQLite walks in
+       rowid order, and rowid is assigned at INSERT under this same lock, so the
+       result is the same first-in-first-out the column was there to express — and
+       strictly better, since two placements in one millisecond had no defined
+       order before. `state` is gone from the WHERE because the index is now
+       partial on state = 0: it holds only live offers, so finished ones are never
+       walked at all. */
     let remaining = qty, mineFilled = 0;
     const page = await this.env.DB.prepare(kind === 0
-      ? 'SELECT * FROM ge_offers WHERE item=? AND kind=1 AND state=0 AND price<=? AND pid<>? ORDER BY price ASC, created ASC LIMIT 20'
-      : 'SELECT * FROM ge_offers WHERE item=? AND kind=0 AND state=0 AND price>=? AND pid<>? ORDER BY price DESC, created ASC LIMIT 20'
+      ? 'SELECT * FROM ge_offers WHERE item=? AND kind=1 AND state=0 AND price<=? AND pid<>? ORDER BY price ASC LIMIT 20'
+      : 'SELECT * FROM ge_offers WHERE item=? AND kind=0 AND state=0 AND price>=? AND pid<>? ORDER BY price DESC LIMIT 20'
     ).bind(item, price, pid).all();
-    const upd = 'UPDATE ge_offers SET filled=filled+?, coins_box=coins_box+?, items_box=items_box+?, state=?, updated=? WHERE pid=? AND slot=?';
+
+   /* Two statements, chosen so a fill that does not finish an offer never names
+       `state` — which is what keeps it out of the partial index and off the bill.
+       And the placer's own row is accumulated and written ONCE at the end: the old
+       loop rewrote it on every iteration, nineteen of them immediately superseded,
+       and awaited a round trip for each while holding the world's only lock. */
+    const updLive = 'UPDATE ge_offers SET filled=filled+?, coins_box=coins_box+?, items_box=items_box+?, updated=? WHERE pid=? AND slot=?';
+    const updDone = 'UPDATE ge_offers SET filled=filled+?, coins_box=coins_box+?, items_box=items_box+?, state=1, updated=? WHERE pid=? AND slot=?';
+    const stmts = [];
+    let myCoins = 0, myItems = 0;
     for (const c of (page.results || [])) {
       if (remaining <= 0) break;
       const t = Math.min(remaining, c.qty - c.filled);
       if (t <= 0) continue;   // a corrupt row must not spin forever
       const tp = c.price;   // the resting offer sets the price
-      const doneC = c.filled + t >= c.qty ? 1 : 0;
+      const done = c.filled + t >= c.qty;
+      stmts.push(this.env.DB.prepare(done ? updDone : updLive).bind(
+        t, kind === 0 ? t * tp : 0, kind === 0 ? 0 : t, now, c.pid, c.slot));   // seller paid the ask, or buyer's offer receives goods
       mineFilled += t;
-      const doneM = mineFilled >= qty ? 1 : 0;
-   // both sides of the trade land in one transaction, or neither does
-      await this.env.DB.batch(kind === 0
-        ? [this.env.DB.prepare(upd).bind(t, t * tp, 0, doneC, now, c.pid, c.slot),   // seller is paid the ask
-           this.env.DB.prepare(upd).bind(t, t * (price - tp), t, doneM, now, pid, slot)]   // buyer gets goods + change
-        : [this.env.DB.prepare(upd).bind(t, 0, t, doneC, now, c.pid, c.slot),   // buyer's offer receives goods
-           this.env.DB.prepare(upd).bind(t, t * tp, 0, doneM, now, pid, slot)]);   // seller is paid the bid
+      if (kind === 0) { myCoins += t * (price - tp); myItems += t; }   // buyer gets goods and the change
+      else myCoins += t * tp;   // seller is paid the bid
       remaining -= t;
+    }
+    if (mineFilled) {
+      stmts.push(this.env.DB.prepare(mineFilled >= qty ? updDone : updLive)
+        .bind(mineFilled, myCoins, myItems, now, pid, slot));
+   // one transaction over the whole sweep: every trade lands, or none of them does
+      await this.env.DB.batch(stmts);
     }
     return { offer: await this.row(pid, slot) };
   }
@@ -735,22 +906,25 @@ export class Exchange extends DurableObject {
    // the unfilled escrow comes back through the collection box, as it did in 2007
     const backC = o.kind === 0 ? (o.qty - o.filled) * o.price : 0;
     const backI = o.kind === 1 ? (o.qty - o.filled) : 0;
-    await this.env.DB.prepare(
-      'UPDATE ge_offers SET state=1, coins_box=coins_box+?, items_box=items_box+?, updated=? WHERE pid=? AND slot=?'
-    ).bind(backC, backI, Date.now(), o.pid, o.slot).run();
-    return { offer: await this.row(o.pid, o.slot) };
+   // RETURNING folds the read-back into the write: one round trip, not two
+    const offer = await this.env.DB.prepare(
+      'UPDATE ge_offers SET state=1, coins_box=coins_box+?, items_box=items_box+?, updated=? WHERE pid=? AND slot=? RETURNING *'
+    ).bind(backC, backI, Date.now(), o.pid, o.slot).first();
+    return { offer };
   }
   async collect(pid, b) {
     const o = await this.row(pid, b.slot | 0);
     if (!o) return { e: 'no offer' };
    /* The client asks for what its pack can hold; the box keeps the rest.
-       Clamped here, so a hopeful request can never mint anything. */
+       Clamped here, so a hopeful request can never mint anything. The clamp stays
+       a read rather than moving into the WHERE: as a predicate an over-ask would
+       match nothing and come back "no offer", where today it collects what is
+       actually there, which is the behaviour the client is written against. */
     const tc = Math.max(0, Math.min(Math.floor(+b.coins || 0), o.coins_box));
     const ti = Math.max(0, Math.min(Math.floor(+b.items || 0), o.items_box));
-    await this.env.DB.prepare(
-      'UPDATE ge_offers SET coins_box=coins_box-?, items_box=items_box-?, updated=? WHERE pid=? AND slot=?'
-    ).bind(tc, ti, Date.now(), o.pid, o.slot).run();
-    const left = await this.row(o.pid, o.slot);
+    const left = await this.env.DB.prepare(
+      'UPDATE ge_offers SET coins_box=coins_box-?, items_box=items_box-?, updated=? WHERE pid=? AND slot=? RETURNING *'
+    ).bind(tc, ti, Date.now(), o.pid, o.slot).first();
     if (left && left.state === 1 && left.coins_box === 0 && left.items_box === 0) {
       await this.env.DB.prepare('DELETE FROM ge_offers WHERE pid=? AND slot=?').bind(o.pid, o.slot).run();
       return { coins: tc, items: ti, item: o.item, offer: null };
@@ -787,7 +961,7 @@ async function whoami(env, auth) {
   return { row };
 }
 
-async function population(env, u, origin) {
+async function population(env, u, origin, ctx) {
   const seed = cleanSeed(u.searchParams.get('seed'));
   /* Every open world-select screen polls this; without a cache each poll
      instantiates the seed's Durable Object. Eight seconds of staleness on a
@@ -807,10 +981,14 @@ async function population(env, u, origin) {
    // an empty world has never been instantiated; that is not an error
     body = { seed, n: 0, build: BUILD };
   }
-  try {
-    await caches.default.put(ck, new Response(JSON.stringify(body),
-      { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=8' } }));
-  } catch {}
+  /* The miss is cached too. The seed comes straight off the query string, so
+     without this a stream of invented seeds misses every time and each miss
+     spins up a fresh Durable Object — an unauthenticated way to bill the
+     account, from a route that needs no account at all. And the write goes
+     through waitUntil so it is not in the reader's latency. */
+  const put = caches.default.put(ck, new Response(JSON.stringify(body),
+    { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=8' } })).catch(() => {});
+  if (ctx && ctx.waitUntil) ctx.waitUntil(put); else await put;
   return json(body, 200, origin);
 }
 async function characters(env, u, origin) {
@@ -818,36 +996,28 @@ async function characters(env, u, origin) {
   if (who.e) return json({ e: who.e }, who.code, origin);
   const row = who.row;
 
-  /* The columns are written at save time; the blob ships only for rows that
-     predate them, and those are summarised the old way until their next save. */
+  /* combat and total_level are written as columns at save time, so this selects
+     three small values instead of parsing forty 8 KB blobs. The blob is never
+     read here. ORDER BY updated has no index behind it deliberately — indexing a
+     column that changes on every save would double the cost of every save to
+     spare a sort over at most forty rows, which is the wrong trade by three
+     orders of magnitude. */
   let rows;
   try {
     rows = await env.DB.prepare(
-      'SELECT seed, updated, combat, total_level, CASE WHEN combat IS NULL THEN save ELSE NULL END AS save ' +
-      'FROM characters WHERE pid=? ORDER BY updated DESC LIMIT 40'
+      'SELECT seed, updated, combat, total_level FROM characters WHERE pid=? ORDER BY updated DESC LIMIT 40'
     ).bind(row.pid).all();
   } catch {
-    try {
-      rows = await env.DB.prepare(
-        'SELECT seed, save, updated FROM characters WHERE pid=? ORDER BY updated DESC LIMIT 40'
-      ).bind(row.pid).all();
-    } catch {
    // no table yet: an account with no characters, not a server fault
-      return json({ pid: row.pid, name: row.name, last: row.seed, characters: [], build: BUILD }, 200, origin);
-    }
+    return json({ pid: row.pid, name: row.name, last: row.seed, characters: [], build: BUILD }, 200, origin);
   }
-  const list = (rows?.results || []).map(r => {
-    if (r.combat != null) return { seed: r.seed, updated: r.updated, combat: r.combat, totalLevel: r.total_level };
-    let save = {};
-    try { save = JSON.parse(r.save || '{}'); } catch {}
-    const s = summarise(save);
-    return { seed: r.seed, updated: r.updated, combat: s.combat, totalLevel: s.totalLevel };
-  });
+  const list = (rows?.results || []).map(r =>
+    ({ seed: r.seed, updated: r.updated, combat: r.combat, totalLevel: r.total_level }));
   return json({ pid: row.pid, name: row.name, last: row.seed, characters: list, build: BUILD }, 200, origin);
 }
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const u = new URL(req.url);
     const origin = req.headers.get('Origin') || '';
     const list = (env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -929,7 +1099,14 @@ export default {
       if (!/^[0-9a-f]{12}$/.test(pid || '')) return json({ e: 'bad pid' }, 400, origin);
       if (!/^[A-Za-z0-9 ]{2,12}$/.test(name || '')) return json({ e: 'bad name' }, 400, origin);
 
-      const ipHash = await sha256('ip|' + (req.headers.get('cf-connecting-ip') || ''));
+   /* Bucket an IPv6 address by its /64, not its full 128 bits. A single
+           residential v6 allocation hands out 2^64 addresses, so per-exact-address
+           counting made the five-per-hour limit free to walk straight past —
+           and sybil accounts are what fund every other abuse in this file.
+           IPv4 keeps its exact address; a /64 has no meaning there. */
+      const ip = req.headers.get('cf-connecting-ip') || '';
+      const ipKey = ip.includes(':') ? ip.split(':').slice(0, 4).join(':') + '::/64' : ip;
+      const ipHash = await sha256('ip|' + ipKey);
       const hourAgo = Date.now() - 3600e3;
 
       const authHash = await sha256('v1|' + auth);
@@ -979,12 +1156,37 @@ export default {
       } catch { return json({ e: 'db error' }, 500, origin); }
     }
 
+   /* ---------------- /rotate : a new key for the same account ----------------
+       The key IS the credential, so before this route a leak — a shoulder-surf,
+       a shared screenshot, a script that reads localStorage — was permanent and
+       total. Proving you hold the old key is the only authority needed, which is
+       the same authority every other route already accepts. One indexed column
+       changes; the old key stops working the moment it lands. */
+    if (u.pathname === '/rotate' && req.method === 'POST') {
+      if (!originOk) return json({ e: 'origin' }, 403, 'null');
+      let b; try { b = await req.json(); } catch { return json({ e: 'bad json' }, 400, origin); }
+      const { auth, next } = b || {};
+      if (!/^[0-9a-f]{64}$/.test(next || '')) return json({ e: 'bad new key' }, 400, origin);
+      const who = await whoami(env, auth || '');
+      if (who.e) return json({ e: who.e }, who.code, origin);
+      if (auth === next) return json({ e: 'that is the same key' }, 400, origin);
+      try {
+        await env.DB.prepare('UPDATE players SET auth_hash=?, updated=? WHERE pid=?')
+          .bind(await sha256('v1|' + next), Date.now(), who.row.pid).run();
+      } catch (e) {
+        if (/UNIQUE/i.test(String(e))) return json({ e: 'that key already belongs to an account' }, 409, origin);
+        console.log('rotate failed', String(e));
+        return json({ e: 'db error' }, 500, origin);
+      }
+      return json({ ok: 1, pid: who.row.pid, name: who.row.name }, 200, origin);
+    }
+
    /* ---------------- /save : one character, per seed ---------------- */
     if (u.pathname === '/save' && req.method === 'GET') {
       if (!originOk) return json({ e: 'origin' }, 403, 'null');
 
    // ?pop=1 needs no account, so answer before authenticating
-      if (u.searchParams.get('pop')) return population(env, u, origin);
+      if (u.searchParams.get('pop')) return population(env, u, origin, ctx);
       if (u.searchParams.get('list')) return characters(env, u, origin);
 
       const who = await whoami(env, u.searchParams.get('auth') || '');
@@ -994,26 +1196,33 @@ export default {
    // no seed given means "wherever I was last"
       const seed = cleanSeed(u.searchParams.get('seed') || row.seed);
 
-      let ch = null, note = null;
+   /* The catch here used to be unconditional, and that cost characters. Any
+           transient D1 error — a timeout, a storage blip — returned
+           {save:{}, isNew:1} at HTTP 200 with no error field, the client read that
+           as "brand new account", ran freshCharacter() and wrote a 614-byte starter
+           blob over a real character seconds later. A missing table is the one
+           genuinely-empty case; everything else is a failure and must say so, so
+           the client retries and then refuses to arm saving. */
+      let ch = null, missing = 0;
       try {
         ch = await env.DB.prepare('SELECT save FROM characters WHERE pid=? AND seed=?')
           .bind(row.pid, seed).first();
       } catch (e) {
-   /* Before the characters table exists there is still one legacy blob on
-           the player row. Serving it keeps an account that predates per-seed
-           characters from looking wiped. */
-        note = 'characters table missing';
-        try {
-          const legacy = await env.DB.prepare('SELECT save FROM players WHERE pid=?')
-            .bind(row.pid).first();
-          if (legacy && legacy.save && legacy.save !== '{}') ch = legacy;
-        } catch {}
+        if (!/no such table/i.test(String(e))) {
+          console.log('character read failed', row.pid, String(e).slice(0, 120));
+          return json({ e: 'character read failed' }, 503, origin);
+        }
+        missing = 1;
       }
 
-      let save = {};
-      try { save = JSON.parse((ch && ch.save) || '{}'); } catch {}
+      let save = {}, bad = 0;
+      try { save = JSON.parse((ch && ch.save) || '{}'); } catch { bad = 1; }
+   /* isNew is the server's judgement, not something the client infers from an
+           empty object: a row that exists but will not parse is NOT a new character,
+           and saying so is what stops it being overwritten. */
       const body = { pid: row.pid, name: row.name, seed, save, isNew: ch ? 0 : 1 };
-      if (note) body.note = note;
+      if (missing) body.note = 'characters table missing — run sql/schema.sql';
+      if (bad) return json({ e: 'character blob is corrupt' }, 503, origin);
       return json(body, 200, origin);
     }
 
@@ -1024,24 +1233,35 @@ export default {
     }
     if (u.pathname === '/population' && req.method === 'GET') {
       if (!originOk) return json({ e: 'origin' }, 403, 'null');
-      return population(env, u, origin);
+      return population(env, u, origin, ctx);
     }
 
    /* ---------------- /health ---------------- */
     if (u.pathname === '/health') {
       try {
         await env.DB.prepare('SELECT 1').first();
-   /* the indexes every hot query assumes; IF NOT EXISTS makes /health the
-           one-call migration to run after a deploy */
-        for (const q of [
-          'CREATE INDEX IF NOT EXISTS idx_players_auth ON players (auth_hash)',
-          'CREATE INDEX IF NOT EXISTS idx_players_name ON players (name COLLATE NOCASE)',
-          'CREATE INDEX IF NOT EXISTS idx_players_ip ON players (ip_hash, created)',
-          'CREATE INDEX IF NOT EXISTS idx_characters_pid ON characters (pid, updated)',
-          'CREATE TABLE IF NOT EXISTS houses (pid TEXT NOT NULL, seed TEXT NOT NULL, x INTEGER, z INTEGER, data TEXT, updated INTEGER, PRIMARY KEY (pid, seed))',
-          'CREATE INDEX IF NOT EXISTS idx_houses_seed ON houses (seed)'   // loadHouses filters by seed; the (pid, seed) PK cannot serve that
-        ]) { try { await env.DB.prepare(q).run(); } catch {} }
-        return json({ ok: 1, db: 'up', now: Date.now(), build: BUILD }, 200, origin);
+   /* /health runs the schema, which makes it the one-call migration after a
+           deploy. Every statement is IF NOT EXISTS, so a second run is free.
+           Notably absent: the old idx_characters_pid on (pid, updated). `updated`
+           changes on every save, so that index doubled the billed rows of the
+           single hottest statement in the system to buy a sort over at most forty
+           rows. If it is still in your database, drop it — see sql/schema.sql. */
+        const errs = [];
+        for (const q of SCHEMA) { try { await env.DB.prepare(q).run(); } catch (e) { errs.push(String(e).slice(0, 100)); } }
+   /* Name the leftovers rather than leaving them to be discovered on an invoice.
+       Stated as a whitelist, not a blacklist: this database has carried two
+       generations of hand-made index names (idx_auth, idx_name_lc, idx_char_pid…)
+       alongside the ones an older /health created, and a list of known-bad names
+       will always be one deployment behind. Anything on these four tables that is
+       not one of the three the schema declares is reported, whatever it is called. */
+        const KEEP = ['idx_players_name', 'idx_players_ip', 'ge_book'];
+        const stale = await env.DB.prepare(
+          "SELECT name, tbl_name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' " +
+          "AND tbl_name IN ('players','characters','houses','ge_offers')"
+        ).all().then(r => (r.results || []).filter(x => !KEEP.includes(x.name))
+                                           .map(x => x.tbl_name + '.' + x.name)).catch(() => []);
+        return json({ ok: 1, db: 'up', now: Date.now(), build: BUILD, spawnRev: SPAWN_REV,
+                      schema: SCHEMA.length, errs, staleIndexes: stale }, 200, origin);
       } catch (e) {
         return json({ ok: 0, db: 'down', err: String(e) }, 500, origin);
       }
@@ -1053,7 +1273,17 @@ export default {
     }
 
    /* ---------------- everything else: static files ----------------
-       Your own index.html at the repo root is served at / untouched. */
-    return env.ASSETS.fetch(req);
+       Your own index.html at the repo root is served at / untouched, apart from
+       three headers. index.html carries the content policy itself, but
+       frame-ancestors is ignored in a <meta> — it only counts as a header — and
+       clickjacking is worth closing on a page that holds an account key. */
+    const asset = await env.ASSETS.fetch(req);
+    const ct = asset.headers.get('content-type') || '';
+    if (!ct.includes('text/html')) return asset;
+    const h = new Headers(asset.headers);
+    h.set('content-security-policy', "frame-ancestors 'self'");
+    h.set('x-content-type-options', 'nosniff');
+    h.set('referrer-policy', 'same-origin');   // the key rides some URLs; do not leak them to anywhere we link
+    return new Response(asset.body, { status: asset.status, statusText: asset.statusText, headers: h });
   }
 };

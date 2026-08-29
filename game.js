@@ -2886,10 +2886,16 @@ function findPath(sx, sz, gx, gz, reach) {
   gs.set(sKey, 0); px.set(sKey, sx); pz.set(sKey, sz);
   heapPush(0, sKey);
   let expanded = 0, best = sKey, bestH = Math.hypot(sx - gx, sz - gz), found = null;
-  while (_hi.length && expanded < MAX_NODES) {
+  /* Give up early on a goal that is walled off. A reachable target is found in a
+     few hundred expansions; the full MAX_NODES budget is only ever spent proving
+     a negative, and each expansion issues up to twelve canStep probes, so that
+     proof is a visible hitch inside the click that asked for it. Once a long run
+     of expansions has failed to get any closer, it is not going to. */
+  let stale = 0;
+  while (_hi.length && expanded < MAX_NODES && stale < 800) {
     const cur = heapPop(), cx = px.get(cur), cz = pz.get(cur);
     if (hit(cx, cz)) { found = cur; break; }
-    expanded++;
+    expanded++; stale++;
     const g0 = gs.get(cur);
     for (let d = 0; d < 8; d++) {
       const nx = cx + DX[d], nz = cz + DZ[d];
@@ -2899,7 +2905,7 @@ function findPath(sx, sz, gx, gz, reach) {
       if (old !== undefined && old <= ng) continue;
       gs.set(nk, ng); came.set(nk, cur); px.set(nk, nx); pz.set(nk, nz);
       const hh = Math.hypot(nx - gx, nz - gz);
-      if (hh < bestH) { bestH = hh; best = nk; }
+      if (hh < bestH) { bestH = hh; best = nk; stale = 0; }   // progress towards the goal resets the patience counter
       heapPush(ng + hh * 1.05, nk);
     }
   }
@@ -2953,11 +2959,18 @@ let useSel = null;   // { i, id, name } while an item is armed
 function clearUse() { if (useSel) { useSel = null; dirty.inv = 1; hoverObj = undefined; } P.teleG = 0; }
 const BANK_N = 300;
 let bank = [];   // [{ id, n }], everything stacks
+/* A new bank slot is the only routine action that can grow the blob without
+   bound, so it is the one place worth measuring. Topping up a stack is always
+   free — the row already exists — and only a brand-new row is checked. The
+   ceiling that matters is not BANK_N but what the save can carry: the bank used
+   to offer three hundred slots against a blob the server would refuse well
+   before that, and the player learned about it by silently losing a session. */
 function bankAdd(id, n) {
   const s = bank.find(b => b.id === id);
   if (s) { s.n += n; return n; }
   if (bank.length >= BANK_N) return 0;
   bank.push({ id, n });
+  if (!OFFLINE && saveBytes() > SAVE_CAP - 64) { bank.pop(); return 0; }   // put it back: this row would make the character unsaveable
   return n;
 }
 function invFree() { let n = 0; for (let i = 0; i < INV_N; i++) if (!inv[i]) n++; return n; }
@@ -3245,7 +3258,14 @@ function walkTick() {
     else if (!wet && P.afloat) { say('You step ashore.'); P.afloat = 0; }
     if (P.afloat) gainXp('sailing', 1.1 * took);
     else if ((P.agx = (P.agx || 0) + took * (P.run && P.energy > 0 ? 0.1 : 0.05)) >= 2) { gainXp('agility', P.agx); P.agx = 0; }   // (dev) the road trains agility, paid in lumps
+   /* Drain, then the wiki's own auto-off: "when a player's energy reaches 0%,
+       their run option is automatically switched off". Without it the player is
+       stuck at zero for as long as they keep walking — the drain skips itself on
+       `P.energy > 0` and the restore skips itself on `!P.run`, so neither side
+       runs and the orb never refills. Clearing the toggle here fixes both, and it
+       is also what lets energy recover while walking, as it should. */
     if (!P.afloat && P.run && P.energy > 0 && took) { P.energy = Math.max(0, P.energy - 0.6 * (1 - lvl[SK.agility] / 300) * (P.stamT > tickN ? 0.3 : 1)); dirty.orb = 1; }   // drain: 60 x (1 - agility/300) units a running tick; a stamina draught keeps 70% of it
+    if (P.run && P.energy <= 0) { P.run = 0; dirty.orb = 1; say('You are out of energy and slow to a walk.'); }
     if (crawl && !P.afloat) { P.span = 5; P.stuckT = 0; }
   }
   if (!P.path.length) chainGoal();
@@ -3733,7 +3753,7 @@ function hurtPlayer(dmg, byPlayer) {
     const rlf = tpFrom(), v = nearestVillageTo(rlf.x, rlf.z, 12);
     if (v) { const sp = safeSpotIn(v); sfx(200); teleport(sp.x, sp.z, 200); }
     say(ring ? 'Your ring of life flares, carries you to safety, and crumbles to dust.' : 'Your cape flares and carries you to safety.', 'lv');
-    markDirty(1); healthBar(P);
+    markDirty(2); healthBar(P);
     return;
   }
   if (P.hp <= 0) die(byPlayer);
@@ -3743,12 +3763,12 @@ function hurtPlayer(dmg, byPlayer) {
    initiated attack; the grudge list (who may be answered freely) lives only for the session and empties on death. Skulled, a
    player's death forfeits everything carried — Protect Item alone clutches one thing back. Monsters collect no such price. ---- */
 let pvpFoes = new Set();   // pids that struck me since my last death or login
-const SKULL_T = 2000;   // twenty minutes, as 2007 counted them
+const SKULL_T = 3000;   // thirty minutes, as the wiki counts them: a skull from attacking a player runs 30, and every fresh attack restarts it
 const skulled = () => P.skull > tickN;
 function skullUp() {
   const was = skulled();
   P.skull = tickN + SKULL_T;
-  if (!was) { say('A skull rises over your head: all you carry is forfeit to your killer.', 'bad'); sendEquip(); markDirty(1); }
+  if (!was) { say('A skull rises over your head: all you carry is forfeit to your killer.', 'bad'); sendEquip(); markDirty(2); }
 }
 const remoteCb = R => { for (const id of (R.eq || [])) if (typeof id === 'string' && id[0] === 'c' && id[1] === ':') return clamp(parseInt(id.slice(2), 10) || 0, 3, 126); return 0; };
 /* the wilderness law: PvP lives only inside the rings, and its level is how far beneath you your prey may stand.
@@ -3828,7 +3848,7 @@ function die(byPlayer) {
     : 'You keep your ' + (K - keep) + ' most valuable items; the rest lies where you fell — yours alone for a while, gone in 15 minutes.', 'bad');
   }
   P.skull = 0; pvpFoes.clear(); sendEquip();   // death lifts the skull and settles every grudge; the wire hears the bare corpse
-  markDirty(1);
+  markDirty(2);
   setTimeout(() => {   // any death sends you to the nearest settlement — measured from the dungeon door if you fell below
     const rf = tpFrom(), v = nearestVillageTo(rf.x, rf.z, 12);
     let sx = P.home.x, sz = P.home.z;
@@ -3837,7 +3857,7 @@ function die(byPlayer) {
     P.hp = P.maxhp = lvl[SK.hitpoints]; P.dead = 0; P.energy = 100; P.psn = 0; P.spec = 100; pvpOn = 0; dirty.orb = 1;
     const where = v ? villageName(v) : 'where you started';
     say('You wake up in ' + where + '.');
-    markDirty(1);
+    markDirty(2);
     refresh(); pump(80);
   }, 1500);
 }
@@ -4201,7 +4221,8 @@ function drawBank() {   // the search box filters the grid in place, so typing n
     '<div class="wrow" style="margin-bottom:5px">' + bq('1', '1') + bq('5', '5') + bq('10', '10') + bq('x', 'X') +
     '<input id="bankXin" inputmode="numeric" value="' + bankX + '" aria-label="custom amount" style="width:52px">' + bq('all', 'All') + '</div>' +
     '<input id="bankQ" placeholder="search your vault…" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:5px"><div class="grid" id="bankGrid"></div>',
-    'Click to withdraw ' + bankQtyLbl() + ', ALL for the stack. Click your pack to store ' + bankQtyLbl() + '.');
+    'Click to withdraw ' + bankQtyLbl() + ', ALL for the stack. Click your pack to store ' + bankQtyLbl() + '.' +
+    (!OFFLINE && saveBytes() > SAVE_WARN ? '  Your vault is near the limit of what can be stored — stack what you can.' : ''));
   const xin = el('bankXin');
   xin.oninput = () => { bankX = clamp(Math.floor(+xin.value) || 1, 1, 1e9); };
   const q = el('bankQ'), fill = () => { const f = bankQ.toLowerCase(); el('bankGrid').innerHTML = bank.map((s, i) => ITEMS[s.id].name.toLowerCase().includes(f)
@@ -4210,7 +4231,9 @@ function drawBank() {   // the search box filters the grid in place, so typing n
 }
 function bankDeposit(id, n) {
   n = Math.min(n, invCount(id)); if (n <= 0) return;
-  if (!bankAdd(id, n)) return say('Your vault has no room for another kind of item.', 'bad');
+  if (!bankAdd(id, n)) return say(bank.length >= BANK_N
+    ? 'Your vault has no room for another kind of item.'
+    : 'Your vault cannot hold another kind of item — the ledger that records it is full. Stack or sell something first.', 'bad');
   invRemove(id, n); markDirty(); drawBank();
 }
 function bankWithdraw(bi, n) {
@@ -4266,7 +4289,7 @@ function barberApply() {
   if (coins() < BARBER_FEE) return say('A restyle costs ' + BARBER_FEE + ' coins.', 'bad');
   invRemove('coins', BARBER_FEE);
   Object.assign(P.look, s);
-  dressAvatar(); markDirty(1);
+  dressAvatar(); markDirty(2);
   say('The barber restyles you for ' + BARBER_FEE + ' coins.', 'good');
   closeOverlays();
 }
@@ -4275,6 +4298,8 @@ function barberApply() {
 const GE_SLOTS_N = 8, GE_POLL = 10000;
 let geSlots = null, geOpen = 0, geTimer = 0, geBusy = 0, geView = null;
 const geOn = () => !OFFLINE && AUTH;
+// is anything on the book still able to move? an unread book has to be read once
+const geLive = () => !geSlots || geSlots.some(o => o && o.state === 0 && o.filled < o.qty);
 async function geFetch() {
   const j = await api('/ge?auth=' + AUTH);
   if (j && j.slots) {
@@ -4291,7 +4316,15 @@ function openGE() {
   say('The clerk opens the ledger.');
   drawGE(); geFetch();   // the cached book at once, then the live one
   clearInterval(geTimer);
-  geTimer = setInterval(() => { if (!geOpen) clearInterval(geTimer); else if (!document.hidden) geFetch(); }, GE_POLL);
+  /* Poll only while something could actually change. Every tick of this costs an
+     authenticated round trip and two D1 queries, and a book of eight finished or
+     empty slots will read the same forever. gePlace re-arms it by putting a live
+     offer back in geSlots. */
+  geTimer = setInterval(() => {
+    if (!geOpen) return clearInterval(geTimer);
+    if (document.hidden || !geLive()) return;
+    geFetch();
+  }, GE_POLL);
 }
 const geGuide = id => Math.max(1, ITEMS[id] ? ITEMS[id].val : 1);
 const geTitle = () => 'Grand Exchange — ' + fmt(coins()) + ' gp';
@@ -4366,10 +4399,23 @@ async function gePlace() {
   if (buy && coins() < qty * price) return say('You need ' + fmt(qty * price) + ' coins for that offer.', 'bad');
   if (!buy && invCount(V.item) < qty) return say("You don't have that many.", 'bad');
   const escrow = buy ? ['coins', qty * price] : [V.item, qty];
-  invRemove(escrow[0], escrow[1]); markDirty(1);   // the escrow leaves the pack before the book hears of the offer
+  invRemove(escrow[0], escrow[1]); markDirty(2);   // the escrow leaves the pack before the book hears of the offer
   const j = await geCall('/ge/place', { slot: V.slot, kind: V.kind, item: V.item, price, qty });
+  /* A refusal and a lost reply are not the same thing, and refunding on both
+     duplicated the escrow whenever the offer had actually been placed — api()
+     returns null on any thrown fetch, so a dropped response after the commit
+     looked exactly like a rejection. Ask the book what really happened before
+     giving anything back: a slot that now holds an offer is the answer. */
   if (!j || j.e || !j.offer) {
-    invAdd(escrow[0], escrow[1]); markDirty(1);
+    const back = await geFetch();
+    const live = back && back.slots && back.slots[V.slot];
+    if (live) {
+      geSlots = back.slots; geView = null;
+      say('The offer did reach the exchange — the reply was lost on the way back.', 'lv');
+      if (geOpen) drawGE();
+      return;
+    }
+    invAdd(escrow[0], escrow[1]); markDirty(2);
     return say('The exchange refused the offer' + (j && j.e ? ': ' + j.e + '.' : '.'), 'bad');
   }
   if (!geSlots) geSlots = new Array(GE_SLOTS_N).fill(null);
@@ -4396,9 +4442,23 @@ async function geCollect(i) {
   if (!wantCoins && !wantItems && (o.coins_box > 0 || o.items_box > 0)) return say('Your pack is too full to collect.', 'bad');
   const j = await geCall('/ge/collect', { slot: i, coins: wantCoins, items: wantItems });
   if (!j || j.e) return say('Could not collect' + (j && j.e ? ': ' + j.e + '.' : '.'), 'bad');
-  if (j.coins > 0) invAdd('coins', j.coins);
-  if (j.items > 0 && ITEMS[j.item || o.item]) invAdd(j.item || o.item, j.items);
-  markDirty(1);
+  /* The box has already been emptied server-side by the time this runs, so
+     whatever invAdd cannot take is gone unless we catch it here. `free` was
+     measured before the await and invAdd gives up silently when the pack has
+     filled since — a tick of loot arriving mid-request was enough. Anything that
+     will not fit goes to the ground at the player's feet rather than nowhere. */
+  const spill = (id, want) => {
+    if (want <= 0) return;
+    const took = invAdd(id, want) | 0;
+    if (took >= want) return;
+    dropItem(id, want - took, P.tx, P.tz, 3000);
+    say('Your pack was full — ' + fmt(want - took) + ' × ' + (ITEMS[id] ? ITEMS[id].name : id) + ' falls at your feet.', 'bad');
+  };
+  if (j.coins > 0) spill('coins', j.coins);
+  const gotId = ITEMS[j.item] ? j.item : ITEMS[o.item] ? o.item : null;
+  if (j.items > 0 && gotId) spill(gotId, j.items);
+  else if (j.items > 0) say('The clerk holds ' + fmt(j.items) + ' of something this version no longer knows.', 'bad');
+  markDirty(2);
   geSlots[i] = j.offer || null;
   const got = [];
   if (j.items > 0) got.push(j.items + ' × ' + (ITEMS[o.item] ? ITEMS[o.item].name : o.item));
@@ -4508,14 +4568,23 @@ SKILLS.forEach((s, i) => {
   d.title = s.locked ? 'Reserved slot' : skName(i);
   skEls.push(d);
 });
+/* The two children each row needs, found once instead of on every repaint, and
+   a per-row signature so a row whose numbers have not moved is skipped entirely.
+   xp is rounded down for the key because a fractional gain cannot change
+   anything this function renders. */
+const _skB = [], _skS = [], _skKey = [];
 function drawSk() {
   dirty.sk = 0;
   for (let i = 0; i < NSK; i++) {
     const e = skEls[i], L = lvl[i];
-    if (SKILLS[i].locked) { e.querySelector('b').textContent = '–'; continue; }
-    e.querySelector('b').textContent = L + bst[i]; e.classList.toggle('up', bst[i] > 0); e.classList.toggle('dn', bst[i] < 0);
+    if (!_skB[i]) { _skB[i] = e.querySelector('b'); _skS[i] = e.querySelector('s'); }
+    if (SKILLS[i].locked) { if (_skKey[i] !== 'x') { _skKey[i] = 'x'; _skB[i].textContent = '–'; } continue; }
+    const key = L + ':' + bst[i] + ':' + Math.floor(xp[i]);
+    if (_skKey[i] === key) continue;
+    _skKey[i] = key;
+    _skB[i].textContent = L + bst[i]; e.classList.toggle('up', bst[i] > 0); e.classList.toggle('dn', bst[i] < 0);
     const a = XP_TABLE[L], b = XP_TABLE[Math.min(MAXL + 1, L + 1)];
-    e.querySelector('s').style.width = (L >= MAXL ? 100 : clamp((xp[i] - a) / (b - a), 0, 1) * 100) + '%';
+    _skS[i].style.width = (L >= MAXL ? 100 : clamp((xp[i] - a) / (b - a), 0, 1) * 100) + '%';
     e.title = skName(i) + ' ' + L + '  ·  ' + Math.floor(xp[i]).toLocaleString() + ' xp' + (L < MAXL ? '  ·  ' + Math.ceil(b - xp[i]).toLocaleString() + ' to ' + (L + 1) : '');
   }
   el('skTotal').textContent = totalLevel();
@@ -5878,16 +5947,16 @@ function frame(now) {
     if (n.hp < n.maxhp || n.target === P || n.owner || (P.task && P.task.k === 'attack' && P.task.o === n)) healthBar(n, 1.5 + n.t.sz * 1.4);
     if (npcPlates < 14 && Math.abs(n.rx - P.rx) < 40 && Math.abs(n.rz - P.rz) < 40) {
       const lbl = '<i style="color:' + lvlColour(n.t.lv, myCombat) + '">' + n.t.n + ' (' + n.t.lv + ')</i>';
-      if (labelAt(n, 'plate', n.rx, n.ry + 1.5 + n.t.sz * 1.5, n.rz, lbl, n.t.boss ? 'plate npc boss' : 'plate npc')) { npcPlates++; n.plate.el._obj = n; }
+      if (labelAt(n, 'plate', n.rx, n.ry + 1.5 + n.t.sz * 1.5, n.rz, lbl, n.t.boss ? 'plate npc boss' : 'plate npc', 1)) { npcPlates++; n.plate.el._obj = n; }
     } else if (n.plate) { freePlate(n.plate); n.plate = null; }
   }
   let marks = 0;   // icon markers over the town's plumbing
   for (const o of closeList()) {
     if (!(o.t >= 3) || o.noMark || marks >= 16 || Math.abs(o.x - P.rx) > 42 || Math.abs(o.z - P.rz) > 42) continue;
-    if (labelAt(o, 'mk', o.x, o.y + MARK_H[o.t], o.z, markHtml(o), 'plate mk')) { marks++; o.mk.el._obj = o; }
+    if (labelAt(o, 'mk', o.x, o.y + MARK_H[o.t], o.z, markHtml(o), 'plate mk', 1)) { marks++; o.mk.el._obj = o; }
   }
   if (deathSpot && Math.abs(deathSpot.x - P.rx) < 72 && Math.abs(deathSpot.z - P.rz) < 72)
-    labelAt(deathSpot, 'mk', deathSpot.x, deathMark.position.y + 3.2, deathSpot.z, DEATH_HTML, 'plate mk boss');
+    labelAt(deathSpot, 'mk', deathSpot.x, deathMark.position.y + 3.2, deathSpot.z, DEATH_HTML, 'plate mk boss', 1);
   animate(P, avatar.parts, dt);
   petFrame(dt);
   skullFrame();
@@ -5967,7 +6036,7 @@ const store = {
 })();
 
 /* ---- MUSIC: one looping track; browsers hold it back until the first gesture ---- */
-const bgm = new Audio('https://github.com/ivl-ad/seedworld/raw/8122acb9070aaa0a8a30790c0558bf793cba75de/sound/7th_Realm_(v1).ogg');
+const bgm = new Audio('https://github.com/ivl-ad/seedworld/raw/refs/heads/main/assets/sound/7th_Realm_(v1).ogg');
 bgm.loop = true; bgm.preload = 'auto';
 const volSaved = store.get('seedworld.vol');
 let vol = volSaved === '' ? 0.5 : clamp(parseFloat(volSaved) || 0, 0, 1), lastVol = vol > 0 ? vol : 0.5;
@@ -6073,30 +6142,58 @@ async function api(path, opts) {
 const apiJson = (path, body) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 /* the save blob: short keys, positional arrays. lvl[] is never stored; it derives from xp[] on load. */
+/* v2. The worker refuses a blob over MAXSAVE and the client then writes nothing
+   anywhere for the rest of the session, so every byte here is a byte of headroom
+   before that cliff. Three things changed from v1, none of them lossy:
+
+     cl -> clb   354 full item-id strings (5.8 KB) became a bit per entry (62 B).
+     inv, bank   flat runs instead of arrays of pairs: two brackets per row back.
+     dy          diaries whose board was merely read carry no information and are
+                 dropped; a fully-claimed one drops its counters. This is the one
+                 field with no natural ceiling — it grew with the size of the
+                 world, not the length of the game.
+
+   applySave still reads v1, and must keep doing so: an offline character sits in
+   localStorage until its owner comes back, whenever that is. */
 function packSave() {
   const invp = [];
-  for (let i = 0; i < INV_N; i++) if (inv[i]) invp.push([i, inv[i].id, inv[i].n]);
-  return { v: 1, tx: P.tx, tz: P.tz, hp: P.hp, maxhp: P.maxhp, pray: Math.round(P.pray), maxpray: P.maxpray, energy: Math.round(P.energy), run: P.run, style: P.style,
-    prayers: P.prayers, rstyle: P.rstyle, ammoN: P.ammoN, eq: EQ_SLOTS.map(s => eq[s] || null), inv: invp, bank: bank.map(s => [s.id, s.n]),
+  for (let i = 0; i < INV_N; i++) if (inv[i]) invp.push(i, inv[i].id, inv[i].n);
+  const bankp = [];
+  for (const s of bank) bankp.push(s.id, s.n);
+  return { v: 2, tx: P.tx, tz: P.tz, hp: P.hp, maxhp: P.maxhp, pray: Math.round(P.pray), maxpray: P.maxpray, energy: Math.round(P.energy), run: P.run, style: P.style,
+    prayers: P.prayers, rstyle: P.rstyle, ammoN: P.ammoN, eq: EQ_SLOTS.map(s => eq[s] || null), inv: invp, bank: bankp,
     look: [P.look.skin, P.look.shirt, P.look.legs, P.look.face], xp: Array.from(xp, v => Math.round(v)), home: [P.home.x, P.home.z],
     sl: P.slay ? [P.slay.k, P.slay.n, P.slay.m] : 0, farm: Object.keys(P.farm).map(k => [+k, P.farm[k][0], P.farm[k][1]]), clue: P.clue || 0,
     bd: [...npcDead].filter(([k, t]) => k && k[0] === 'b' && t > tickN),   // slain boss lairs: the cell key is stable, so the timer survives a reload
     hs: P.hs || 0,
-    cl: [...P.cl], pet: P.pet || 0, ins: P.ins, pl: P.petLost, dy: P.dy, ca: P.ca,
+    clb: clogPack(), cln: CLOG_ORDER.length, pet: P.pet || 0, ins: P.ins, pl: P.petLost, dy: dyPack(), ca: P.ca,
     dr: P.dunRet || 0, cs: P.cstyle, bs: Array.from(bst), sku: P.skull || 0,   // sku: the skull's expiry on the shared clock — one entry, refreshed per initiated attack
     dp: P.dpile || 0 };   // dp: the unclaimed death pile, so a relog cannot cost you your right to it
 }
+/* What the blob would weigh right now. The bank used to advertise three hundred
+   slots against a ceiling that could not hold two hundred of them, and the
+   player only found out when the server started refusing saves — silently, for
+   the rest of the session. Now the pack knows its own size, so the game can
+   refuse to enter a state it cannot store, and say why. */
+const saveBytes = () => { try { return JSON.stringify(packSave()).length; } catch { return 0; } };
+const SAVE_CAP = 8192, SAVE_WARN = 7200;   // SAVE_CAP mirrors MAXSAVE in src/worker.js — change both together
 /* renames must not eat a save: an old id folds into its new name here before the ITEMS checks discard it */
 const OLD_IDS = Object.create(null);   // old id -> current id; add a row with any rename, forever
 const idOf = id => OLD_IDS[id] || id;
 function applySave(b) {
-  if (!b || b.v !== 1) return 0;
+  if (!b || !(b.v === 1 || b.v === 2)) return 0;
+  const v2 = b.v === 2;
   const xs = b.xp || [];
   for (let i = 0; i < NSK; i++) { xp[i] = +xs[i] || 0; lvl[i] = levelFor(xp[i]); }
   if (lvl[SK.hitpoints] < 10) { xp[SK.hitpoints] = XP_TABLE[10]; lvl[SK.hitpoints] = 10; b.maxhp = b.hp = 10; }   // saves from before the 2007 floor rise to it
   inv.fill(null);
-  for (const row of (b.inv || [])) { const i = row[0] | 0, id = idOf(row[1]); if (i >= 0 && i < INV_N && ITEMS[id]) inv[i] = { id, n: Math.max(1, row[2] | 0) }; }
-  bank = (b.bank || []).map(r => [idOf(r[0]), r[1] | 0]).filter(r => ITEMS[r[0]] && r[1] > 0).slice(0, BANK_N).map(r => ({ id: r[0], n: r[1] }));
+  let invRows = b.inv || [];
+  if (v2) { const f = invRows; invRows = []; for (let k = 0; k + 2 < f.length; k += 3) invRows.push([f[k], f[k + 1], f[k + 2]]); }
+  for (const row of invRows) { const i = row[0] | 0, id = idOf(row[1]); if (i >= 0 && i < INV_N && ITEMS[id]) inv[i] = { id, n: Math.max(1, row[2] | 0) }; }
+  const bankRows = [];
+  if (v2) { const f = b.bank || []; for (let k = 0; k + 1 < f.length; k += 2) bankRows.push([idOf(f[k]), f[k + 1] | 0]); }
+  else for (const r of (b.bank || [])) bankRows.push([idOf(r[0]), r[1] | 0]);
+  bank = bankRows.filter(r => ITEMS[r[0]] && r[1] > 0).slice(0, BANK_N).map(r => ({ id: r[0], n: r[1] }));
   const lk = b.look || [];
   P.look.skin = clamp(lk[0] | 0, 0, SKINS.length - 1); P.look.shirt = clamp(lk[1] | 0, 0, SHIRTS.length - 1);
   P.look.legs = clamp(lk[2] | 0, 0, LEGSC.length - 1); P.look.face = clamp(lk[3] | 0, 0, FACES.length - 1);
@@ -6115,11 +6212,11 @@ function applySave(b) {
   P.hs = b.hs && hValid(b.hs) ? b.hs : null;
   if (P.hs) for (const r of P.hs.rm) r[4] = r[4].map(f => f && idOf(f));   // renamed furniture folds in too
   applyHouse(hMe(), P.hs);   // raised optimistically: the join snapshot may contest the land (case 23 folds ours and asks)
-  P.cl = new Set((b.cl || []).map(idOf).filter(id => ITEMS[id]));
+  P.cl = b.clb !== undefined ? clogUnpack(b.clb, b.cln | 0) : new Set((b.cl || []).map(idOf).filter(id => ITEMS[id]));
   P.pet = b.pet && ITEMS[idOf(b.pet)] ? idOf(b.pet) : null;
   P.ins = (b.ins || []).map(idOf).filter(id => ITEMS[id]);
   P.petLost = (b.pl || []).map(idOf).filter(id => ITEMS[id]);
-  P.dy = b.dy && typeof b.dy === 'object' ? b.dy : {};
+  P.dy = dyUnpack(b.dy);
   P.ca = b.ca && typeof b.ca === 'object' ? b.ca : {};
   P.dunRet = b.dr && isFinite(b.dr.x) ? { x: b.dr.x | 0, z: b.dr.z | 0 } : null;
   const bs = b.bs || [];   // boosts and drains ride the blob, as 2007 logouts kept them
@@ -6157,7 +6254,8 @@ function freshCharacter() {
    purchase, gear, a trade, death) flushes promptly but bursts coalesce behind SAVE_GAP; unload and sign-out go straight through.
    Writing is disarmed until a read has succeeded: nothing may overwrite a character we could not load. Every send expects an ack. ---- */
 let saveDirty = 0, lastSave = 0, saveTimer = 0, saveArmed = 0, savedOnce = 0, ackPending = 0, ackWarned = 0;
-const NEED_BUILD = 4;   // the wire contract this client speaks
+let saveFatal = 0, leftOnce = 0;   // the server refused a blob outright; and: the page is going away, once
+const NEED_BUILD = 10;   // the wire contract this client speaks. 10 is a floor, not a preference: this client relies on the room to stamp op 12's clock and to set op 21's owner from the sender, and an older room does neither
 const SPAWN_REV = 8;   // bumped with any change to powerAt / spawnTable / pickMonster / regions / sites / TOWNFOLK / LADDERS / bossAt / TREES / ruinAt / the dungeon band
 let worldSync = 0, srvBuild = 0;   // build >= 4: rooms relay 20/21/22; build >= 5 accepts batched sends
 /* every routine message a tick produces rides one socket send (one billable request), flushed at tick's end.
@@ -6170,7 +6268,14 @@ const wsSend = m => {
 };
 const flushNet = () => { if (!outQ.length) return; try { if (ws && ws.readyState === 1) ws.send(JSON.stringify(outQ.length === 1 ? outQ[0] : outQ)); } catch {} outQ.length = 0; };
 const netWorld = m => { if (worldSync) wsSend(m); };
-const SAVE_MS = 60000, SAVE_GAP = 5000;
+/* Three rails, not two. SAVE_MS is the routine beat; SAVE_GAP is the floor a
+   genuine milestone may drop to; SAVE_SOON sits between them for the ordinary
+   gameplay events that used to claim milestone urgency — buying one item at a
+   shop, swapping a helmet, nudging a chair in the house. Those fire in bursts,
+   and at the 5-second floor a shopping trip wrote as many rows as a levelling
+   session. Twenty seconds keeps the loss window well inside what banking,
+   fletching and every xp gain already accept, at a quarter of the writes. */
+const SAVE_MS = 60000, SAVE_SOON = 20000, SAVE_GAP = 5000;
 let offTimer = 0;
 function offSave(now) {   // offline: the blob the worker would keep goes to localStorage instead
   if (!saveArmed) return;
@@ -6178,21 +6283,40 @@ function offSave(now) {   // offline: the blob the worker would keep goes to loc
   clearTimeout(offTimer); offTimer = 0;
   store.set('seedworld.off.' + SEED, JSON.stringify(packSave()));
 }
+/* markDirty()  routine — coalesces at SAVE_MS
+   markDirty(1)  soon    — a purchase, a gear swap, a furniture move: SAVE_SOON
+   markDirty(2)  now     — a level, a death, a trade, sign-out: down to SAVE_GAP
+   markDirty(3)  unload  — the page is going away; skip every gap  */
 function markDirty(now) {
   if (OFFLINE) return offSave(now);
   if (!AUTH || !saveArmed) return;
   saveDirty = 1;
-  if (now) return flushSave(now === 2);   // 2 = unload: skip the burst gap
+  if (now) return flushSave(now >= 2 ? now : 0);
   if (!saveTimer) saveTimer = setTimeout(flushSave, Math.max(0, SAVE_MS - (Date.now() - lastSave)));
 }
 function flushSave(force) {
   clearTimeout(saveTimer); saveTimer = 0;
   if (!saveDirty || OFFLINE || !AUTH || !saveArmed) return;
   if (!ws || ws.readyState !== 1) { saveTimer = setTimeout(flushSave, 2000); return; }   // a socket not up yet must not swallow the flush
-  const gap = Date.now() - lastSave;
-  if (!force && gap < SAVE_GAP) { saveTimer = setTimeout(flushSave, SAVE_GAP - gap); return; }
+  const gap = Date.now() - lastSave, floor = force === 3 ? 0 : force === 2 ? SAVE_GAP : SAVE_SOON;
+  if (gap < floor) { saveTimer = setTimeout(flushSave, floor - gap); return; }
   try {
-    const msg = JSON.stringify([8, SEED, packSave()]);
+    const body = JSON.stringify(packSave());
+   /* Measured here rather than learned from a refusal. Op 7 disarms saving for
+       the rest of the session, so discovering the ceiling that way costs the
+       player everything they do afterwards; discovering it here costs one line of
+       chat and leaves the last good blob in place on the server. */
+    if (body.length > SAVE_CAP) {
+      saveDirty = 0;
+      if (!saveFatal) {
+        saveFatal = 1;
+        try { store.set('seedworld.rescue.' + SEED, body); } catch {}
+        trouble('Your character has outgrown what Seedworld can store (' + body.length + ' of ' + SAVE_CAP + ' bytes), so it is no longer being saved.',
+                'packSave() over MAXSAVE — the collection log and bank are the usual weight; a copy is in localStorage under seedworld.rescue.' + SEED);
+      }
+      return;
+    }
+    const msg = '[8,' + JSON.stringify(SEED) + ',' + body + ']';
     ws.send(msg);
     saveDirty = 0; lastSave = Date.now(); ackPending = lastSave;
     setTimeout(() => {
@@ -6203,8 +6327,15 @@ function flushSave(force) {
     }, 12000);
   } catch { saveTimer = setTimeout(flushSave, 2000); }
 }
-on(document, 'visibilitychange', () => { if (document.hidden) markDirty(2); });
-on(window, 'pagehide beforeunload', () => markDirty(2));
+/* `on` splits on spaces, so the line below binds pagehide AND beforeunload —
+   and visibilitychange fires on the way out too. That was three forced sends of
+   a byte-identical blob for every tab close. One is enough; the server also
+   holds an unchanged blob to be free, but the wire traffic and the round trips
+   were real. Note the hide is NOT guarded on saveDirty: position, hitpoint and
+   energy regen raise no flag, so guarding it would quietly lose a minute of
+   walking every time the tab went to the background. */
+on(document, 'visibilitychange', () => { if (document.hidden && !leftOnce) markDirty(3); });
+on(window, 'pagehide beforeunload', () => { if (leftOnce) return; leftOnce = 1; markDirty(3); });
 on(window, 'blur', () => { if (OFFLINE) offSave(1); else if (saveDirty) flushSave(); });   // a second window is often next: put the pending save on the wire before it can kick us
 
 /* ---- 38. THE SOCKET: everything degrades to single player ---- */
@@ -6236,7 +6367,7 @@ function connect() {
     say(rejoin ? 'Reconnected.' : 'Connected to ' + SEED + '.', 'lv');
     pingClock(); setTimeout(pingClock, 500); setTimeout(pingClock, 1500);
     clearInterval(pingTimer);
-    pingTimer = setInterval(pingClock, 20000);
+    pingTimer = setInterval(pingClock, 120000);   // the estimator keeps the best of eight lowest-RTT samples and never expires them, so a faster beat buys nothing after startup — and in an idle room this ping is the ONLY inbound traffic, so it alone was keeping the room awake
     forgetSent();   // a fresh socket knows nothing of us: resend everything
     sendEquip(); netSend();
     if (saveDirty) flushSave();
@@ -6250,7 +6381,7 @@ function connect() {
     netStatus(0); clearRemotes();
     ws = null;
     if (ev.code === 4001) {   // replaced by another login: stand down, offline and unsaved
-      wsWant = 0; saveArmed = 0;
+      wsWant = 0; saveArmed = 0; saveFatal = 1;   // this window will write nothing more, so sign-out must not claim it did
       say('Your account was opened somewhere else — this window is now offline and will not save.', 'bad');
       say('Click the connection dot by the chat box to take the character back here.', 'bad');
       return;
@@ -6289,7 +6420,7 @@ function onNet(m) {
       }
       if (build >= NEED_BUILD && !worldSync) say('This server predates the shared world — trees and monsters are yours alone until it updates.');
       if (build < NEED_BUILD) {
-        saveArmed = 0;
+        saveArmed = 0; saveFatal = 1;
         trouble('Seedworld is being updated. You can play, but your progress will not be kept until it finishes.',
                 'server build ' + (build || 'pre-versioning') + ' < client ' + NEED_BUILD + ' — deploy src/worker.js (npx wrangler deploy)');
       }
@@ -6301,7 +6432,8 @@ function onNet(m) {
     case 23: {   // a house stands (or falls) somewhere in this world
       const pid = String(m[1] || '');
       if (!pid || pid === PID) break;
-      const h = m[2] && Array.isArray(m[2].rm) && m[2].rm.length <= 12 && hValid(m[2]) ? m[2] : null;
+      const h = m[2] && Array.isArray(m[2].rm) && m[2].rm.length <= 12 && hValid(m[2]) &&
+        !hSiteBad((m[2].x | 0) + (RS >> 1), (m[2].z | 0) + (RS >> 1)) ? m[2] : null;   // the same siting rule the builder answered to
       const foe = h ? hBlocked(h, pid) : 0;
       if (foe === hMe()) hsYield();   // they held this land before us: ours folds away and the owner chooses
       else if (foe) break;   // two rival houses overlap each other: whichever stands, stands — render nothing new
@@ -6312,8 +6444,20 @@ function onNet(m) {
       say('The world cannot carry your house as built (' + (m[1] | 0) + ' bytes): others will see its last shape. It is safe in your own save.', 'bad');
       break;
     case 7:   // the server could not store it: stop writing into a hole
-      saveArmed = 0;
+      saveArmed = 0; saveFatal = 1;
+   /* Clear the pending ack and mute the watchdog. The connection is fine — it is
+         the blob the server will not take — and the watchdog's advice ("use Sign
+         out to try saving again") is the one thing that provably cannot help, since
+         sign-out returns at its own !saveArmed guard. */
+      ackPending = 0; ackWarned = 1;
+      if (ackResolve) { ackResolve(false); ackResolve = null; }
+   /* A rescue copy, because there is otherwise nowhere left for this character to
+         go: offSave is reachable only when OFFLINE, so an online player past the cap
+         writes to neither D1 nor this browser. The blob may be over quota — that is
+         the usual reason we are here — so the failure is swallowed. */
+      try { store.set('seedworld.rescue.' + SEED, JSON.stringify(packSave())); } catch {}
       trouble('Seedworld could not save your character. Your progress this session will not be kept.', 'server refused save: ' + (m[1] || 'unknown'));
+      say('A copy has been kept in this browser — do not clear site data before this is fixed.', 'bad');
       break;
     case 11: {   // someone hit us
       const R = ensureRemote(m[1]); let dmg = clamp(m[2] | 0, 0, 60);
@@ -6400,7 +6544,7 @@ function onNet(m) {
       break;
     }
     case 3: { const R = ensureRemote(m[1]); if (R) { R.eq = m[2] || []; R.eqDirty = 1; } break; }
-    case 4: { const R = ensureRemote(m[1]); say((R ? R.name : 'Someone') + ': ' + m[2]); if (R) { R.bubble = m[2].slice(0, 60); R.bubbleT = 4; } break; }
+    case 4: { const R = ensureRemote(m[1]); say((R ? R.name : 'Someone') + ': ' + m[2]); if (R) { R.bubble = String(m[2] ?? '').slice(0, 60); R.bubbleT = 4; } break; }
     case 5: dropRemote(m[1]); break;
     case 6: {   // enter; a rejoin refreshes rather than discards
       const pid = m[1];
@@ -6523,13 +6667,21 @@ function takePlate() {
 }
 const freePlate = p => { p.live = 0; p.el.style.display = 'none'; p.el._obj = null; };   // a stale back-reference would hand the next borrower a ghost
 const _pv = new THREE.Vector3();
-function labelAt(owner, key, x, y, z, text, cls) {   // one projected label, pooled; false when behind the camera
+/* One projected label, pooled; false when behind the camera. `html` must be
+   passed by the three call sites that compose their own markup — and ONLY those.
+   It defaults off because two of the callers render text that came off the wire:
+   a remote player's name and their chat bubble. The bubble was going into
+   innerHTML, and sixty characters is more than enough for an onerror handler to
+   read this origin's localStorage — where the account key lives, as the whole
+   credential, with no rotation route at the time. It ran for everyone within
+   forty-eight tiles and could rebroadcast itself through wsSend. */
+function labelAt(owner, key, x, y, z, text, cls, html) {
   _pv.set(x, y, z).project(camera);
   if (_pv.z > 1) { freeP(owner, key); return false; }
   let q = owner[key];
   if (!q) q = owner[key] = takePlate();
   q.claim = 1;
-  if (q.txt !== text) { q.txt = text; q.el.innerHTML = text; }
+  if (q.txt !== text) { q.txt = text; if (html) q.el.innerHTML = text; else q.el.textContent = text; }
   if (q.cls !== cls) { q.cls = cls; q.el.className = cls; }
   q.el.style.transform = 'translate(' + ((_pv.x * 0.5 + 0.5) * innerWidth) + 'px,' + ((-_pv.y * 0.5 + 0.5) * innerHeight) + 'px) translate(-50%,0)';
   return true;
@@ -6683,7 +6835,7 @@ async function enterWorld(seed) {
   welSeedEl.blur();
   setGo('Loading…', 1);
   let blob = null, isNew = 1, loaded = 0;
-  saveArmed = 0; savedOnce = 0;
+  saveArmed = 0; savedOnce = 0; saveFatal = 0;   // a fresh entry starts with a clean slate: last world's refusal must not follow us
   if (!OFFLINE && AUTH) {
     let j = null;
     for (let a = 0; a < 3 && !loaded; a++) {   // a blip must not cost the character: three tries
@@ -6716,10 +6868,19 @@ async function enterWorld(seed) {
     } else { freshCharacter(); say('A new life begins in ' + seed + ', kept on this device.', 'lv'); }
     saveArmed = 1;
     store.set('seedworld.off.last', seed);
-  } else {
+  } else if (isNew === 1 && !(blob && blob.v)) {
     freshCharacter();
     saveArmed = 1;
     say('A new life begins in ' + seed + '.', 'lv');
+  } else {
+   /* The server said a row exists (isNew 0) but nothing usable came back, or it
+       came back new AND carrying a blob. Either way this is not a blank account,
+       and the branch above would have run freshCharacter() and then written a
+       614-byte starter over a real character. Play, but write nothing. */
+    freshCharacter();
+    saveArmed = 0; saveFatal = 1;
+    say('Your character is on the server but could not be read, so nothing will', 'bad');
+    say('be stored this session. Reload to try again — your progress is safe.', 'bad');
   }
   dressAvatar();
   drawInv(); drawEq(); drawSk(); drawOrbs();
@@ -6729,7 +6890,7 @@ async function enterWorld(seed) {
   started = 1;
   document.body.classList.add('ingame');
   el('adminBtn').style.display = SEED === 'lumbridge(sandbox)' ? '' : 'none';   // the sandbox wears its admin door openly
-  if (!OFFLINE && AUTH) { connect(); if (isNew || !(blob && blob.v === 1)) markDirty(1); geGreet(); }   // a loaded character need not write back the byte-identical blob it just read
+  if (!OFFLINE && AUTH) { connect(); if (isNew || !(blob && blob.v === 1)) markDirty(2); geGreet(); }   // a loaded character need not write back the byte-identical blob it just read
 }
 let started = 0;
 
@@ -6793,7 +6954,7 @@ function tradeSettle() {   // both sides run this on the same agreed pair; each 
   for (const [id, k] of give) invRemove(id, k);
   for (const [id, k] of take) if (ITEMS[id]) invAdd(id, k);
   const name = trade.name;
-  markDirty(1);
+  markDirty(2);
   tradeClose('');
   say('Trade with ' + name + ' complete.', 'lv');
 }
@@ -6848,7 +7009,7 @@ async function saveAndConfirm(tries) {   // push a save and wait for the server 
     if (ws && ws.readyState === 1) {
       saveDirty = 1;
       const acked = new Promise(res => { ackResolve = res; });
-      flushSave(1);
+      flushSave(3);   // sign-out is the one moment that waits for the write: skip every gap
       const ok = await Promise.race([acked, wait(4000).then(() => false)]);
       ackResolve = null;
       if (ok) return true;
@@ -6863,7 +7024,13 @@ async function signOut() {
   byeBusy = 1;
   showBye('Signing out', 'Saving your character…');
   if (OFFLINE) offSave(1);
-  const ok = (OFFLINE || !AUTH || !saveArmed) ? true : await saveAndConfirm(5);
+  /* saveFatal is checked first, and that ordering is the whole point. The
+     !saveArmed short-circuit reports success without attempting anything, which
+     is right when there was never anything to save (offline, no account) and a
+     plain untruth once the server has refused a blob or the build has been
+     declared too old. Telling somebody their character is saved when it is not
+     is worse than telling them it failed. */
+  const ok = saveFatal ? false : (OFFLINE || !AUTH || !saveArmed) ? true : await saveAndConfirm(5);
   if (ok) { byeBusy = 0; toWorldSelect(); return; }
   showBye('Could not save', 'Seedworld is not responding. Leaving now may lose the last few minutes of progress.', [
     ['Keep trying', async () => { showBye('Signing out', 'Saving your character…'); const ok2 = await saveAndConfirm(5); byeBusy = 0; if (ok2) toWorldSelect(); else signOutFailed(); }], leaveAnyway]);
@@ -7457,7 +7624,7 @@ on(modalBody, 'click', e => {
   if (drop ? !P.slay : P.slay || combatLevel() < m.cb) return;
   if (drop) { P.slay = null; say('You give up your Slayer task.'); }
   else { const pool = slayPool(m), t = pool[Math.random() * pool.length | 0], n = randInt(m.lo, m.hi); P.slay = { k: t.k, n, m: slayO.k }; say('Your new task is to kill ' + n + ' ' + plural(t.n, n) + '.'); }
-  markDirty(1); slayerTalk(slayO);
+  markDirty(2); slayerTalk(slayO);
 });
 onKill.push(n => {
   const s = P.slay;
@@ -7466,7 +7633,7 @@ onKill.push(n => {
   if (--s.n > 0) return markDirty();
   say("You've completed your Slayer task. Return to a Slayer Master for another.", 'lv');
   diaryBump('slay', s.m, P.tx, P.tz, 1);
-  P.slay = null; markDirty(1);
+  P.slay = null; markDirty(2);
 });
 const slayerSpot = v => v.spots.length ? v.spots[(hash2(v.x, v.z, S + 310) >>> 4) % v.spots.length] : null;   // a street tile; the map reads it too
 structHooks.push((rec, vs, inChunk) => {   // one master a settlement, facing the square
@@ -7784,6 +7951,20 @@ for (const [id, name, gp, gl, c, c2] of [['bolt_of_cloth', 'Bolt of cloth', 650,
   recipe(id, 'construction', 1, 0, [['coins', gp]], { at: 13, tk: 1, name: name + ' (' + gp + ' gp)', msg: 'You buy ' + aOrAn(name) + '.' });
 }
 const RS = 8, HGRID = 1;   // room size in tiles; grid runs -1..1 (nine rooms, the level-1 extent)
+/* Where a house may stand, as a pure function of the tile. Worldgen is derived
+   from the seed alone, so every client computes the same answer — which is what
+   lets a house arriving over the wire be held to exactly the rule its builder
+   was held to. Before this, the local build refused town squares and king's
+   roads and the RECEIVE path checked only that the numbers were numbers, so a
+   modified client could park a walled lot over a bank door for everyone else.
+   Takes the centre tile; returns a refusal to say aloud, or 0. */
+function hSiteBad(cx, cz) {
+  const nv = nearVillage(cx, cz);
+  if (nv && nv.d < nv.v.r * 1.6) return 'Too close to town: the guilds keep this land.';
+  if (wildLvAt(cx, cz)) return 'The Wilderness holds no ground for a home.';
+  if (highwayAt(cx, cz) > 0.15) return "You cannot build on the king's road.";
+  return 0;
+}
 const hMe = () => PID || 'me';
 const ro2 = (dx, dz, r) => { const c = Math.cos(r), s = Math.sin(r); return [dx * c - dz * s, dx * s + dz * c]; };
 /* the furniture book: wiki rows [id, name, lv, xp, materials, shape, tint, extra]; xp already includes the materials' worth.
@@ -7997,10 +8178,8 @@ function claimHouse() {
   }
   if (inDunPlane(P.tz)) return say('No deed covers the underworld.', 'bad');
   const x0 = P.tx - (RS >> 1), z0 = P.tz - (RS >> 1);
-  const nv = nearVillage(P.tx, P.tz);
-  if (nv && nv.d < nv.v.r * 1.6) return hsNo('Too close to town: the guilds keep this land.');
-  if (wildLvAt(P.tx, P.tz)) return hsNo('The Wilderness holds no ground for a home.');
-  if (highwayAt(P.tx, P.tz) > 0.15) return hsNo("You cannot build on the king's road.");
+  const bad = hSiteBad(P.tx, P.tz);
+  if (bad) return hsNo(bad);
   if (hBlocked({ x: x0, z: z0, rm: H33 }, hMe(), 1)) return hsNo('Another house stands too near.');   // a new home and its neighbours are each held apart as a potential nine-room lot
   let lo = 1e9, hi = -1e9;
   for (let a = -RS; a < RS * 2; a++) for (let b = -RS; b < RS * 2; b++) {   // the whole nine-room lot must fit
@@ -8107,7 +8286,7 @@ function askDemolish() {
   showModal('Demolish the house',
     '<p class="smsg">The house and <b>everything built in it</b> will be gone for good. The land returns to the wild. No materials come back.</p>' +
     '<div class="wrow2"><button id="demoGo">Demolish</button><button id="demoNo">Keep it</button></div>', '');
-  el('demoGo').onclick = () => { closeOverlays(); P.hs = null; applyHouse(hMe(), null); markDirty(1); if (!OFFLINE && srvBuild >= 6) wsSend([23, 0]); bmOn = 0; say('The house comes down.'); };
+  el('demoGo').onclick = () => { closeOverlays(); P.hs = null; applyHouse(hMe(), null); markDirty(2); if (!OFFLINE && srvBuild >= 6) wsSend([23, 0]); bmOn = 0; say('The house comes down.'); };
   el('demoNo').onclick = closeOverlays;
 }
 /* land taken at login: our house folds away (the save keeps every room and stick) and the owner chooses —
@@ -9161,14 +9340,14 @@ on(modalBody, 'click', e => {
   if (pi) {
     if (coins() < INSURE_GP) return say('Insurance costs ' + fmt(INSURE_GP) + ' gp.', 'bad');
     invRemove('coins', INSURE_GP); gpSunk += INSURE_GP;
-    P.ins.push(pi.dataset.pins); markDirty(1); say('Petra notes the ' + ITEMS[pi.dataset.pins].name.toLowerCase() + ' in her ledger.', 'lv');
+    P.ins.push(pi.dataset.pins); markDirty(2); say('Petra notes the ' + ITEMS[pi.dataset.pins].name.toLowerCase() + ' in her ledger.', 'lv');
     petInsurance();
   } else if (pr) {
     if (coins() < RECLAIM_GP) return say('Reclaiming a pet costs ' + fmt(RECLAIM_GP) + ' gp.', 'bad');
     if (!invFree()) return say(FULL, 'bad');
     invRemove('coins', RECLAIM_GP); gpSunk += RECLAIM_GP;
     P.petLost = P.petLost.filter(x => x !== pr.dataset.prec);
-    invAdd(pr.dataset.prec, 1); markDirty(1); say('Your ' + ITEMS[pr.dataset.prec].name.toLowerCase() + ' leaps back to you!', 'lv');
+    invAdd(pr.dataset.prec, 1); markDirty(2); say('Your ' + ITEMS[pr.dataset.prec].name.toLowerCase() + ' leaps back to you!', 'lv');
     petInsurance();
   }
 });
@@ -9186,6 +9365,65 @@ for (const k in LOOT) {
 CLOG.set('treasure', ['rune_full_helm_t', 'rune_platebody_t', 'rune_platelegs_t', 'rune_plateskirt_t', 'rune_kiteshield_t',
   'rune_full_helm_g', 'rune_platebody_g', 'rune_platelegs_g', 'rune_plateskirt_g', 'rune_kiteshield_g']);
 for (const id of CLOG.get('treasure')) CLOG_ALL.add(id);
+
+/* CLOG_ORDER IS A SAVE FORMAT. The collection log rides the blob as one bit per
+   entry, indexed by position here, so this order is wire — append, never insert,
+   exactly as NPCS, CROPS and PRAYERS are. It falls out of LOOT's key order and
+   each family's drop rows in order, so adding a new FAMILY to the end of LOOT is
+   safe and free; adding a drop row to the middle of an EXISTING family's table
+   would shift every id after it and silently rewrite everybody's log. Append to
+   that family's table instead.
+
+   `cln` rides the save so a log written by an older, shorter build still decodes
+   against its own length: entries added since simply read as not-yet-logged,
+   which is what they were. */
+const CLOG_ORDER = [...CLOG_ALL];
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function clogPack() {
+  let s = '';
+  for (let i = 0; i < CLOG_ORDER.length; i += 6) {   // six bits a character, so no padding rules to get wrong
+    let v = 0;
+    for (let b = 0; b < 6; b++) if (P.cl.has(CLOG_ORDER[i + b])) v |= 1 << b;
+    s += B64[v];
+  }
+  return s.replace(/A+$/, '');   // trailing empty groups say nothing
+}
+function clogUnpack(s, n) {
+  const out = new Set();
+  if (typeof s !== 'string') return out;
+  const lim = Math.min(n || CLOG_ORDER.length, CLOG_ORDER.length);
+  for (let c = 0; c < s.length; c++) {
+    const v = B64.indexOf(s[c]);
+    if (v < 0) continue;
+    for (let b = 0; b < 6; b++) { const i = c * 6 + b; if (i < lim && (v & (1 << b))) out.add(CLOG_ORDER[i]); }
+  }
+  return out;
+}
+
+/* Town diaries, compacted. A board that has been read but never progressed says
+   nothing a fresh visit would not say, and there is one board per settlement in
+   an endless world — this was the only field in the blob with no ceiling at all.
+   A row is [key, r, done, ...counters]; a fully-claimed diary drops its counters
+   because nothing reads them again. */
+function dyPack() {
+  const out = [];
+  for (const key in P.dy) {
+    const e = P.dy[key], done = e.done | 0, c = e.c || [];
+    if (!done && !c.some(v => v > 0)) continue;   // merely read: not worth a byte
+    out.push(done === 7 ? [key, e.r | 0, 7] : [key, e.r | 0, done, ...c.map(v => v | 0)]);
+  }
+  return out;
+}
+function dyUnpack(d) {
+  const out = {};
+  if (Array.isArray(d)) for (const row of d) {
+    if (!Array.isArray(row) || typeof row[0] !== 'string') continue;
+    out[row[0]] = { r: row[1] | 0, done: (row[2] | 0) & 7, c: row.slice(3).map(v => v | 0) };
+  } else if (d && typeof d === 'object') {   // v1: an object of {r, c, done}
+    for (const k in d) { const e = d[k]; if (e && typeof e === 'object') out[k] = { r: e.r | 0, done: (e.done | 0) & 7, c: Array.isArray(e.c) ? e.c.map(v => v | 0) : [] }; }
+  }
+  return out;
+}
 function clogAdd(id) {
   if (P.cl.has(id) || !CLOG_ALL.has(id)) return;
   P.cl.add(id);
@@ -9270,6 +9508,7 @@ const dyKey = v => v.x + '_' + v.z;
 function diaryBump(t, p, x, z, amt) {
   for (const key in P.dy) {
     const e = P.dy[key], [vx, vz] = key.split('_').map(Number);
+    if (e.done === 7) continue;   // every tier claimed: nothing left to count, and this loop runs on every chop, mine and kill
     if (t !== 'slay' && t !== 'dboss' && Math.max(Math.abs(x - vx), Math.abs(z - vz)) > e.r * 3.5) continue;
     const v = villageAt(Math.floor(vx * INV_CELL), Math.floor(vz * INV_CELL));
     if (!v || v.x !== vx || v.z !== vz) continue;
@@ -9289,6 +9528,7 @@ function diaryBoard(o) {
   if (!v) return;
   const key = dyKey(v.v), T = diaryOf(v.v);
   if (!P.dy[key]) { P.dy[key] = { r: v.v.r, c: new Array(T.length).fill(0), done: 0 }; say('You take note of what ' + villageName(v.v) + ' asks of its heroes.', 'lv'); }
+  else if (P.dy[key].c.length < T.length) P.dy[key].c = T.map((_, i) => P.dy[key].c[i] | 0);   // a fully-claimed diary saves without its counters; the panel wants them back
   const e = P.dy[key], TIERN = ['Easy', 'Medium', 'Hard'];
   let html = '';
   for (let tier = 0; tier < 3; tier++) {
@@ -9307,7 +9547,7 @@ on(modalBody, 'click', e => {
   en.done |= 1 << +tier;
   invAdd('town_cloak_' + (+tier + 1), 1);
   say('You claim the tier ' + (+tier + 1) + ' cloak!', 'lv');
-  markDirty(1);
+  markDirty(2);
   closeOverlays();
 });
 for (const [tier, def2, pb2, x2] of [[1, 2, 0, {}], [2, 4, 1, {}], [3, 6, 2, { atk: 2, str: 2 }]])
@@ -9422,7 +9662,7 @@ function dig() {
   const c = P.clue;
   kneel(); sfx(1470);
   if (!c || !invCount('clue_' + c[2]) || chebDist(P.tx, P.tz, c[0], c[1]) > 2) return say('You dig a hole, and find nothing.');
-  invRemove('clue_' + c[2], 1); invAdd('casket_' + c[2], 1); P.clue = null; markDirty(1);
+  invRemove('clue_' + c[2], 1); invAdd('casket_' + c[2], 1); P.clue = null; markDirty(2);
   say('You dig up a casket!', 'lv');
 }
 function openCasket(s, i) {   // two rolls, three, four by tier; only stackable spoils swell with it; a full pack spills to the ground
@@ -9435,7 +9675,7 @@ function openCasket(s, i) {   // two rolls, three, four by tier; only stackable 
   }
   const rare = i === 2 && Math.random() < 1 / 1000 ? rollTable(VAULT_SUB) : i === 1 && Math.random() < 1 / 280 ? ['ranger_boots'] : null;
   if (rare) { clogAdd(rare[0]); if (!invAdd(rare[0], 1)) dropItem(rare[0], 1, P.tx, P.tz); say('Something ancient glitters among the spoils: ' + ITEMS[rare[0]].name + '!', 'lv'); }
-  say('You open the casket. Its treasures are yours.', 'lv'); markDirty(1);
+  say('You open the casket. Its treasures are yours.', 'lv'); markDirty(2);
 }
 
 /* ---- DEV TELEPORTS: the nearest settlement reader (laid out on the way), lattice finder, or spawn of a chosen kind; one spiral serves them all ---- */

@@ -3,6 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<!-- A second lock on the chat-bubble sink. The bubble now goes through
+     textContent, but the account key lives in this origin's localStorage and is
+     the whole credential, so any future innerHTML slip should cost a defacement
+     rather than an account. No 'unsafe-inline' for scripts: nothing here needs
+     it. Styles do (three.js writes element styles), images need data: for the
+     drawn icons and blob: for canvases, media needs github.com for the music,
+     and connect-src needs wss: for the socket and github.com for the sound
+     effects fetched on first use. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' https://cdnjs.cloudflare.com;
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: blob:;
+  media-src 'self' https://github.com https://objects.githubusercontent.com https://raw.githubusercontent.com data: blob:;
+  connect-src 'self' ws: wss: https://github.com https://objects.githubusercontent.com https://raw.githubusercontent.com;
+  worker-src 'self' blob:;
+  base-uri 'none';
+  form-action 'none';
+  object-src 'none'">
 <title>SEEDWORLD — an infinite 2007-flavoured world from a 4-byte seed</title>
 <link rel="stylesheet" href="style.css">
 </head>
