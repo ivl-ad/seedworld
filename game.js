@@ -5967,7 +5967,7 @@ const store = {
 })();
 
 /* ---- MUSIC: one looping track; browsers hold it back until the first gesture ---- */
-const bgm = new Audio('https://github.com/ivl-ad/seedworld/raw/8122acb9070aaa0a8a30790c0558bf793cba75de/sound/7th_Realm_(v1).ogg');
+const bgm = new Audio('https://github.com/ivl-ad/seedworld/blob/ca34ad4b59ceb5eaf86465721f0ad68a45e17875/assets/sound/7th_Realm_(v1).ogg');
 bgm.loop = true; bgm.preload = 'auto';
 const volSaved = store.get('seedworld.vol');
 let vol = volSaved === '' ? 0.5 : clamp(parseFloat(volSaved) || 0, 0, 1), lastVol = vol > 0 ? vol : 0.5;
