@@ -9,7 +9,6 @@ node_modules/
 
 # local dev tooling and working notes
 tools/
-sql/
 .claude/
 CLAUDE.md
 MAP.md
