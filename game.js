@@ -1017,7 +1017,7 @@ const FISH = [
   ['shrimps', 'Shrimps', 1, 10, 30, 1, 0, '#c98a6a', 3, 34], ['sardine', 'Sardine', 5, 20, 40, 1, 0, '#9ab0c0', 4, 38], ['herring', 'Herring', 10, 30, 50, 5, 0, '#8aa0b8', 5, 41],
   ['anchovies', 'Anchovies', 15, 40, 30, 1, 0, '#7a8a9a', 1, 34], ['trout', 'Trout', 20, 50, 70, 15, 0, '#9aa6b0', 7, 49], ['pike', 'Pike', 25, 60, 80, 20, 0, '#7a9a6a', 8, 54],
   ['salmon', 'Salmon', 30, 70, 90, 25, 0, '#d1795f', 9, 58], ['tuna', 'Tuna', 35, 80, 100, 30, 1, '#5a7aa0', 10, 63], ['lobster', 'Lobster', 40, 90, 120, 40, 1, '#b83a2a', 12, 74],
-  ['bass', 'Bass', 46, 100, 130, 43, 1, '#6a8a7a', 13, 79], ['swordfish', 'Swordfish', 50, 100, 140, 45, 1, '#7f8fa0', 14, 80], ['monkfish', 'Monkfish', 62, 120, 150, 62, 0, '#b8a888', 16, 90],
+  ['bass', 'Bass', 46, 100, 130, 43, 1, '#6a8a7a', 13, 79], ['swordfish', 'Swordfish', 50, 100, 140, 45, 1, '#7f8fa0', 14, 86], ['monkfish', 'Monkfish', 62, 120, 150, 62, 0, '#b8a888', 16, 92],
   ['shark', 'Shark', 76, 110, 210, 80, 1, '#5b6b7a', 20, 100], ['anglerfish', 'Anglerfish', 82, 120, 230, 84, 1, '#4a4a5a', 22, 100], ['dark_crab', 'Dark crab', 85, 130, 215, 90, 1, '#3a2a2a', 22, 100]
 ].map(([k, n, lv, xp, cook, cookLv, deep, c, heal, stop], i) => {
   defItem({ id: 'raw_' + k, name: 'Raw ' + n.toLowerCase(), g: 'fish', c, c2: '#5b5b5b', stack: 1, val: 15 + i * 40, raw: k });
@@ -3364,7 +3364,7 @@ player.add(avatar, boat);
 scene.add(player);
 const P = {
   tx: 0, tz: 0, px: 0, pz: 0, rx: 0, ry: 0, rz: 0, face: 0, faceT: 0, span: 1,
-  path: [], goal: null, task: null, actT: 0, acting: 0, actSpan: 2, walkPhase: 0, bobPhase: 0, swingPhase: 0,
+  path: [], goal: null, task: null, actT: 0, atkT: 0, acting: 0, actSpan: 2, walkPhase: 0, bobPhase: 0, swingPhase: 0,
   run: 1, energy: 100, hp: 10, maxhp: 10, style: 0, rstyle: 1, cstyle: 0, ammoN: 0, pose: 0, spell: null, prayers: 0, pray: 10, maxpray: 10, foodT: 0, spec: 100, specArm: 0, psn: 0, psnN: 0, psnT: 0, psnImm: 0,
   afloat: 0, moved: 0, dead: 0, stuckT: 0, stun: 0, afire: 0, clue: null, slay: null, farm: Object.create(null), look: { skin: 0, shirt: 0, legs: 0, face: 0 }, home: { x: 0, z: 0 }, regionK: '', regionT: 0,
   turn: player, rig: avatar, boat, oarL, oarR
@@ -3433,10 +3433,12 @@ function bowRange() {   // a bow draws arrows and a crossbow bolts; a readied sp
 /* the 2007 max-hit shape: floor(0.5 + (effective + 8) * (bonus + 64) / 640); effective = floor(level x prayer) + style */
 const maxFrom = (eff, b) => Math.max(1, Math.floor(0.5 + (eff + 8) * (b + 64) / 640));
 const rangedMax = () => maxFrom(Math.floor(eff('ranged') * prayerMul('rngs')) + RSTYLES[P.rstyle].str, bonus('rst'));   // rngs is the damage side: Rigour alone splits 20% accuracy / 23% strength
-function spendArrow() {
+function spendArrow(o) {
   const w = bowItem(); if (w && w.selfAmmo) return;   // nothing leaves the quiver
+  const id = eq.ammo;
   const cp = eq.cape && ITEMS[eq.cape];
   if (cp && cp.save && Math.random() < cp.save) return;  // Ava's devices snatch it back
+  if (o && id) dropStack(id, 1, Math.round(o.tx !== undefined ? o.tx : o.x), Math.round(o.tz !== undefined ? o.tz : o.z));   // the rest lie where they fell
   if (--P.ammoN > 0) return;
   P.ammoN = 0; eq.ammo = null;
   say('You have run out of ammunition!', 'bad');
@@ -3580,6 +3582,11 @@ function walkTo(wx, wz) {
 
 /* ---- 22. GROUND ITEMS ---- */
 const drops = [], pendingPiles = [];   // pendingPiles: another player's spill, sealed until its tick comes (their safe half, or the killer's minute)
+function dropStack(id, n, x, z) {   // merge into the heap already on that tile, so spent arrows gather in one place
+  const d = drops.find(q => q.id === id && q.x === x && q.z === z);
+  if (d) { d.n += n; d.life = Math.max(d.life, 200); return; }
+  dropItem(id, n, x, z);
+}
 function dropItem(id, n, x, z, life) {
   if (drops.length > 200) drops.shift();   // roomy enough that a boss pile can't evict a death pile
   drops.push({ drop: 1, id, n: n || 1, x, z, y: Math.max(walkY(x, z), 0), name: ITEMS[id].name, life: life || 200 });
@@ -3903,6 +3910,7 @@ function npcTick(n) {
   if (n.target) {
     const bigR = npcFp(n.t) + 1;   // a big thing strikes from its own edge, not from atop you
     const phase = n.t.boss ? n.t.at[n.styleIx % n.t.at.length] : null, want = phase === 'm' ? bigR : Math.max(n.t.rng || 1, bigR);
+    if (n.cd > 0) n.cd--;   // the swing clock runs while it closes in too, so arriving in reach does not cost a free tick
     if (near > want) {
       if (n.heldT > tickN) { n.mv = 0; } else {   // a snared thing strains at the ground instead of closing in
       for (n.mv += n.t.mspd; n.mv >= 1; n.mv--) {   // mspd is tiles per tick, banked
@@ -3911,7 +3919,7 @@ function npcTick(n) {
       }
       n.mv = Math.min(n.mv, 1);
       }
-    } else if (--n.cd <= 0) {
+    } else if (n.cd <= 0) {
       n.cd = n.t.spd; n.mv = 0;
       let st;
       if (phase) {
@@ -4155,8 +4163,11 @@ function die(byPlayer) {
 const ACT_TICKS = 4, MAGIC_RANGE = 10;
 let devDmgMul = 1;   // dev console: multiplies damage the player deals
 const devMul = d => devDmgMul === 1 || !(d > 0) ? d : Math.round(d * devDmgMul);
-const rollChance = (l, req, tier) => clamp(0.10 + (l - req) * 0.011 + tier * 0.035, 0.05, 0.92);
-const gatherChance = (l, req, tier) => clamp((0.10 + (l - req) * 0.011 + tier * 0.045) * 60 / (60 + req), 0.04, 0.9);   // the material resists too
+/* the gathering roll, one every ACT_TICKS. Calibrated against the wiki's own timings rather than a flat ramp: a beginner with a
+   bronze axe fells a tree in about eight seconds (it used to take twenty-five), while the stubborn materials still resist —
+   the divisor is the resistance, so yew at 99 with a dragon axe lands near the book's nine seconds and runite near thirteen. */
+const rollChance = (l, req, tier) => clamp((0.30 + (l - req) * 0.0095 + tier * 0.035) / (1 + req / 60), 0.06, 0.92);
+const gatherChance = (l, req, tier) => clamp((0.32 + (l - req) * 0.0085 + tier * 0.040) / (1 + req / 26), 0.05, 0.92);   // the material resists too
 function deplete(o, ticks) {   // tickN is the shared clock, so the deadline needs no translation
   const due = tickN + ticks;
   depleted.set(o.key, due);
@@ -4197,7 +4208,7 @@ function startTask(o, kind) {
   if (P.afloat && kind !== 'fish' && kind !== 'attack') { say("You can't do that from a boat.", 'bad'); return; }
   P.goal = null;
   P.task = { k: kind, o };
-  if (kind !== 'attack') P.actT = 0;   // the swing timer carries across retargets, as in 2007
+  if (kind !== 'attack') P.actT = 0;   // P.atkT, the swing deadline, carries across retargets on its own, as in 2007
 }
 const fail = msg => { say(msg, 'bad'); P.task = null; };
 const needLv = (sk, lv) => { if (lvl[SK[sk]] < lv) { fail('You need ' + skName(SK[sk]) + ' level ' + lv + ' for this.'); return 1; } return 0; };
@@ -4210,8 +4221,9 @@ function swing(o) {
   const sp = P.spell !== null ? SPELLS[P.spell] : null, ps = !sp && pstaffOn() ? { k: 'trident', xp: 0, max: pstaffMax(), tint: 0x35c8b8 } : null, rng = sp || ps ? 0 : bowRange();
   P.acting = 1; P.actSpan = sp ? 5 : atkSpeed();
   P.pose = sp || ps ? 2 : rng ? 1 : stabbing() ? 4 : 0;
-  if (--P.actT > 0) return -1;
-  P.actT = P.actSpan;
+  if (tickN < P.atkT) return -1;   // the clock runs whether or not you are swinging, so a fresh fight opens at once
+  P.atkT = tickN + P.actSpan;
+  P.swingPhase = 0;   // the blow starts the animation: the bolt or the spell leaves on its first frame
   const [dl, db] = o.npc ? [Math.max(0, o.t.def * (o.defDr > tickN ? 0.95 : 1) * (o.specDr || 1) - (o.defCut || 0)) + 9, o.t.db] : remoteDef(o);
   let dmg, xps = null;
   if (rng) {
@@ -4227,7 +4239,7 @@ function swing(o) {
       : Math.min(dr ? 48 : 1e9, Math.floor(rangedMax() * (spc ? (dr ? spc.ddmg : spc.dmg || 1) : 1) * rv * td));
     if (spc) { P.specArm = 0; P.spec = Math.max(0, P.spec - spc.cost); drawStyles(); }
     dmg = 0;
-    for (let h = 0, hn = spc && spc.n || 1; h < hn; h++) { dmg += Math.max(roll(ch, M), mn); if (h && P.ammoN > 0) spendArrow(); }
+    for (let h = 0, hn = spc && spc.n || 1; h < hn; h++) { dmg += Math.max(roll(ch, M), mn); if (h && P.ammoN > 0) spendArrow(o); }
     dmg = devMul(boltProc(o, dmg, ch, M));   // enchanted bolts have their say
     if (spc && spc.heal && dmg > 0) { P.hp = Math.min(P.maxhp, P.hp + Math.floor(dmg * spc.heal)); dirty.orb = 1; }   // the blowpipe drinks
     const bw = bowItem();   // an envenomed launcher bites one time in four, and its venom deepens
@@ -4235,10 +4247,11 @@ function swing(o) {
     shootArrow(P, o, dmg, ammoTint());
     sfx(bowSnd());
     wsSend([19, o.tx, o.tz, ammoTint()]);
-    spendArrow();
+    spendArrow(o);
     xps = st.xp;
   } else if (sp || ps) {
     if (sp) {
+      if (eff('magic') < sp.lv) { say('You need Magic level ' + sp.lv + ' to cast that.', 'bad'); P.spell = null; drawSpells(); return -1; }
       if (sp.undead && !(o.npc && (o.t.base || o.t).undead)) { say('That spell only crumbles the risen dead.', 'bad'); P.spell = null; drawSpells(); return -1; }
       if (sp.drain === 'hold' && !o.npc) { say('The spell cannot root another adventurer.', 'bad'); P.spell = null; drawSpells(); return -1; }   // no wire field carries a hold
       if (!spellReady(sp)) { say('You do not have the runes for that spell.', 'bad'); P.spell = null; drawSpells(); return -1; }
@@ -4286,7 +4299,7 @@ function swing(o) {
       if (spc.drainFlat && dmg > 0 && o.npc) o.defCut = (o.defCut || 0) + dmg;   // the bgs caves in Defence by the wound it deals
       if (spc.stun && o.npc) { o.cd = Math.max(o.cd, spc.stun); say('You shove the ' + o.name + ' back!'); }
       if (spc.bonus && dmg > 0) { dmg += randInt(spc.bonus[0], spc.bonus[1]); say("Saradomin's lightning strikes!", 'lv'); }
-      if (spc.quick) P.actT = 1;   // the maul comes around again at once
+      if (spc.quick) P.atkT = tickN + 1;   // the maul comes around again at once
       if (spc.heal && dmg > 0) {   // the Healing Blade drinks for body and soul
         P.hp = Math.min(P.maxhp, P.hp + Math.max(10, Math.floor(dmg * spc.heal)));
         if (spc.pheal) P.pray = Math.min(P.maxpray, P.pray + Math.max(5, Math.floor(dmg * spc.pheal)));
@@ -4425,8 +4438,8 @@ function taskTick() {
     if (!raw) { say('You have nothing left to cook.'); P.task = null; return; }
     if (lvl[SK.cooking] < raw.cookLv) return fail('You need Cooking level ' + raw.cookLv + ' to cook that.');
     invRemove(raw.raw, 1);
-   // each food has its own stop-burning level (a fire runs four levels behind a range); the risk slides down to it from ~55%
-    const stop = (raw.stop || raw.cookLv + 34) + (o.t === 6 ? 0 : 4);
+   // each food has its own stop-burning level, the wiki's own figure for an open fire; a range is two levels kinder. The risk slides down to it from ~55%
+    const stop = (raw.stop || raw.cookLv + 34) - (o.t === 6 ? 2 : 0);
     if (!capeOn('cooking') && Math.random() < (lvl[SK.cooking] >= stop ? 0 : clamp(0.55 * (stop - lvl[SK.cooking]) / Math.max(1, stop - raw.cookLv), 0, 0.55))) {   // the cooking cape never burns
       invAdd('burnt_' + raw.k, 1); say('You accidentally burn the ' + raw.n.toLowerCase() + '.', 'bad');
     } else { invAdd(raw.done, 1); say('You cook the ' + raw.n.toLowerCase() + '.'); gainXp('cooking', raw.cook); }
@@ -4479,7 +4492,7 @@ function eat(slotIdx) {
   if (it.blight && powerAt(P.tx, P.tz) < 1) return say('The blighted flesh only nourishes you in dangerous lands.', 'bad');   // the wilderness rule, in this world's terms
   const gate = it.combo ? 'foodT2' : 'foodT';   // a karambwan rides its own clock: it combos past ordinary food, as ever
   if (P[gate] > tickN) return;   // one bite per three ticks, and each bite delays the next swing; a full belly still eats, as ever
-  P[gate] = tickN + 3; P.actT += 3;
+  P[gate] = tickN + 3; P.actT += 3; P.atkT = Math.max(P.atkT, tickN + 3);
   invRemove(inv[slotIdx].id, 1); sfx(2393);
   const heal = it.ang ? angHeal() : it.heal;
   P.hp = it.ang ? Math.min(P.maxhp + heal, P.hp + heal) : Math.min(P.maxhp, P.hp + heal);   // an anglerfish alone feeds past full, to max + its own heal
@@ -5032,7 +5045,7 @@ function drawSpells() {
 on(spellGrid, 'click', e => {
   const d = e.target.closest('[data-sp]'); if (!d) return;
   const s = SPELLS[+d.dataset.sp];
-  if (lvl[SK.magic] < s.lv) return say('You need Magic level ' + s.lv + ' to cast that.', 'bad');
+  if (eff('magic') < s.lv) return say('You need Magic level ' + s.lv + ' to cast that.', 'bad');
   P.spell = P.spell === s.i ? null : s.i;
   say(P.spell === null ? 'You put your staff away.' : 'You ready ' + s.n + '.');
   drawSpells();
@@ -6537,7 +6550,7 @@ function freshCharacter() {
   P.look.skin = P.look.shirt = P.look.legs = P.look.face = 0;
   for (const s of EQ_SLOTS) eq[s] = null;
   P.maxhp = P.hp = lvl[SK.hitpoints]; P.maxpray = P.pray = lvl[SK.prayer];
-  P.energy = 100; P.run = 1; P.style = 0; P.cstyle = 0; P.prayers = 0; P.spell = null; P.slay = null; P.clue = null; P.farm = Object.create(null); bst.fill(0);
+  P.energy = 100; P.run = 1; P.atkT = 0; P.style = 0; P.cstyle = 0; P.prayers = 0; P.spell = null; P.slay = null; P.clue = null; P.farm = Object.create(null); bst.fill(0);
   P.hs = null;   // loadSeed already tore any standing house down
   P.cl = new Set(); P.pet = null; P.ins = []; P.petLost = []; P.dy = {}; P.ca = {}; P.dunRet = null; P.skull = 0; P.dpile = null;
   for (const [id, n] of [['bronze_hatchet', 1], ['bronze_pickaxe', 1], ['tinderbox', 1], ['hammer', 1], ['small_net', 1], ['coins', 120]]) invAdd(id, n);
@@ -9290,7 +9303,7 @@ on(spellGrid, 'click', e => {   // runs after the combat handler: arming either 
   const d = e.target.closest('[data-us]');
   if (!d) { if (P.uspell && P.spell !== null) { P.uspell = null; drawSpells(); } return; }
   const s = USPELLS[+d.dataset.us];
-  if (lvl[SK.magic] < s.lv) return say('You need Magic level ' + s.lv + ' to cast that.', 'bad');
+  if (eff('magic') < s.lv) return say('You need Magic level ' + s.lv + ' to cast that.', 'bad');
   P.spell = null;
   if (!s.item) { P.uspell = null; cast(s); }
   else if (P.uspell === s) { P.uspell = null; say('You put your staff away.'); }
@@ -9559,6 +9572,7 @@ for (const b of BOSSES) {
   defItem({ id: 'pet_' + k, name: t.n + ' pet', g: 'paw', c, c2: '#3a3026', val: 0, opt: ['Follow', () => petFollow('pet_' + k)] });
   (LOOT[k].tert = LOOT[k].tert || []).push(['pet_' + k, PET_RATE[k] || 3000]);
 }
+for (const k in VISAGE_RATE) (LOOT[k].tert = LOOT[k].tert || []).push(['draconic_visage', VISAGE_RATE[k]]);   // the dragonkind's own rarity, beside the two the wyrms already carried
 function petFollow(id) {
   if (P.pet === id) { P.pet = null; say('Your pet climbs back into the pack.'); }
   else { P.pet = id; say('The ' + ITEMS[id].name.toLowerCase() + ' pads along at your heel.', 'lv'); }

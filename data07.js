@@ -239,8 +239,8 @@ const LOOT = {
   /* Where a row leaves 2007 (many of these monsters drop nothing there), the table is a deliberate game-economy
      addition: this world's slayer masters assign them and its wilds sic them on travellers, so their kills must pay.
      Shapes and sizes borrow from same-band wiki tables; each such entry says so. */
-  chicken: { den: 128, main: [['feather', 64, 5], ['feather', 32, 15]] },
-  cow: { alw: [['cowhide', 1]] },
+  chicken: { den: 128, main: [['feather', 64, 5], ['feather', 32, 15]], alw: [['raw_chicken', 1]] },
+  cow: { alw: [['cowhide', 1], ['raw_beef', 1]] },
   duck: { nb: 1 }, sheep: { alw: [['wool', 1]] }, camel: {}, ram: {}, pig: {}, rat: {},
   goat: { den: 128, main: [['coins', 25, 12], ['water_rune', 4, 6], ['seed', 12], ['herb', 4]] },   // game-economy: bones-only in 2007
   spider: { tert: [['red_spiders_eggs', 2]] }, smallspider: {}, smallscorpion: {},
@@ -584,7 +584,9 @@ const BARROWS_SUB = [['dharoks_helm', 1], ['dharoks_platebody', 1], ['dharoks_pl
   ['ahrims_hood', 1], ['ahrims_robetop', 1], ['ahrims_robeskirt', 1], ['ahrims_staff', 1]];
 const RAID_SUB = [['dragon_hunter_crossbow', 4], ['ancestral_hat', 3], ['ancestral_robe_top', 3], ['ancestral_robe_bottom', 3], ['kodai_wand', 2], ['twisted_bow', 2]];   // the raid vault's own weights
 /* every boss walks again in miniature; wiki rates where the pet exists, 1/3000 where 2007 never granted one — TODO: verify */
-const PET_RATE = { skotizo: 65, scorpia: 2016, vetion: 2000, venenatis: 2000, callisto: 2000, kbd: 3000, vorkath: 3000, sarachnis: 3000, kalphitequeen: 3000, scurrius: 3000, graardor: 5000, kril: 5000 };
+/* the visage, at each dragon's own wiki odds; bronze/red/green/blue are excluded there and stay so here */
+const VISAGE_RATE = { irondragon: 10000, steeldragon: 10000, mithrildragon: 10000, blackdragon: 10000, adamantdragon: 9000, runedragon: 8000 };
+const PET_RATE = { skotizo: 65, scorpia: 2016, vetion: 1500, venenatis: 1500, callisto: 1500, kbd: 3000, vorkath: 3000, sarachnis: 3000, kalphitequeen: 3000, scurrius: 3000, graardor: 5000, kril: 5000 };
 /* combat feats: four badges a boss — the kill, the flawless kill, the one-style kill, and the swift kill */
 const CA_BITS = [[1, 'Slain'], [2, 'Flawless'], [4, 'One style'], [8, 'Swift']];
 /* one reward table a tier: staples everywhere, trimmed rune from medium, gilded only out of hard caskets */
@@ -913,7 +915,7 @@ const BTERT = [
   ['branda', ['toktz_xil_ak', 128], ['tzhaar_ket_om', 128], ['fire_cape', 128], ['infinity_bottoms', 350], ['infinity_hat', 500]],   // the fire queen holds the volcano's arsenal
   ['skotizo', ['primordial_boots', 128], ['pegasian_boots', 128], ['eternal_boots', 128], ['master_wand', 350]],   // the dark warden stands in for Cerberus (crystals 1/128 each)
   ['jungledemon', ['amulet_of_torture', 512], ['necklace_of_anguish', 512], ['soul_talisman', 128]],   // the jungle demon stands in for the demonic gorillas; the soul altar answers to him
-  ['spectre', ['occult_necklace', 512]],   // the smoke devil's own 1/512, on its misty kin
+  ['spectre', ['occult_necklace', 512], ['black_mask', 512]],   // the smoke devil's own 1/512, on its misty kin; the mask keeps the cave horror's 1/512 (no horrors here, and the spectre is the slayer-gated kin)
   ['blackdemon', ['abyssal_dagger', 512], ['abyssal_bludgeon', 750]],   // the abyssal kin keep the sire's arms (unsired odds ~1/492)
   ['revenant', ['ancient_staff', 512]],   // the restless dead keep the old magicks
   ['obor', ['berserker_ring', 128]],
