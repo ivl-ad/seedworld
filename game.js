@@ -74,9 +74,9 @@ const microRelief = (x, z) => fbm(x * 0.085, z * 0.085, S + 11, 3) * 0.80 + nois
 const RANKS = [
   { n: 'hamlet',     R: 22,  land: 0.50, houses: 7,   wall: 0, keep: 0, shops: 1, grids: 0, ring: 0, lm: 0 },
   { n: 'village',    R: 32,  land: 0.56, houses: 15,  wall: 1, keep: 0, shops: 2, grids: 0, ring: 0, lm: 1 },
-  { n: 'town',       R: 48,  land: 0.64, houses: 32,  wall: 1, keep: 0, shops: 3, grids: 1, ring: 1, lm: 1 },
-  { n: 'city',       R: 72,  land: 0.72, houses: 64,  wall: 2, keep: 1, shops: 5, grids: 2, ring: 1, lm: 1 },
-  { n: 'metropolis', R: 100, land: 0.80, houses: 104, wall: 2, keep: 1, shops: 6, grids: 4, ring: 1, lm: 1 }
+  { n: 'town',       R: 48,  land: 0.64, houses: 40,  wall: 1, keep: 0, shops: 3, grids: 1, ring: 1, lm: 1 },
+  { n: 'city',       R: 72,  land: 0.72, houses: 120,  wall: 2, keep: 1, shops: 5, grids: 2, ring: 1, lm: 1 },
+  { n: 'metropolis', R: 100, land: 0.80, houses: 190, wall: 2, keep: 1, shops: 6, grids: 4, ring: 1, lm: 1 }
 ];
 const TIER_N = RANKS.map(r => r.n);
 function sitePos(cx, cz) {
@@ -97,40 +97,98 @@ function landWithin(R) {
   return tot ? ok / tot : 0;
 }
 const rankWish = h => { const t = h % 1000; return t < 380 ? 0 : t < 660 ? 1 : t < 850 ? 2 : t < 958 ? 3 : 4; };
-function villageAt(cx, cz) {
+/* the outline: a settlement is one shape, and everything reads it through villageDist — the plateau, the fields, the wall, the safety belt.
+   PF_N radii round the compass in the stretched frame: a lobed blob for the small places, a softened polygon for the towns that planned
+   themselves. pmax is the outline's reach in r, so the siting cap knows what must fit between neighbours. */
+const PF_N = 96, EXT_MAX = 1.5;   // every outline fits inside EXT_MAX·r, so a town is sized before its shape is known
+/* the outline kinds: 0 a lobed blob (the small places), 1 a rectangle, 2 rectangles joined into a sprawl of wards, 3 a softened regular
+   polygon. Rectangles all contain the centre, so their union is star-shaped and one radius per compass point describes it. */
+function townShape(cx, cz, rank, role, asp0) {
+  const h = hash2(cx, cz, S + 25), h2 = hash2(cx, cz, S + 26), pf = new Float32Array(PF_N), pc = [], roll = (h >>> 1) % 100;
+  const kind = role === 2 ? 1 : rank >= 3 ? (roll < 18 ? 0 : roll < 42 ? 1 : roll < 84 ? 2 : 3) : rank === 2 ? (roll < 40 ? 0 : roll < 62 ? 1 : roll < 78 ? 2 : 3) : 0;
+  let rects = null, pn = 0, po = 0, rnd = 0;
+  if (kind === 1 || kind === 2) {
+    const a1 = role === 2 ? 1.45 : 1 + ((h >>> 8) & 255) / 255 * 0.45, sw = role === 2 ? 0 : (h >>> 16) & 1;
+    rects = [{ x: 0, z: 0, hw: sw ? 1 : a1, hd: sw ? a1 : 1 }];
+    if (kind === 2) for (let i = 0, n = 1 + ((h2 >>> 20) & 1); i < n; i++) {   // one or two more wards, each holding the centre
+      const g = hash2(cx + i * 7, cz - i * 3, S + 28), hw = 0.45 + (g & 255) / 255 * 0.7, hd = 0.45 + ((g >>> 8) & 255) / 255 * 0.7;
+      rects.push({ x: (((g >>> 16) & 255) / 255 * 2 - 1) * hw * 0.85, z: (((g >>> 24) & 255) / 255 * 2 - 1) * hd * 0.85, hw, hd });
+    }
+  } else if (kind === 3) { pn = [5, 6, 8][(h >>> 4) % 3]; po = ((h >>> 8) & 255) / 256 * TAU; rnd = ((h >>> 16) & 1) * 0.25; }
+  const asp = rects ? 1 : asp0, az = Math.sqrt(asp), amp = kind === 0 ? 0.05 + ((h >>> 18) & 31) / 31 * 0.12 : kind === 3 ? 0.04 : 0;
+  const ray = a => {   // the raw outline at a frame angle (sin to x, cos to z)
+    if (rects) {
+      const sx = Math.sin(a), cz2 = Math.cos(a);
+      let p = 0;
+      for (const rc of rects) { const tx = sx > 1e-6 ? (rc.x + rc.hw) / sx : sx < -1e-6 ? (rc.x - rc.hw) / sx : 1e9, tz = cz2 > 1e-6 ? (rc.z + rc.hd) / cz2 : cz2 < -1e-6 ? (rc.z - rc.hd) / cz2 : 1e9; p = Math.max(p, Math.min(tx, tz)); }
+      return p;
+    }
+    if (pn) { const w = TAU / pn, t = ((a - po) % w + w) % w - w / 2, p = 1 / Math.cos(t); return p + (1 - p) * rnd; }
+    return 1;
+  };
+  let mean = 0, mx = 0;
+  for (let i = 0; i < PF_N; i++) { pf[i] = ray(i / PF_N * TAU); mean += pf[i] / PF_N; }
+  const f2 = (h2 & 7) / 8 * TAU, f3 = ((h2 >>> 3) & 7) / 8 * TAU, f5 = ((h2 >>> 6) & 7) / 8 * TAU;
+  for (let i = 0; i < PF_N; i++) {
+    const a = i / PF_N * TAU, p = clamp(pf[i] / mean + amp * (Math.cos(2 * a + f2) * 0.55 + Math.cos(3 * a + f3) * 0.35 + Math.cos(5 * a + f5) * 0.18), 0.6, EXT_MAX / az);
+    pf[i] = p; if (p > mx) mx = p;
+  }
+  if (rects) {   // the corners that stand on the outline take towers; wards are kept in outline units for the plan
+    for (const rc of rects) for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const x = rc.x + sx * rc.hw, z = rc.z + sz * rc.hd, a = Math.atan2(x, z), d = Math.hypot(x, z); if (Math.abs(ray(a) - d) < d * 0.03) pc.push(a); }
+    rects = rects.map(rc => ({ x: rc.x / mean, z: rc.z / mean, hw: rc.hw / mean, hd: rc.hd / mean }));
+  } else if (pn) for (let k = 0; k < pn; k++) pc.push(po + k * TAU / pn);
+  return { pf, pn, po, pc, pmax: mx, rects, kind, asp };
+}
+const PLAN_ODDS = [[0, 0, 55, 100], [25, 25, 65, 100], [35, 60, 75, 100], [40, 75, 75, 100], [40, 75, 75, 100]];   // cumulative %, by rank: radial, grid, high street, crooked
+/* the shape-blind half of siting: where a settlement stands, how big it may grow and what rank it earned. The charter reads only this */
+function siteInfo(cx, cz) {
   if (cz * SETTLE_CELL > 499000) return null;   // no settlements in the dungeon band
-  const k = cx * 8191 + cz;
-  let v = villageCache.get(k);
-  if (v !== undefined) return v;
-  v = null;
+  const k = (cx * 8191 + cz) * 2 + 1;
+  let s = villageCache.get(k);
+  if (s !== undefined) return s;
+  s = null;
   const [px, pz] = sitePos(cx, cz);
-  if (wildLvAt(px, pz)) { villageCache.set(k, v); return v; }   // nothing settles the wilderness
+  if (wildLvAt(px, pz)) { villageCache.set(k, s); return s; }   // nothing settles the wilderness
   const A = regionAt(px, pz).a;
   // civilisation clusters: each kingdom keeps a dense heart and true emptiness between, so arriving somewhere means leaving nowhere
   const civ = fbm(px * 0.00018, pz * 0.00018, S + 72, 2) * 1.6 + A.civ + smoothstep(3600, 700, Math.hypot(px, pz)) * 0.45;   // the whole larger heart keeps its towns
   if ((hash2(cx, cz, S + 21) % 1000) < 120 + 780 * smoothstep(-0.62, 0.55, civ)) {
     const y = macroHeight(px, pz);
     if (y > 1.9 && y < 34) {
-      let gap = 1e9;   // never grow into a neighbour
+      let gap = 1e9;   // never grow into a neighbour: the outline's reach, not the nominal radius, is what must fit
       for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
         if (!a && !b) continue;
         const q = sitePos(cx + a, cz + b), d = Math.hypot(q[0] - px, q[1] - pz);
         if (d < gap) gap = d;
       }
-      const capR = gap * 0.44;
       let want = rankWish(hash2(cx, cz, S + 23));
       const rich = fbm(px * 0.00045, pz * 0.00045, S + 71, 2);   // regional prosperity
       if (rich > 0.22) want = Math.min(4, want + 1); else if (rich < -0.24) want = Math.max(0, want - 1);
+      if (cx >= -1 && cx <= 0 && cz >= -1 && cz <= 0) want = Math.max(want, 1);   // the home cells try for a village at least: Lumbridge has a castle to hold
+      const capR = Math.min(gap * 0.55, (-wildD(px, pz) - 40) / 1.6) / EXT_MAX;   // fields and belt (1.6r) stop 40 short of the ditch
       siteSurvey(px, pz, y, RANKS[want].R);
       let rank = -1;
       for (let r = want; r >= 0; r--) { const R = RANKS[r].R; if (R <= capR && landWithin(R) >= RANKS[r].land) { rank = r; break; } }
-      if (rank >= 0) {
-        const h3 = hash2(cx, cz, S + 24), rot = (h3 & 255) / 256 * PI, asp = 1 + ((h3 >>> 8) & 255) / 255 * 0.55;
-        v = { cx, cz, x: px, z: pz, y: Math.round(y), rank, tier: Math.min(2, rank), r: Math.round(Math.min(RANKS[rank].R, capR)), reg: A,
-              ax: 1 / Math.sqrt(asp), az: Math.sqrt(asp), cs: Math.cos(rot), sn: Math.sin(rot), G: null, b: null, f: null, keep: null,
-              wall: null, trees: null, spots: null, name: null, lm: null, fur: null, shrine: null, booth: null, pen: null, dock: null, guild: null };
-      }
+      if (rank >= 0) s = { cx, cz, x: px, z: pz, y: Math.round(y), rank, r: Math.round(Math.min(RANKS[rank].R, capR)), reg: A, h3: hash2(cx, cz, S + 24) };
     }
+  }
+  villageCache.set(k, s);
+  return s;
+}
+function villageAt(cx, cz) {
+  const k = (cx * 8191 + cz) * 2;
+  let v = villageCache.get(k);
+  if (v !== undefined) return v;
+  const s = siteInfo(cx, cz);
+  v = null;
+  if (s) {
+    const role = charterRoleAt(s), hp = hash2(cx, cz, S + 27), h3 = s.h3, rank = s.rank;
+    const sh = townShape(cx, cz, rank, role, 1 + ((h3 >>> 8) & 255) / 255 * 0.35), asp = sh.asp;
+    const rot = role === 2 ? 0 : rank >= 2 ? ((h3 >>> 2) & 1) * PI / 2 : (h3 & 255) / 256 * PI;   // the planned towns sit square to the world, as the old ones did
+    v = Object.assign({}, s, { tier: Math.min(2, rank), role, ax: 1 / Math.sqrt(asp), az: Math.sqrt(asp), cs: Math.cos(rot), sn: Math.sin(rot),
+          pf: sh.pf, pn: sh.pn, po: sh.po, pc: sh.pc, rects: sh.rects, kind: sh.kind, ext: Math.sqrt(asp) * sh.pmax,
+          pk: role === 2 ? 1 : PLAN_ODDS[rank].findIndex(c => hp % 100 < c), rot: rank >= 2 ? 0 : ((hp >>> 8) & 255) / 256 * PI / 2,   // a planned town's grid runs with its frame
+          G: null, b: null, f: null, keep: null, wall: null, trees: null, spots: null, name: null, lm: null, fur: null, shrine: null, booth: null, pen: null, dock: null, guild: null });
   }
   villageCache.set(k, v);
   return v;
@@ -156,10 +214,17 @@ function nearVillage(x, z) {
   for (const v of _llist) { const d = villageDist(v, ix, iz); if (d < v.r * 1.8 && d < bd) { bd = d; best = v; } }   // 1.8: the safety belt reads past the fields
   return _nvr = (best ? { v: best, d: bd } : null);
 }
-function villageDist(v, x, z) {   // in the settlement's rotated, stretched frame
+const profAt = (v, a) => { const t = a / TAU * PF_N, i0 = Math.floor(t), f = t - i0, i = ((i0 % PF_N) + PF_N) % PF_N, p = v.pf; return p[i] + (p[(i + 1) % PF_N] - p[i]) * f; };
+function villageDist(v, x, z) {   // in the settlement's rotated, stretched frame, then through its outline: below r is inside
   const dx = x - v.x, dz = z - v.z, rx = dx * v.cs + dz * v.sn, rz = -dx * v.sn + dz * v.cs;
   const ex = rx / v.ax, ez = rz / v.az;
-  return Math.sqrt(ex * ex + ez * ez);
+  return Math.sqrt(ex * ex + ez * ez) / profAt(v, Math.atan2(ex, ez));
+}
+/* a world heading, as the outline's own compass reads it: the frame is rotated and stretched, so the two disagree */
+const frameAng = (v, w) => { const sx = Math.sin(w), cz = Math.cos(w); return Math.atan2((sx * v.cs + cz * v.sn) / v.ax, (-sx * v.sn + cz * v.cs) / v.az); };
+function townPt(v, a, d) {   // the inverse: the tile at compass angle a (sin to x, cos to z, as the streets read it) and villageDist d
+  const p = profAt(v, a) * d, rx = Math.sin(a) * p * v.ax, rz = Math.cos(a) * p * v.az;
+  return [Math.round(v.x + rx * v.cs - rz * v.sn), Math.round(v.z + rx * v.sn + rz * v.cs)];
 }
 function nearestVillageTo(x, z, maxRing) {   // spiral out; scan one ring past the first hit
   const cx = Math.floor(x * INV_CELL), cz = Math.floor(z * INV_CELL);
@@ -194,27 +259,49 @@ function safeSpotIn(v) {
 /* ---- STAGE 4: roads. Each settlement links east, south and maybe a diagonal, so every link is built once. ---- */
 const roadCache = new Map();
 const LINK_DIRS = [[1, 0], [0, 1], [1, 1], [1, -1]];
-function linkSegments(cx, cz, out) {
+/* where a road meets a town: a grid town turns arrivals within 34 degrees of a grid axis onto it; every other gate sits on a
+   15-degree compass point, so two roads arriving close share one gate and one artery */
+const GATE_Q = TAU / 24;
+function gateAngle(v, a) {
+  if (v.pk === 1 || v.rank >= 3) { const d = wrapA(a - v.rot), s = Math.round(d / (PI / 2)) * PI / 2; if (Math.abs(wrapA(d - s)) < 0.6) return v.rot + s; }
+  const q = v.rank >= 2 ? PI / 4 : GATE_Q;
+  return Math.round(a / q) * q;
+}
+/* one highway: A's gate to B's gate, bent round one control point; the gate angles are what the town plans read back */
+function linkOf(cx, cz, d) {
   const A = villageAt(cx, cz);
-  if (!A) return;
+  if (!A || (d >= 2 && (hash2(cx, cz, S + 81 + d) & 3) !== 0)) return null;
+  const dd = LINK_DIRS[d], B = villageAt(cx + dd[0], cz + dd[1]) || villageAt(cx + dd[0] * 2, cz + dd[1] * 2);   // reach past an empty cell
+  if (!B || A.rank + B.rank < 1) return null;
+  const span = Math.hypot(B.x - A.x, B.z - A.z), nx = -(B.z - A.z) / span, nz = (B.x - A.x) / span;
+  const bend = (((hash2(cx, cz, S + 83 + d) >>> 7) & 255) / 255 - 0.5) * 0.30;
+  const kx = (A.x + B.x) / 2 + nx * bend * span, kz = (A.z + B.z) / 2 + nz * bend * span;
+  return { A, B, kx, kz, aA: gateAngle(A, frameAng(A, Math.atan2(kx - A.x, kz - A.z))), aB: gateAngle(B, frameAng(B, Math.atan2(kx - B.x, kz - B.z))), w: 1.7 + Math.max(A.rank, B.rank) * 0.42 };
+}
+function linkSegments(cx, cz, out) {
   for (let d = 0; d < 4; d++) {
-    const dd = LINK_DIRS[d];
-    if (d >= 2 && (hash2(cx, cz, S + 81 + d) & 3) !== 0) continue;
-    let B = villageAt(cx + dd[0], cz + dd[1]) || villageAt(cx + dd[0] * 2, cz + dd[1] * 2);   // reach past an empty cell
-    if (!B || A.rank + B.rank < 1) continue;
-    const w = 1.7 + Math.max(A.rank, B.rank) * 0.42, span = Math.hypot(B.x - A.x, B.z - A.z);
-    const nx = -(B.z - A.z) / span, nz = (B.x - A.x) / span;
-    const bend = (((hash2(cx, cz, S + 83 + d) >>> 7) & 255) / 255 - 0.5) * 0.30;
-    const kx = (A.x + B.x) / 2 + nx * bend * span, kz = (A.z + B.z) / 2 + nz * bend * span;
-    let px = A.x, pz = A.z;
+    const L = linkOf(cx, cz, d);
+    if (!L) continue;
+    const [ax, az] = townPt(L.A, L.aA, L.A.r), [bx, bz] = townPt(L.B, L.aB, L.B.r), w = L.w;
+    let px = ax, pz = az;
     for (let i = 1; i <= 6; i++) {   // quadratic bezier in six chords
       const t = i / 6, u = 1 - t;
-      const qx = u * u * A.x + 2 * u * t * kx + t * t * B.x, qz = u * u * A.z + 2 * u * t * kz + t * t * B.z;
+      const qx = u * u * ax + 2 * u * t * L.kx + t * t * bx, qz = u * u * az + 2 * u * t * L.kz + t * t * bz;
       out.push({ x0: px, z0: pz, x1: qx, z1: qz, w, lo: Math.min(px, qx) - w - 2, hi: Math.max(px, qx) + w + 2,
                  zl: Math.min(pz, qz) - w - 2, zh: Math.max(pz, qz) + w + 2 });
       px = qx; pz = qz;
     }
   }
+}
+/* the roads a settlement receives: its own four links and the ones its western and northern neighbours sent it */
+function townApproaches(v) {
+  const out = [], add = a => { for (const b of out) if (Math.abs(wrapA(a - b)) < 0.01) return; out.push(a); };
+  for (let d = 0; d < 4; d++) {
+    const L = linkOf(v.cx, v.cz, d); if (L) add(L.aA);
+    const dd = LINK_DIRS[d];
+    for (let s = 1; s <= 2; s++) { const M = linkOf(v.cx - dd[0] * s, v.cz - dd[1] * s, d); if (M && M.B.cx === v.cx && M.B.cz === v.cz) add(M.aB); }
+  }
+  return out;
 }
 function cellRoads(cx, cz) {
   const k = cx * 8191 + cz;
@@ -245,7 +332,7 @@ function finish(x, z, m) {
   const n = nearVillage(x, z);
   let flat = 0, h = m;
   if (n) {
-    flat = 1 - smoothstep(0.62, 1.0, n.d / n.v.r);   // a true plateau with a short shoulder: towns sit on a table at one whole height, 2007-style
+    flat = 1 - smoothstep(n.v.rank >= 3 ? 0.80 : 0.62, 1.0, n.d / n.v.r);   // a true plateau with a short shoulder: towns sit on a table at one whole height, 2007-style; a city's table reaches its walls
     h = m + (n.v.y - m) * flat;
   }
   if (flat < 0.999 && z < 500000) h += microRelief(x, z) * (1 - flat) * smoothstep(-3, 2, h);   // the dungeon band stays smooth: relief turned its walls into rows of spikes
@@ -355,33 +442,48 @@ const OSRS_NAMES = {
   jungle: [['Brimhaven', 1], ['Shilo Village'], ['Tai Bwo Wannai'], ['Musa Point', 1], ['Jiggig']],
   wilds: [['Lovakengj'], ['Mor Ul Rek']]
 };
-let osrsMap = null, osrsMapS = 0;
-function osrsNameOf(v) {   // pure in S: every client grants the same charters
-  if (osrsMapS !== S) osrsMap = null;
-  if (!osrsMap) {
-    osrsMapS = S; osrsMap = new Map();
-    const vs = [];
-    for (let a = -16; a <= 16; a++) for (let b = -16; b <= 16; b++) {
-      const q = villageAt(a, b);
-      if (q && Math.hypot(q.x, q.z) < 3800) vs.push(q);
-    }
-    vs.sort((p, q2) => (Math.hypot(p.x, p.z) - Math.hypot(q2.x, q2.z)) || (p.x - q2.x) || (p.z - q2.z));
-    const used = new Set();
-    const wet = q => { for (let i = 0; i < 8; i++) { const a2 = i / 8 * TAU, rr = q.r * 1.3; if (macroHeight(q.x + Math.cos(a2) * rr, q.z + Math.sin(a2) * rr) < SEA) return 1; } return 0; };
-    for (const q of vs) {
-      const pool = OSRS_NAMES[q.reg.k];
-      if (!pool) continue;
-      let coastal = -1;
-      for (const row of pool) {
-        if (used.has(row[0])) continue;
-        if (row[1]) { if (coastal < 0) coastal = wet(q); if (!coastal) continue; }
-        used.add(row[0]); osrsMap.set(q.cx + ':' + q.cz, row[0]);
-        break;
-      }
+let osrsMap = null, osrsMapS = 0, roleMap = null;
+function charter() {   // pure in S: every client grants the same names and the same two charters
+  if (osrsMapS === S && osrsMap) return;
+  osrsMapS = S; osrsMap = new Map(); roleMap = new Map();
+  const key = q => q.cx + ':' + q.cz, vs = [], used = new Set();
+  for (let a = -16; a <= 16; a++) for (let b = -16; b <= 16; b++) {
+    const q = siteInfo(a, b);
+    if (q && Math.hypot(q.x, q.z) < 3800) vs.push(q);
+  }
+  vs.sort((p, q2) => (Math.hypot(p.x, p.z) - Math.hypot(q2.x, q2.z)) || (p.x - q2.x) || (p.z - q2.z));
+  const grant = (q, n, role) => { used.add(n); osrsMap.set(key(q), n); roleMap.set(key(q), role); };
+  const lum = homeVillage();   // where everyone wakes: Lumbridge, castle and bank guaranteed
+  if (lum) grant(lum, 'Lumbridge', 1);
+  const vr = vs.find(q => q.rank >= 3 && !roleMap.has(key(q))) || vs.find(q => q.rank >= 2 && !roleMap.has(key(q)));   // the nearest city: Varrock, and its Grand Exchange
+  if (vr) grant(vr, 'Varrock', 2);
+  const wet = q => { for (let i = 0; i < 8; i++) { const a2 = i / 8 * TAU, rr = q.r * 1.3; if (macroHeight(q.x + Math.cos(a2) * rr, q.z + Math.sin(a2) * rr) < SEA) return 1; } return 0; };
+  for (const q of vs) {
+    const pool = OSRS_NAMES[q.reg.k];
+    if (!pool || osrsMap.has(key(q))) continue;
+    let coastal = -1;
+    for (const row of pool) {
+      if (used.has(row[0])) continue;
+      if (row[1]) { if (coastal < 0) coastal = wet(q); if (!coastal) continue; }
+      used.add(row[0]); osrsMap.set(key(q), row[0]);
+      break;
     }
   }
-  return osrsMap.get(v.cx + ':' + v.cz) || null;
 }
+/* the spawn: the nearest settlement to the origin, unless a village or town stands within a short walk of it */
+function homeVillage() {
+  let best = null, bs = 1e9;
+  for (let a = -7; a <= 7; a++) for (let b = -7; b <= 7; b++) {
+    const q = siteInfo(a, b);
+    if (!q) continue;
+    const s = Math.hypot(q.x, q.z) - Math.min(q.rank, 2) * 140;
+    if (s < bs) { bs = s; best = q; }
+  }
+  return best;
+}
+const osrsNameOf = v => { charter(); return osrsMap.get(v.cx + ':' + v.cz) || null; };
+const charterRoleAt = s => { if (Math.hypot(s.x, s.z) >= 3800) return 0; charter(); return roleMap.get(s.cx + ':' + s.cz) || 0; };   // 1 Lumbridge, 2 Varrock
+const charterRole = charterRoleAt;
 function villageName(v) {
   if (v.name) return v.name;
   if (Math.hypot(v.x, v.z) < 3800) { const os = osrsNameOf(v); if (os) return v.name = os; }
@@ -737,7 +839,7 @@ const PIECES = [
   ['dagger', 'dagger', 'dagger', 'weapon', 5, 4, 0, { spd: 4, stab: 1 }], ['sword', 'sword', 'sword', 'weapon', 7, 6, 1, { spd: 4, stab: 1 }],
   ['scimitar', 'scimitar', 'scim', 'weapon', 9, 8, 0, { spd: 4 }], ['longsword', 'longsword', 'lsword', 'weapon', 10, 8, 1],
   ['mace', 'mace', 'mace', 'weapon', 6, 8, 1, { spd: 4 }], ['battleaxe', 'battleaxe', 'baxe', 'weapon', 8, 9, 0, { spd: 6 }],
-  ['warhammer', 'warhammer', 'wham', 'weapon', 8, 10, 0, { spd: 6, gate: 'strength' }], ['claws', 'claws', 'claws', 'weapon', 8, 7, 1, { spd: 4 }],
+  ['warhammer', 'warhammer', 'wham', 'weapon', 8, 10, 0, { spd: 6 }], ['claws', 'claws', 'claws', 'weapon', 8, 7, 1, { spd: 4, two: 1 }],
   ['2h_sword', '2h sword', 'sword2h', 'weapon', 12, 13, 0, { spd: 7, two: 1 }], ['halberd', 'halberd', 'halberd', 'weapon', 11, 12, 0, { spd: 7, two: 1, reach: 2, stab: 1 }],
   ['spear', 'spear', 'spear', 'weapon', 8, 7, 0, { spd: 4, two: 1, stab: 1 }], ['hasta', 'hasta', 'spear', 'weapon', 7, 7, 0, { spd: 4, stab: 1 }],
   ['med_helm', 'med helm', 'helm', 'head', 0, 0, 4], ['full_helm', 'full helm', 'fhelm', 'head', 0, 0, 6],
@@ -750,6 +852,7 @@ const PIECES = [
    WV: [attack, strength] per weapon class — the single attack scalar is the class's best style's bonus.
    AV: armour defence — the rounded mean of the wiki's stab/slash/crush. Tools, boots and gauntlets stay formula-scaled. */
 const WV = {
+  hatchet: [[4, 5, 8, 10, 12, 17, 26, , 38], [5, 7, 9, 12, 13, 19, 29, , 42]], pickaxe: [[4, 5, 8, 10, 12, 17, 26, , 38], [5, 7, 9, 11, 13, 19, 29, , 42]],
   dagger: [[4, 5, 8, 10, 11, 15, 25, , 40], [3, 4, 7, 7, 10, 14, 24, , 40]],
   sword: [[4, 6, 11, 14, 16, 23, 38, , 65], [5, 7, 12, 12, 17, 24, 39, , 63]],
   scimitar: [[7, 10, 15, 19, 21, 29, 45, , 67], [6, 9, 14, 14, 20, 28, 44, , 66]],
@@ -795,7 +898,7 @@ for (const t of TIERS) for (const p of PIECES) {
     id: t.k + '_' + p.k, name: t.n + ' ' + p.n, g: p.g, c: t.c, c2: t.c2, slot: p.slot, tier: t.i, spd: p.spd || 5, equip: 1,
     two: p.two || 0, reach: p.reach || 0, stab: p.stab || 0, tool: p.tool || null,
     atk: w ? w[0][t.i] || 0 : p.a * t.m, str: w ? w[1][t.i] || 0 : p.s * t.m, def: av ? av[t.i] || 0 : p.d * t.m,
-    req: p.tool ? { [p.tool]: t.tool } : p.slot === 'weapon' ? { [p.gate || 'attack']: t.req } : { defence: t.req },
+    req: p.tool ? { [p.tool]: t.tool, attack: t.req } : p.slot === 'weapon' ? (p.k === 'halberd' ? { attack: t.req, strength: Math.max(1, t.req >> 1) } : { [t.k === 'dragon' && p.k === 'warhammer' ? 'strength' : 'attack']: t.req }) : { defence: t.req },   // only the dragon warhammer asks strength; halberds ask half again in strength
     val: Math.round((p.a + p.s + p.d * 1.6 + 6) * t.m * t.m * 1.2)   // price climbs with the square of the tier
   });
 }
@@ -818,7 +921,7 @@ for (const b of XBOWS) { const t = TIER[b.k]; defWear({ id: b.k + '_crossbow', n
   ammoT: 'bolt', spd: 6, rng: 7, rat: b.ra, req: { ranged: b.lv }, val: Math.round(40 + b.ra * b.ra * 0.5) }); }
 /* ammunition carries the strength and stacks */
 const ARROWS = [['bronze', 1, 7], ['iron', 1, 10], ['steel', 5, 16], ['mithril', 20, 22], ['adamant', 30, 31], ['rune', 40, 49],
-  ['amethyst', 61, 55, 'Amethyst', '#9a6fc4', '#5f4380'], ['dragon', 75, 60]].map(([k, lv, rs, n, c, c2]) => ({ k, lv, rs, n, c, c2 }));
+  ['amethyst', 50, 55, 'Amethyst', '#9a6fc4', '#5f4380'], ['dragon', 60, 60]].map(([k, lv, rs, n, c, c2]) => ({ k, lv, rs, n, c, c2 }));
 const BOLTS = [['bronze', 1, 10], ['iron', 26, 46], ['steel', 31, 64], ['mithril', 36, 82], ['adamant', 46, 100], ['rune', 61, 115], ['dragon', 64, 122]]
   .map(([k, lv, rs]) => ({ k, lv, rs }));
 const defAmmo = (a, suffix, g, aT, pm) => { const t = TIER[a.k]; defWear({ id: a.k + suffix, name: (a.n || t.n) + (aT ? ' bolts' : ' arrow'), g,
@@ -955,14 +1058,15 @@ const defStack = (id, name, g, c, c2, val, x) => defItem(Object.assign({ id, nam
 const RC = [['air', 1, 5, 11, '#cfd8e0', '#8f9aa6', 5, 1], ['mind', 2, 5.5, 14, '#9a7ad0', '#65509a', 4, 1], ['water', 5, 6, 19, '#4f8fd0', '#2f5f92', 5, 1],
   ['earth', 9, 6.5, 26, '#8a6a3a', '#5b4524', 5, 1], ['fire', 14, 7, 35, '#d05a2a', '#8f3a16', 5, 1], ['body', 20, 7.5, 46, '#d8cfc4', '#8a8078', 5, 1],
   ['cosmic', 27, 8, 59, '#e8d86a', '#9a8a2a', 120], ['chaos', 35, 8.5, 74, '#c04a4a', '#802e2e', 90, 1], ['nature', 44, 9, 91, '#5aa04a', '#2f6a28', 180],
-  ['law', 54, 9.5, 95, '#6a8ad8', '#3a4f8a', 200], ['death', 65, 10, 99, '#e8e8f0', '#6a6a74', 220, 1], ['blood', 77, 10.5, 0, '#8a1a24', '#4a0a10', 400],
-  ['soul', 90, 29.7, 0, '#f0e8f8', '#8a7a9a', 600]]   // appended, never inserted: RC index is wire format
+  ['law', 54, 9.5, 95, '#6a8ad8', '#3a4f8a', 200], ['death', 65, 10, 99, '#e8e8f0', '#6a6a74', 220, 1], ['blood', 77, 23.8, 0, '#8a1a24', '#4a0a10', 400],
+  ['soul', 90, 29.7, 0, '#f0e8f8', '#8a7a9a', 600], ['wrath', 95, 8, 0, '#3a1e2e', '#1a0c16', 500]]   // appended, never inserted: RC index is wire format
   .map(([k, lv, xp, step, c, c2, val, shop], i) => ({ k, lv, xp, step, c, c2, val, shop: shop || 0, id: k + '_rune', i }));
 const RUNES = RC.map(r => defStack(r.id, cap(r.k) + ' rune', 'rune', r.c, r.c2, r.val, { rune: 1 }));
 const runesPer = r => r.step ? 1 + Math.floor(lvl[SK.runecraft] / r.step) : 1;   // air x2 at 11, x3 at 22...
 defStack('pure_essence', 'Pure essence', 'ore', '#eef0fa', '#a0a2b4', 5);
 W('tiara', 0, 'tiara', 0, 'head', 40);
 for (const r of RC) {
+  if (r.k === 'wrath') continue;   // the wrath altar answers to no talisman: its door is the guild's own
   defItem({ id: r.k + '_talisman', name: cap(r.k) + ' talisman', g: 'talisman', c: r.c, c2: r.c2, val: 30 + r.i * 40, tal: r.k });
   defWear({ id: r.k + '_tiara', name: cap(r.k) + ' tiara', g: 'tiara', c: r.c, c2: r.c2, slot: 'head', tiara: r.k, val: 90 + r.i * 40 });
 }
@@ -994,7 +1098,7 @@ const HERBS = [['guam', 3, 2.5], ['marrentill', 5, 3.8], ['tarromin', 11, 5], ['
 const CROP_HERB = [[9, 11, 12.5], [14, 13.5, 15], [19, 16, 18], [26, 21.5, 24], [32, 27, 30.5], [38, 34, 38.5], [44, 43, 48.5], [50, 54.5, 61.5], [56, 69, 78],
   [62, 87.5, 98.5], [67, 106.5, 120], [73, 134.5, 151.5], [79, 170.5, 192], [85, 199.5, 224.5]];
 const CROPS = [['potato', 1, 8, 9, 4000, 1], ['onion', 5, 9.5, 10.5, 4000, 1], ['cabbage', 7, 10, 11.5, 4000, 1], ['tomato', 12, 12.5, 14, 4000, 2],
-  ['sweetcorn', 20, 17, 19, 6000, 3], ['strawberry', 31, 26, 29, 6000, 4], ['watermelon', 47, 48.5, 54.5, 8000, 5]].map(([k, lv, plant, xp, grow, heal], i) => {
+  ['sweetcorn', 20, 17, 19, 6000, 3], ['strawberry', 31, 26, 29, 6000, 6], ['watermelon', 47, 48.5, 54.5, 8000, 5]].map(([k, lv, plant, xp, grow, heal], i) => {
   defStack(k, cap(k), 'crop', ['#c8a86a', '#d8c8e8', '#9ad07a', '#d8403a', '#e8d05a', '#d83a4a', '#4aa85a'][i], '#4a3a2a', 4 + i * 12, { heal });
   return { k, n: cap(k), lv, plant, xp, grow, t: 0, yield: k };
 }).concat(HERBS.map((h, i) => ({ k: h.k, n: cap(h.n), lv: CROP_HERB[i][0], plant: CROP_HERB[i][1], xp: CROP_HERB[i][2], grow: 8000, t: 1, yield: h.grimy })),
@@ -1110,11 +1214,12 @@ const STAFF_TIERS = [
 ];
 const defStaff = (id, name, c, c2, atk, str, mag, lv, val, gives, g) =>
   defWear({ id, name, g: g || 'staff', c, c2, slot: 'weapon', tier: 0, spd: g === 'wand' ? 4 : 5, atk, str, mag, gives, req: { magic: lv }, val });
-defStaff('staff', 'Staff', '#8a6438', '#d8c88a', 5, 2, 8, 1, 18);
+defStaff('staff', 'Staff', '#8a6438', '#d8c88a', 7, 3, 4, 1, 18);
 for (const t of STAFF_TIERS) for (const e of ELEMS)
   defStaff(t.k + '_of_' + e.k, t.n + ' ' + e.k, e.c, e.c2, t.atk, t.str, t.mag, t.lv, Math.round((t.mag * 6 + 20) * t.m * 1.6), e.rune);
-defStaff('battlestaff', 'Battlestaff', '#6b5334', '#c8b87a', 28, 35, 12, 30, 298);
+defStaff('battlestaff', 'Battlestaff', '#6b5334', '#c8b87a', 25, 32, 12, 30, 298);
 defStaff('mystic_staff', 'Mystic staff', '#6a5ab0', '#d8c88a', 40, 50, 14, 40, 883);
+for (const id in ITEMS) if (ITEMS[id].slot === 'weapon' && /battlestaff|^mystic_/.test(id)) ITEMS[id].req.attack = ITEMS[id].req.magic;   // the wiki's attack gate on the fighting staves
 /* combination staves hand out both runes, at a 40% premium */
 const COMBOS = [['mud', 'water', 'earth'], ['lava', 'fire', 'earth'], ['steam', 'fire', 'water'], ['smoke', 'fire', 'air'], ['mist', 'water', 'air'], ['dust', 'earth', 'air']]
   .map(([k, a, b]) => ({ k, a, b }));
@@ -1124,8 +1229,8 @@ for (const co of COMBOS) {
   defStaff('mystic_' + co.k + '_staff', 'Mystic ' + co.k + ' staff', A.c, B.c, 40, 50, 14, 40, Math.round((15 * 6 + 20) * 6 * 1.6 * 1.4), runes);
 }
 /* wands: one-handed, so a mage can carry a shield */
-for (const [id, n, mag, lv, val, c, c2] of [['beginner_wand', 'Beginner wand', 6, 1, 60, '#8a6438', '#b9aee0'], ['apprentice_wand', 'Apprentice wand', 10, 20, 240, '#75767a', '#7ab9e0'],
-  ['teacher_wand', 'Teacher wand', 15, 40, 700, '#5c63b8', '#e0d47a'], ['master_wand', 'Master wand', 20, 60, 1600, '#3ab6c4', '#e07ad4']])
+for (const [id, n, mag, lv, val, c, c2] of [['beginner_wand', 'Beginner wand', 5, 45, 60, '#8a6438', '#b9aee0'], ['apprentice_wand', 'Apprentice wand', 10, 50, 240, '#75767a', '#7ab9e0'],
+  ['teacher_wand', 'Teacher wand', 15, 55, 700, '#5c63b8', '#e0d47a'], ['master_wand', 'Master wand', 20, 60, 1600, '#3ab6c4', '#e07ad4']])
   defStaff(id, n, c, c2, 0, 0, mag, lv, val, undefined, 'wand');
 const staffRune = () => { const g = eq.weapon && ITEMS[eq.weapon].gives; return g ? (Array.isArray(g) ? g : [g]) : []; };
 function spellReady(sp) {
@@ -1988,6 +2093,18 @@ function emitWallCell(B, w) {
     B.add(CONE8, w.x, y + H * 1.8 + 1.9, w.z, 4.3, 2.8, 4.3, 0, C_SLATE);
   }
 }
+/* the gatehouse: twin towers either side of the road and a lintel between, dressed to match the wall */
+function emitGate(B, g, rec) {
+  const { x, z, y, ax, az, hw } = g, rot = Math.atan2(-az, ax), H = g.k === 2 ? 6.4 : 4.2;
+  for (const s of [-1, 1]) {
+    const tx = x + ax * s * hw, tz = z + az * s * hw;
+    if (g.k === 2) { B.add(BOX, tx, y + H / 2, tz, 2.4, H, 2.4, rot, C_STONE); B.add(BOX, tx, y + H + 0.3, tz, 2.9, 0.6, 2.9, rot, C_STONE2); B.add(PYR, tx, y + H + 1.7, tz, 3.0, 2.2, 3.0, rot, C_SLATE); }
+    else { B.add(BOX, tx, y + H / 2, tz, 0.9, H, 0.9, rot, BARK2); B.add(SPIRE, tx, y + H + 0.4, tz, 0.8, 1.0, 0.8, 0, BARK2); }
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (g.k === 2 || (!a && !b)) rec.blk.push(tk(Math.round(tx) + a, Math.round(tz) + b));
+  }
+  B.add(BOX, x, y + H - 0.9, z, hw * 2 - 1.2, g.k === 2 ? 1.6 : 0.5, g.k === 2 ? 1.8 : 0.6, rot, g.k === 2 ? C_STONE2 : BARK);
+  if (g.k === 2) { B.add(BOX, x, y + H + 0.1, z, hw * 2 - 0.6, 0.6, 2.4, rot, C_STONE); B.add(BOX, x, y + H - 2.0, z, 0.2, 1.6, 1.2, rot, C_BANNER); }
+}
 /* square furniture: market stall (0), well (1), fountain (2) */
 function emitFurniture(B, f) {
   const x = f.x, z = f.z, y = f.y;
@@ -2006,7 +2123,7 @@ function emitFurniture(B, f) {
     B.add(CYL8, x, y + 1.5, z, 0.8, 1.6, 0.8, 0, C_STONE2); B.add(CYL8, x, y + 2.35, z, 1.7, 0.3, 1.7, 0, C_STONE); B.add(BLOB, x, y + 2.8, z, 0.7, 0.8, 0.7, 0, C_STONE2);
   }
 }
-/* landmarks: stone church (0), windmill (1), wizard's tower (2) */
+/* landmarks: stone church (0), windmill (1), wizard's tower (2), manor (3) */
 function emitLandmark(B, L) {
   const x = L.x, z = L.z, y = L.y;
   B.add(BOX, x, y - 1.9, z, L.R * 2 + 1.4, 4.4, L.R * 2 + 1.4, 0, C_FOUND);
@@ -2022,11 +2139,17 @@ function emitLandmark(B, L) {
     B.add(CYL8, x, y + 2.6, z, 5.2, 5.2, 5.2, 0, C_STONE); B.add(DRUM8, x, y + 6.4, z, 4.2, 2.6, 4.2, 0, C_WALL); B.add(CONE8, x, y + 8.7, z, 4.8, 2.4, 4.8, 0, C_ROOF2);
     B.add(BOX, x, y + 7.6, z - 2.4, 0.5, 0.5, 1.3, 0, C_BEAM); B.add(BOX, x, y + 7.6, z - 3.0, 0.72, 8.6, 0.22, 0, C_CLOTH); B.add(BOX, x, y + 7.6, z - 3.0, 8.6, 0.72, 0.22, 0, C_CLOTH);
     B.add(BOX, x, y + 1.3, z - 2.5, 1.3, 2.6, 0.3, 0, C_DARK);
-  } else {
+  } else if (L.t === 2) {
     B.add(CYL8, x, y + 5.0, z, 5.0, 10.0, 5.0, 0, [0.36, 0.37, 0.46]); B.add(DRUM8, x, y + 10.2, z, 5.8, 0.5, 5.8, 0, C_STONE2);
     B.add(DRUM8, x, y + 11.6, z, 4.6, 2.4, 4.6, 0, [0.32, 0.33, 0.42]); B.add(CONE8, x, y + 14.3, z, 5.2, 3.8, 5.2, 0, [0.24, 0.20, 0.40]);
     for (let i = 0; i < 4; i++) { const a = i * PI / 2 + PI / 4; B.add(BOX, x + Math.sin(a) * 2.45, y + 6.5, z + Math.cos(a) * 2.45, 0.6, 1.1, 0.6, 0, C_DARK); }
     B.add(BOX, x, y + 1.3, z - 2.45, 1.3, 2.6, 0.4, 0, C_DARK);
+  }
+  if (L.t === 3) {   // the manor: emitShell's own house at twice the size, jettied, behind post and rail
+    const b = { x, z, y, w: 7, d: 5, h: 4.4, hw: 3, hd: 2, door: 2, stone: 1, st2: 1, gable: 1, shop: null, bank: 0, roofC: C_SLATE, dx: x, dz: z + 2, cx: x, cz: z - 1 };
+    emitShell(B, b); emitRoof(B, b);
+    emitPen(B, { x, z, w: L.R, d: L.R, fd: 2, bare: 1 }, null);
+    for (const s of [-1, 1]) { B.add(TRUNK, x + s * 3.2, y + 0.9, z + 3.0, 0.3, 1.8, 0.3, 0, BARK); B.add(BLOB, x + s * 3.2, y + 2.4, z + 3.0, 1.6, 1.6, 1.6, 0, [0.28, 0.45, 0.20]); }
   }
 }
 /* the Grand Exchange rotunda: cobbled circle, pillared ring wall with four gates, a covered counter island */
@@ -2058,7 +2181,9 @@ function emitCityTree(B, t) {   // decoration only; the choppable ones come from
   else { B.add(TRUNK, t.x, t.y + 0.9 * s, t.z, 0.32 * s, 2.4 * s, 0.32 * s, 0, BARK); B.add(SPIRE, t.x, t.y + 2.4 * s, t.z, 2.8 * s, 4.4 * s, 2.8 * s, 0, [0.19, 0.38, 0.19]); }
 }
 
-/* ---- 14. LAYING OUT A TOWN ---- */
+/* ---- 14. LAYING OUT A TOWN: every settlement draws its own plan. villageAt rolled the outline and the street pattern; here the
+   wall line is fixed first, then one grid is claimed in order — streets, square, castle, exchange, wall, landmark, houses, the rest —
+   so nothing overlaps and every artery leaves through a gate onto its highway. ---- */
 /* min/max heights over a sampled footprint; returns null when any sample fails `ok` */
 function spanHeights(cx, cz, R, step, ok, circle) {
   let lo = 1e9, hi = -1e9;
@@ -2071,118 +2196,208 @@ function spanHeights(cx, cz, R, step, ok, circle) {
   return { lo, hi };
 }
 function layoutCity(v) {
-  const R = v.r, D = R * 2 + 1, G = new Uint8Array(D * D), RK = RANKS[v.rank];
-  v.G = G; v.gD = D;
-  const gi = (x, z) => { const ix = x - v.x + R, iz = z - v.z + R; return (ix < 0 || iz < 0 || ix >= D || iz >= D) ? -1 : iz * D + ix; };
+  const R = v.r, gR = Math.ceil(R * v.ext * 1.06) + 2, D = gR * 2 + 1, G = new Uint8Array(D * D), RK = RANKS[v.rank], role = charterRole(v);
+  v.G = G; v.gD = D; v.gR = gR; v.role = role;
+  const gi = (x, z) => { const ix = x - v.x + gR, iz = z - v.z + gR; return (ix < 0 || iz < 0 || ix >= D || iz >= D) ? -1 : iz * D + ix; };
   const get = (x, z) => { const i = gi(x, z); return i < 0 ? 255 : G[i]; };
   const force = (x, z, c) => { const i = gi(x, z); if (i >= 0) G[i] = c; };
   const fill = (x, z, r, c, circle) => { for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) if (!circle || a * a + b * b <= r * r) force(x + a, z + b, c); };
-  const inTown = (x, z) => villageDist(v, x, z) <= R * 0.97;
+  const vd = (x, z) => villageDist(v, x, z);
   const ring = (h, i, mul, add) => ((h >>> i) & 1023) / 1024 * TAU * (mul || 1) + (add || 0);
-  const polar = (a, rr) => [Math.round(v.x + Math.sin(a) * rr), Math.round(v.z + Math.cos(a) * rr)];
-
-  // approaches: the highways' directions, so the main streets meet them
-  const app = [];
-  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
-    if (!a && !b) continue;
-    const n = villageAt(v.cx + a, v.cz + b);
-    if (n && n.rank + v.rank >= 1) app.push(Math.atan2(n.x - v.x, n.z - v.z));
+  const polar = (a, rr) => townPt(v, a, rr);
+  const ph = hash2(v.x, v.z, S + 93), PK = v.pk, CITY = v.rank >= 3;
+  const ftw = (ex, ez) => { const rx = ex * R * v.ax, rz = ez * R * v.az; return [Math.round(v.x + rx * v.cs - rz * v.sn), Math.round(v.z + rx * v.sn + rz * v.cs)]; };   // outline units to the world
+  const wtf = (x, z) => { const dx = x - v.x, dz = z - v.z, rx = dx * v.cs + dz * v.sn, rz = -dx * v.sn + dz * v.cs; return [rx / v.ax / R, rz / v.az / R]; };
+  // the wards of a city: its own rectangles, or the quarters of a single block. Each takes a character of its own
+  const dists = [];
+  if (CITY) {
+    const rc = v.rects && v.rects.length > 1 ? v.rects : v.rects ? [-1, 1].flatMap(sx => [-1, 1].map(sz => ({ x: v.rects[0].x + sx * v.rects[0].hw / 2, z: v.rects[0].z + sz * v.rects[0].hd / 2, hw: v.rects[0].hw / 2, hd: v.rects[0].hd / 2 })))
+             : [-1, 1].flatMap(sx => [-1, 1].map(sz => ({ x: sx * 0.8, z: sz * 0.8, hw: 0.8, hd: 0.8 })));
+    rc.forEach((rr, i) => { const hd2 = hash2(v.x + i * 131, v.z + i * 17, S + 130); dists.push({ i, rc: rr, st: role === 2 && !i ? 0 : hd2 % 6, h: hd2 }); });   // st: 0/1 grid, 2 crooked, 3 plaza, 4 green, 5 dense grid
   }
-  const base = ring(hash2(v.x, v.z, S + 91), 0), wantApp = v.rank >= 2 ? 4 : 3;
-  for (let i = 0; app.length < wantApp; i++) app.push(base + i * TAU / wantApp);
+  const wardOf = (x, z) => { const [ex, ez] = wtf(x, z); for (const d of dists) if (Math.abs(ex - d.rc.x) <= d.rc.hw && Math.abs(ez - d.rc.z) <= d.rc.hd) return d.i; return -1; };   // wards overlap; a tile belongs to the first
 
-  // streets: arteries, a ring road, and districts each gridded at its own angle
-  const segs = [];
-  const line = (x0, z0, x1, z1, w, code) => segs.push({ x0, z0, x1, z1, w, code });
-  for (let i = 0; i < app.length && i < 6; i++) line(v.x, v.z, v.x + Math.sin(app[i]) * R * 1.02, v.z + Math.cos(app[i]) * R * 1.02, v.rank >= 3 ? 3.2 : 2.4, v.rank >= 3 ? G_PAVED : G_ROAD);
-  if (RK.ring) {
-    const rr = R * (0.58 + ((hash2(v.x, v.z, S + 92) & 63) / 64) * 0.08), N = 28;
-    for (let i = 0; i < N; i++) { const a0 = i / N * TAU, a1 = (i + 1) / N * TAU; line(v.x + Math.sin(a0) * rr, v.z + Math.cos(a0) * rr, v.x + Math.sin(a1) * rr, v.z + Math.cos(a1) * rr, 2.4, G_ROAD); }
+  // the wall's line comes first: the lanes inside stop short of it, the arteries alone cross it at gates
+  const wk = RK.wall === 2 ? 2 : RK.wall === 1 && hash2(v.x, v.z, S + 94) % 100 < (v.rank === 2 ? 70 : 30) ? 1 : 0;
+  const old = wk === 2 && role !== 2 && (ph & 7) < 2;   // an old town: the wall rings the core and the suburbs sprawl beyond it
+  const wr = wk ? (old ? 0.60 : wk === 2 ? 0.86 : 0.80) : 0, lim = wk && !old ? wr - 0.035 : 0.97;
+  v.wr = wr;
+
+  // approaches: where the highways arrive, so the main streets meet them at the gates; empty compass points get a lane to the fields
+  const app = townApproaches(v), wantApp = v.rank >= 2 ? 4 : v.rank ? 3 : 2, base = ring(hash2(v.x, v.z, S + 91), 0);
+  for (let i = 0; i < 12 && app.length < wantApp; i++) {
+    const a = gateAngle(v, base + (i % wantApp) * TAU / wantApp + Math.floor(i / wantApp) * 0.45);
+    if (!app.some(b => Math.abs(wrapA(a - b)) < 0.35)) app.push(a);
   }
-  for (let d = 0; d < RK.grids; d++) {
-    const h = hash2(v.x + d * 977, v.z - d * 613, S + 93), da = ring(h, 0), dr = R * (0.22 + ((h >>> 10) & 63) / 64 * 0.42);
-    const dx = v.x + Math.sin(da) * dr, dz = v.z + Math.cos(da) * dr, rad = R * (0.20 + ((h >>> 16) & 31) / 32 * 0.16);
-    const rot = ((h >>> 21) & 255) / 256 * PI / 2, sp = 15 + ((h >>> 5) & 7), cs = Math.cos(rot), sn = Math.sin(rot), n = Math.min(3, Math.floor(rad / sp));
+
+  // streets: segments first, rasterised together. a marks an artery — the only kind a wall opens for
+  const segs = [], art = new Set();
+  const line = (x0, z0, x1, z1, w, code, a, di) => segs.push({ x0, z0, x1, z1, w, code, a: a || 0, di: di === undefined ? -1 : di });
+  const AW = v.rank >= 3 ? 3.2 : v.rank === 2 ? 2.4 : 1.7, LW = v.rank >= 2 ? 1.0 : 1.4, AC = v.rank >= 3 ? G_PAVED : G_ROAD;   // side streets are three tiles wide, 2007-style; a hamlet's lanes are footpaths
+  const artery = (a, i, fx, fz) => {   // hub to gate; the crooked plan bends once on the way
+    const [gx, gz] = polar(a, R * 1.04);
+    if (PK === 3) {
+      const [mx, mz] = polar(a + ((i & 1) ? 0.14 : -0.14) * (1 + ((ph >>> i) & 1)), R * (0.45 + ((ph >>> (i + 3)) & 3) * 0.06));
+      line(fx, fz, mx, mz, AW, AC, 1); line(mx, mz, gx, gz, AW, AC, 1);
+    } else line(fx, fz, gx, gz, AW, AC, 1);
+  };
+  const ringRoad = (rf, jit) => {   // a closed ring at rf, wandering by jit
+    const N = PK !== 3 && v.rank >= 2 ? (v.pn || 8) : Math.max(24, Math.round(R * rf * 0.8)), a0 = v.pn ? v.po : PI / 8;   // a planned town's ring is a polygon of straight streets
+    let [px, pz] = polar(a0, R * rf);
+    for (let i = 1; i <= N; i++) {
+      const [x, z] = i === N ? polar(a0, R * rf) : polar(a0 + i / N * TAU, R * rf * (1 + jit * ((hash2(i, v.x, S + 92) & 255) / 255 - 0.5)));
+      line(px, pz, x, z, 2.4, G_ROAD); px = x; pz = z;
+    }
+  };
+  const lanes = (sx, sz, ex, ez, sp, k0) => {   // side lanes off a street, alternating sides; the crooked plan skews them
+    const len = Math.hypot(ex - sx, ez - sz), ux = (ex - sx) / len, uz = (ez - sz) / len;
+    for (let t = sp * 0.7, k = k0; t < len - 3; t += sp, k++) {
+      const h = hash2(k, v.z + k * 7, S + 95), side = (k & 1) ? 1 : -1, L = 5 + (h & 7) + v.rank * 2, ca = Math.atan2(ux, uz) + side * PI / 2 + (PK === 3 ? (((h >>> 3) & 31) / 31 - 0.5) * 0.9 : 0);
+      const bx = sx + ux * t, bz = sz + uz * t;
+      line(bx, bz, bx + Math.sin(ca) * L, bz + Math.cos(ca) * L, LW, G_ROAD);
+    }
+  };
+  const footOn = (px, pz, chords) => {   // the nearest point on a chain of chords, clear of their ends
+    let best = null, bd = 1e9;
+    for (const [x0, z0, x1, z1] of chords) {
+      const ex = x1 - x0, ez = z1 - z0, t = clamp(((px - x0) * ex + (pz - z0) * ez) / (ex * ex + ez * ez), 0.2, 0.85), fx = x0 + ex * t, fz = z0 + ez * t, d = Math.hypot(px - fx, pz - fz);
+      if (d < bd) { bd = d; best = [fx, fz]; }
+    }
+    return best;
+  };
+  // the square: on the hub, or a quarter out along the first road with a paved link back
+  v.sq = null;
+  if (v.rank >= 2) {
+    const sr = 3 + v.rank;
+    let sx = v.x, sz = v.z;
+    if (((ph >>> 9) & 3) === 0) {
+      const [ox, oz] = polar(app[0] + 0.45, R * 0.3);
+      if (spanHeights(ox, oz, sr, 2, (x, z, y) => y >= 1.9 && get(x, z) !== 255)) { sx = ox; sz = oz; line(sx, sz, v.x, v.z, AW, AC, 1); }
+    }
+    v.sq = { x: sx, z: sz, r: sr };
+  }
+  if (CITY) {   // a city: two avenues gate to gate through the centre, boulevards for the diagonal arrivals, and every ward its own streets
+    for (let k = 0; k < 4; k++) { const [gx, gz] = polar(k * PI / 2, R * 1.04); line(v.x, v.z, gx, gz, AW, AC, 1); }
+    app.forEach((a, i) => { if (Math.abs(wrapA(a - Math.round(a / (PI / 2)) * PI / 2)) > 0.1) artery(a, i, v.x, v.z); });
+    if (RK.ring && ((ph >>> 5) & 1)) ringRoad(0.55, 0);
+    for (const d of dists) {
+      const s = d.st, [dcx, dcz] = ftw(d.rc.x, d.rc.z);
+      if (s === 2 || s === 4) for (let j = 0, n = s === 2 ? 9 : 2; j < n; j++) {   // crooked lanes on the eight winds, each bending once
+        const g = hash2(dcx + j * 53, dcz - j * 29, S + 131), ex = d.rc.x + ((g & 255) / 255 * 2 - 1) * d.rc.hw * 0.8, ez = d.rc.z + (((g >>> 8) & 255) / 255 * 2 - 1) * d.rc.hd * 0.8;
+        const [sx, sz] = ftw(ex, ez);
+        if (vd(sx, sz) > R * 0.9) continue;
+        const a1 = ((g >>> 16) & 7) * PI / 4, L1 = (8 + ((g >>> 19) & 7)) / R, a2 = a1 + (((g >>> 22) & 1) ? PI / 4 : -PI / 4);
+        const [mx, mz] = ftw(ex + Math.sin(a1) * L1, ez + Math.cos(a1) * L1), [fx, fz] = ftw(ex + Math.sin(a1) * L1 + Math.sin(a2) * L1 * 0.6, ez + Math.cos(a1) * L1 + Math.cos(a2) * L1 * 0.6);
+        line(sx, sz, mx, mz, LW, G_ROAD, 0, d.i); line(mx, mz, fx, fz, LW, G_ROAD, 0, d.i);
+      } else {   // gridded, at the ward's own spacing and offset
+        const sp = s === 5 ? 11 : 13 + (d.h & 3), o0 = (d.h >>> 4) % sp, E = v.ext * 1.05, n = Math.ceil(R * E / sp);   // a block holds two rows of houses back to back
+        for (let i = -n; i <= n; i++) {
+          const o = (i * sp + o0) / R, [ax2, az2] = ftw(o, -E), [bx2, bz2] = ftw(o, E), [cx3, cz3] = ftw(-E, o), [dx3, dz3] = ftw(E, o);
+          line(ax2, az2, bx2, bz2, LW, G_ROAD, 0, d.i); line(cx3, cz3, dx3, dz3, LW, G_ROAD, 0, d.i);
+        }
+      }
+    }
+  } else if (PK === 2) {   // the high street: one road through, the other arrivals joining it, lanes hung off both sides
+    const a1 = app.length > 1 ? app[1] : app[0] + PI, [g0x, g0z] = polar(app[0], R * 1.04), [g1x, g1z] = polar(a1, R * 1.04);
+    line(g0x, g0z, v.x, v.z, AW, AC, 1); line(v.x, v.z, g1x, g1z, AW, AC, 1);
+    for (let i = 2; i < app.length; i++) { const [gx, gz] = polar(app[i], R * 1.04), f = footOn(gx, gz, [[g0x, g0z, v.x, v.z], [v.x, v.z, g1x, g1z]]); line(gx, gz, f[0], f[1], AW, AC, 1); }
+    const sp = 7 + (ph & 3) + (v.rank ? 0 : 3);
+    lanes(g0x, g0z, v.x, v.z, sp, 0); lanes(v.x, v.z, g1x, g1z, sp, 40);
+  } else if (PK === 1) {   // the planned town: one grid over everything, the arteries snapped to it or cutting through as boulevards
+    app.forEach((a, i) => artery(a, i, v.x, v.z));
+    const sp = 12 + v.rank + ((ph >>> 6) & 3), cs = Math.cos(v.rot), sn = Math.sin(v.rot), L = R * v.ext, n = Math.ceil(L / sp);
     for (let i = -n; i <= n; i++) {
-      const o = i * sp, L = Math.sqrt(Math.max(0, rad * rad - o * o));
-      if (L < 4) continue;
-      line(dx + (o * cs - -L * sn), dz + (o * sn + -L * cs), dx + (o * cs - L * sn), dz + (o * sn + L * cs), 2.1, G_ROAD);
-      line(dx + (-L * cs - o * sn), dz + (-L * sn + o * cs), dx + (L * cs - o * sn), dz + (L * sn + o * cs), 2.1, G_ROAD);
+      const o = i * sp;
+      line(v.x + cs * o - sn * L, v.z - sn * o - cs * L, v.x + cs * o + sn * L, v.z - sn * o + cs * L, LW, G_ROAD);
+      line(v.x + sn * o - cs * L, v.z + cs * o + sn * L, v.x + sn * o + cs * L, v.z + cs * o - sn * L, LW, G_ROAD);
+    }
+  } else {   // radial (0) or crooked (3): arteries from the hub, a ring, and the districts each gridded at their own angle
+    app.forEach((a, i) => artery(a, i, v.x, v.z));
+    if (PK === 0 && v.rank >= 3 && ((ph >>> 3) & 3) === 0) artery(base + 1.1, 9, v.x, v.z);   // one boulevard to nothing but the fields
+    if (RK.ring) { if (PK === 3) ringRoad(0.50 + ((ph >>> 4) & 15) / 80, 0.22); else for (const rf of (v.rank >= 3 && ((ph >>> 5) & 3) === 0 ? [0.40, 0.74] : [0.52 + ((ph >>> 4) & 15) / 64])) ringRoad(rf, 0); }
+    if (PK === 3 || v.rank <= 1) for (const s of segs.slice()) if (s.a) lanes(s.x0, s.z0, s.x1, s.z1, 9 + ((ph >>> 8) & 3) + (v.rank ? 0 : 3), Math.round(s.x0 + s.z0));
+    if (PK === 0) for (let d = 0; d < RK.grids; d++) {
+      const h = hash2(v.x + d * 977, v.z - d * 613, S + 93), da = ring(h, 0), dr = R * (0.22 + ((h >>> 10) & 63) / 64 * 0.42);
+      const dx = v.x + Math.sin(da) * dr, dz = v.z + Math.cos(da) * dr, rad = R * (0.20 + ((h >>> 16) & 31) / 32 * 0.16);
+      const rot = ((h >>> 21) & 255) / 256 * PI / 2, sp = 15 + ((h >>> 5) & 7), cs = Math.cos(rot), sn = Math.sin(rot), n = Math.min(3, Math.floor(rad / sp));
+      for (let i = -n; i <= n; i++) {
+        const o = i * sp, L = Math.sqrt(Math.max(0, rad * rad - o * o));
+        if (L < 4) continue;
+        line(dx + (o * cs - -L * sn), dz + (o * sn + -L * cs), dx + (o * cs - L * sn), dz + (o * sn + L * cs), LW, G_ROAD);
+        line(dx + (-L * cs - o * sn), dz + (-L * sn + o * cs), dx + (L * cs - o * sn), dz + (L * sn + o * cs), LW, G_ROAD);
+      }
     }
   }
-  for (const s of segs) {   // rasterise, stopping at water
-    const len = Math.hypot(s.x1 - s.x0, s.z1 - s.z0), steps = Math.ceil(len * 2), w = s.w;
+  for (const s of segs) {   // rasterise: stop at water, stay inside the outline (arteries run out past it to meet the highway)
+    const len = Math.hypot(s.x1 - s.x0, s.z1 - s.z0), steps = Math.ceil(len * 2), w = s.w, lm = (s.a ? 1.05 : lim) * R;
+    let was = 0;
     for (let i = 0; i <= steps; i++) {
       const t = i / steps, x = s.x0 + (s.x1 - s.x0) * t, z = s.z0 + (s.z1 - s.z0) * t;
       if ((i & 7) === 0 && heightAt(x, z) < 1.5) break;
+      if (vd(x, z) > lm + w) { if (was) break; continue; }
+      was = 1;
       for (let a = -w; a <= w; a++) for (let b = -w; b <= w; b++) {
         if (a * a + b * b > w * w) continue;
-        const px = Math.round(x + a), pz = Math.round(z + b);
-        if (!inTown(px, pz)) continue;
-        const i2 = gi(px, pz);
-        if (i2 >= 0 && (G[i2] === G_EMPTY || (G[i2] === G_ROAD && s.code === G_PAVED))) G[i2] = s.code;
+        const px = Math.round(x + a), pz = Math.round(z + b), i2 = gi(px, pz);
+        if (i2 < 0 || vd(px, pz) > lm || (s.di >= 0 && wardOf(px, pz) !== s.di)) continue;
+        if (G[i2] === G_EMPTY || (G[i2] === G_ROAD && s.code === G_PAVED)) G[i2] = s.code;
+        if (s.a) art.add(tk(px, pz));
       }
     }
   }
-  if (v.rank >= 2) fill(v.x, v.z, 3 + v.rank, G_PAVED, 1);   // market square
-
-  // the wall: near-complete rings, gates where streets cross, towers at every gate and break
-  const wall = [];
-  const wk = RK.wall === 2 ? 2 : RK.wall === 1 && hash2(v.x, v.z, S + 94) % 100 < (v.rank === 2 ? 70 : 30) ? 1 : 0;
-  if (wk) {
-    const wr = R * (wk === 2 ? 0.86 : 0.80), N = Math.max(48, Math.round(TAU * wr / 2));
-    let prevOn = 0;
-    for (let i = 0; i < N; i++) {
-      const a = i / N * TAU, on = fbm(Math.sin(a) * 2.2, Math.cos(a) * 2.2, S + 95, 2) > -0.34;
-      const [x, z] = polar(a, wr);
-      if (!on) { prevOn = 0; continue; }
-      const y = heightAt(x, z);
-      if (y < 1.6) { prevOn = 0; continue; }
-      const onRoad = get(x, z) === G_ROAD || get(x, z) === G_PAVED;
-      for (let a2 = -1; a2 <= 1; a2++) for (let b2 = -1; b2 <= 1; b2++) {
-        if (onRoad) { if (get(x + a2, z + b2) === G_EMPTY) force(x + a2, z + b2, G_GATE); } else force(x + a2, z + b2, G_WALL);
-      }
-      if (!onRoad) { wall.push({ x, z, y, k: wk, tower: prevOn === 0 || (i % (wk === 2 ? 11 : 9)) === 0 }); prevOn = 1; }
-      else { if (wall.length) wall[wall.length - 1].tower = 1; prevOn = 0; }
-    }
+  if (v.sq) fill(v.sq.x, v.sq.z, v.sq.r, G_PAVED, PK !== 1);   // the grid town squares its square
+  const fur = [], greens = [];
+  for (const d of dists) {   // a ward's plaza (paved, a well, stalls) or its green (a lawn the trees will fill)
+    if (d.st !== 3 && d.st !== 4) continue;
+    const [cx2, cz2] = ftw(d.rc.x, d.rc.z), pr = d.st === 3 ? 3 : 5 + (d.h & 3);
+    if (vd(cx2, cz2) > R * 0.85 || wardOf(cx2, cz2) !== d.i || !spanHeights(cx2, cz2, pr, 2, (x, z, y) => y >= 1.9 && get(x, z) !== 255)) continue;
+    if (d.st === 3) {
+      fill(cx2, cz2, pr, G_PAVED, 1); fur.push({ t: 1, x: cx2, z: cz2, y: heightAt(cx2, cz2) });
+      for (const [a, b] of [[2, 1], [-2, -1]]) fur.push({ t: 0, x: cx2 + a, z: cz2 + b, y: heightAt(cx2 + a, cz2 + b), k: hash2(cx2 + a, cz2 + b, S + 109) });
+    } else { for (let a = -pr; a <= pr; a++) for (let b = -pr; b <= pr; b++) if (a * a + b * b <= pr * pr && get(cx2 + a, cz2 + b) === G_EMPTY) force(cx2 + a, cz2 + b, G_PARK); greens.push({ x: cx2, z: cz2, r: pr }); }
   }
-  v.wall = wall;
 
-  // the castle claims a block of its own
-  if (RK.keep) {
-    const h = hash2(v.x, v.z, S + 96), KR = 11 + v.rank * 2 + (h & 3);
+  // the castle claims a block of its own: inside, or (a citadel) straddling the wall line so the wall runs into it
+  const onSq = (x, z) => v.sq && Math.hypot(x - v.sq.x, z - v.sq.z) <= v.sq.r + 1;   // the square alone is sacred; streets get built over
+  v.keep = null;
+  if (RK.keep || role === 1) {
+    const h = hash2(v.x, v.z, S + 96), big = v.rank >= 3, KR = big ? 11 + v.rank * 2 + (h & 3) : 8, cit = big && wk && !old && ((h >>> 12) & 3) === 0;
     let best = null, bestScore = -1e9;
-    for (let i = 0; i < 24; i++) {
-      const [cx2, cz2] = polar(ring(h, i % 8, 1, i * 0.7), R * (0.30 + (i % 5) * 0.08));
+    const kdir = role === 2 ? PI : ((h >>> 14) & 3) * PI / 2;   // a city's castle holds one side of the square; Varrock's palace stands to the north
+    for (let i = 0; i < 68 && (i < 40 || !best); i++) {   // the last lap takes whatever ground there is: a city without its castle has no dungeon
+      if (CITY && i === 12 && best) break;   // a city keeps its castle on the chosen side whenever the side will take it
+      const lax = i >= 40, side = CITY && i < 12;
+      const [cx2, cz2] = side ? polar(kdir + (i % 4 - 1.5) * 0.09, R * (0.52 + Math.floor(i / 4) * 0.07)) : polar(ring(h, i % 8, 1, i * 0.7), R * (cit && !lax ? wr - KR / R * 0.55 : 0.16 + (i % 5) * 0.09));
       let free = 0;
-      const sp = spanHeights(cx2, cz2, KR, 3, (x, z, y) => { const c = get(x, z); if (c === 255 || y < 1.8) return 0; if (c === G_EMPTY || c === G_ROAD) free++; return 1; });
+      const sp = spanHeights(cx2, cz2, KR, 3, (x, z, y) => { const c = get(x, z); if (c === 255 || y < 1.8 || (!lax && (onSq(x, z) || (!cit && vd(x, z) > R * 0.96)))) return 0; if (c === G_EMPTY) free++; return 1; });
       if (!sp) continue;
       const score = free - (sp.hi - sp.lo) * 12;
       if (score > bestScore) { bestScore = score; best = { x: cx2, z: cz2, y: sp.hi, R: KR }; }
     }
     if (best) {
-      const gate = (h >>> 5) & 3, hw = 4 + ((h >>> 7) & 1), hd = 3 + ((h >>> 9) & 1), gx = DDX[gate], gz = DDZ[gate];
-      const bR = best.R - 3, pp = (h >>> 11) & 1 ? 1 : -1;
-      const out = [-1, 1].map(sg => gz ? { x: best.x + sg * Math.round(bR * 0.5), z: best.z - gz * bR, w: 5, d: 3, h: 2.9 }
-                                        : { x: best.x - gx * bR, z: best.z + sg * Math.round(bR * 0.5), w: 3, d: 5, h: 2.9 });
-      const well = gz ? { x: best.x + pp * 5, z: best.z + gz * (KR - 4) } : { x: best.x + gx * (KR - 4), z: best.z + pp * 5 };
+      const tdx = v.x - best.x, tdz = v.z - best.z;
+      const gate = cit || CITY ? (Math.abs(tdx) > Math.abs(tdz) ? (tdx > 0 ? 1 : 3) : (tdz > 0 ? 2 : 0)) : (h >>> 5) & 3;   // a city's castle gate faces the square
+      const hw = big ? 4 + ((h >>> 7) & 1) : 3, hd = big ? 3 + ((h >>> 9) & 1) : 2, gx = DDX[gate], gz = DDZ[gate], bR = best.R - 3, pp = (h >>> 11) & 1 ? 1 : -1;
+      const out = big ? [-1, 1].map(sg => gz ? { x: best.x + sg * Math.round(bR * 0.5), z: best.z - gz * bR, w: 5, d: 3, h: 2.9 }
+                                             : { x: best.x - gx * bR, z: best.z + sg * Math.round(bR * 0.5), w: 3, d: 5, h: 2.9 }) : [];
+      const well = gz ? { x: best.x + pp * (big ? 5 : 4), z: best.z + gz * (KR - 4) } : { x: best.x + gx * (KR - 4), z: best.z + pp * (big ? 5 : 4) };
       v.keep = { x: best.x, z: best.z, y: best.y, R: best.R, gate, rank: v.rank, out, well, hall: { x: best.x, z: best.z, w: hw * 2 + 1, d: hd * 2 + 1, h: 10.5 + v.rank * 1.5, hw, hd } };
       fill(best.x, best.z, best.R, G_KEEP);
     }
   }
 
-  // the grand exchange: rarer than any bank, claimed before the houses
+  // the grand exchange: rarer than any bank, claimed before the houses; Varrock's is a certainty
   v.ge = null;
   if (v.rank >= 2) {
-    const gh = hash2(v.x, v.z, S + 112), odds = v.rank >= 4 ? 85 : v.rank === 3 ? 40 : 8;
+    const gh = hash2(v.x, v.z, S + 112), odds = role === 2 ? 100 : v.rank >= 4 ? 85 : v.rank === 3 ? 40 : 8;
     if (gh % 100 < odds) {
-      const GR = 10;
+      const GR = 10, tries = role === 2 ? 64 : 24;
       let best = null, bestScore = -1e9;
-      for (let i = 0; i < 24; i++) {
-        const [cx2, cz2] = polar(ring(gh, 3, 1, i * 0.7), R * (0.30 + (i % 5) * 0.09));
+      for (let i = 0; i < tries; i++) {
+        const [cx2, cz2] = role === 2 && i < 10 ? polar(-PI * 0.75 + (i % 5 - 2) * 0.12, R * (0.5 + Math.floor(i / 5) * 0.1)) : polar(ring(gh, 3, 1, i * 0.7), R * (0.28 + (i % 5) * 0.09));   // Varrock's exchange sits in the north-west
         let free = 0;
-        const sp = spanHeights(cx2, cz2, GR, 2, (x, z, y) => { const c = get(x, z); if (c === 255 || c === G_WALL || c === G_KEEP || c === G_BUILD || y < 1.9) return 0; if (c === G_EMPTY || c === G_ROAD) free++; return 1; }, 1);
-        if (!sp || sp.hi - sp.lo > 2.2) continue;
+        const sp = spanHeights(cx2, cz2, GR, 2, (x, z, y) => { const c = get(x, z); if (c === 255 || c === G_WALL || c === G_KEEP || c === G_BUILD || onSq(x, z) || y < 1.9 || vd(x, z) > R * 0.96) return 0; if (c === G_EMPTY) free++; return 1; }, 1);
+        if (!sp || sp.hi - sp.lo > (i >= 32 ? 2.8 : 2.2)) continue;
         const score = free - (sp.hi - sp.lo) * 10 - Math.hypot(cx2 - v.x, cz2 - v.z) * 0.1;
         if (score > bestScore) { bestScore = score; best = { x: cx2, z: cz2, y: sp.hi }; }
       }
@@ -2190,55 +2405,95 @@ function layoutCity(v) {
     }
   }
 
+  // the wall traces the outline: straight runs and corner towers on a polygon, a wobble on a blob; ruined to taste; gates only on arteries
+  const wall = [], gates = [];
+  if (wk) {
+    const thr = wk === 1 ? -0.34 : role === 2 ? -0.7 : [-0.62, -0.34, -0.2][(ph >>> 11) % 3], N = Math.ceil(TAU * wr * R * v.ext / 1.3), K = wk === 2 ? 11 : 9, corner = new Set();
+    for (const ca of v.pc) corner.add(Math.round(((ca / TAU) % 1 + 1) % 1 * N) % N);   // a tower on every corner of the outline
+    let prevOn = 0, lx = 1e9, lz = 1e9;
+    for (let i = 0; i < N; i++) {
+      const a = i / N * TAU, on = fbm(Math.sin(a) * 2.2, Math.cos(a) * 2.2, S + 95, 2) > thr, [x, z] = polar(a, wr * R);
+      if (x === lx && z === lz) continue;
+      lx = x; lz = z;
+      if (!on) { prevOn = 0; continue; }
+      const c = get(x, z), y = heightAt(x, z);
+      if (c === 255 || c === G_KEEP || c === G_GE || y < 1.6) { prevOn = 0; continue; }   // the castle carries the line itself
+      const gate = art.has(tk(x, z));
+      for (let a2 = -1; a2 <= 1; a2++) for (let b2 = -1; b2 <= 1; b2++) {
+        const c2 = get(x + a2, z + b2);
+        if (c2 === 255 || c2 === G_KEEP || c2 === G_GE || c2 === G_PAVED) continue;
+        if (gate) { if (c2 === G_EMPTY) force(x + a2, z + b2, G_GATE); } else force(x + a2, z + b2, G_WALL);
+      }
+      if (gate) {
+        if (wall.length) wall[wall.length - 1].tower = 1; prevOn = 0;
+        if (!gates.some(g => chebDist(g.x, g.z, x, z) < 6)) { const [qx, qz] = polar(a + 0.05, wr * R), [rx2, rz2] = polar(a - 0.05, wr * R), tl = Math.hypot(qx - rx2, qz - rz2) || 1; gates.push({ x, z, y, k: wk, ax: (qx - rx2) / tl, az: (qz - rz2) / tl, hw: AW + 2.1 }); }
+        continue;
+      }
+      wall.push({ x, z, y, k: wk, tower: prevOn === 0 || corner.has(i) || i % K === 0 }); prevOn = 1;
+    }
+    if (!gates.length && wall.length) {   // every road stopped short (water, most often): the wall opens on the first approach regardless
+      const [gx, gz] = polar(app[0], wr * R);
+      for (let i = wall.length - 1; i >= 0; i--) if (chebDist(wall[i].x, wall[i].z, gx, gz) <= 2) wall.splice(i, 1);
+      for (let a2 = -3; a2 <= 3; a2++) for (let b2 = -3; b2 <= 3; b2++) if (get(gx + a2, gz + b2) === G_WALL) force(gx + a2, gz + b2, G_GATE);
+      gates.push({ x: gx, z: gz, y: heightAt(gx, gz), k: wk, ax: Math.cos(app[0]), az: -Math.sin(app[0]), hw: AW + 2.1 });
+    }
+  }
+  v.wall = wall; v.gates = gates;
+
   // one landmark: church, windmill, or (urban only) a wizard's tower
   v.lm = null;
   if (RK.lm) {
-    const h = hash2(v.x, v.z, S + 110), kind = v.rank >= 2 ? h % 3 : (h & 1), FR = 4;
+    const h = hash2(v.x, v.z, S + 110), kind = role === 2 ? 0 : v.rank >= 2 ? h % 4 : [0, 1, 3][h % 3], FR = 4;   // church, windmill, wizard's tower (towns up), manor; Varrock keeps its church
     for (let i = 0; i < 28 && !v.lm; i++) {
       const [x, z] = polar(ring(h, 4, 1, i * 1.7), R * (0.34 + (i % 5) * 0.10));
-      const sp = spanHeights(x, z, FR, 2, (px, pz, y) => get(px, pz) === G_EMPTY && y >= 1.9);
+      const sp = spanHeights(x, z, FR, 2, (px, pz, y) => (get(px, pz) === G_EMPTY || (get(px, pz) === G_ROAD && !art.has(tk(px, pz)))) && y >= 1.9);   // a lane may end at the church; an artery never
       if (!sp || sp.hi - sp.lo > 2.0) continue;
       fill(x, z, FR, G_BUILD);
       v.lm = { t: kind, x, z, y: sp.hi, R: FR };
     }
   }
 
-  // the square's furniture: stalls round a fountain, or the village well
-  const fur = [];
-  if (v.rank >= 2) {
-    const pr = 3 + v.rank;
-    if (get(v.x, v.z) === G_PAVED) fur.push({ t: v.rank >= 3 ? 2 : 1, x: v.x, z: v.z, y: heightAt(v.x, v.z) });
+  // the square's furniture: stalls round a fountain; the villages keep a green round the well
+  if (v.sq) {
+    const q = v.sq, pr = q.r;
+    if (get(q.x, q.z) === G_PAVED) fur.push({ t: v.rank >= 3 ? 2 : 1, x: q.x, z: q.z, y: heightAt(q.x, q.z) });
     const ns = 2 + v.rank + (hash2(v.x, v.z, S + 108) & 3);
     for (let i = 0; i < ns; i++) {
-      const [x, z] = polar((i + 0.3) / ns * TAU, pr - 1.4);
+      const a = (i + 0.3) / ns * TAU, x = Math.round(q.x + Math.sin(a) * (pr - 1.4)), z = Math.round(q.z + Math.cos(a) * (pr - 1.4));
       if (get(x, z) === G_PAVED) fur.push({ t: 0, x, z, y: heightAt(x, z), k: hash2(x, z, S + 109) });
     }
-  } else if (v.rank === 1) {
-    for (const [a, b] of [[2, 2], [-2, 2], [2, -2], [-3, 0]]) {
+  } else if (v.rank === 1 || (ph & 1)) {
+    for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) if (a * a + b * b <= 9 && get(v.x + a, v.z + b) === G_EMPTY) force(v.x + a, v.z + b, G_PARK);
+    for (const [a, b] of [[0, 0], [2, 2], [-2, 2], [2, -2], [-3, 0]]) {
       const x = v.x + a, z = v.z + b;
-      if (get(x, z) !== G_EMPTY) continue;
-      force(x, z, G_PARK); fur.push({ t: 1, x, z, y: heightAt(x, z) });
+      if (get(x, z) !== G_PARK || heightAt(x, z) < 1.9) continue;
+      fur.push({ t: 1, x, z, y: heightAt(x, z) });
       break;
     }
   }
   v.fur = fur;
 
-  // houses, planted along the streets; three size passes so a block that cannot take a manor takes cottages
-  const B = [], SIZES = v.rank >= 3 ? [[3, 4], [2, 3], [2, 2]] : v.rank >= 2 ? [[2, 3], [2, 2]] : [[2, 2]];
+  // houses, planted along the streets; three size passes so a block that cannot take a manor takes cottages.
+  // stone gathers round the castle, the town favours one roof, and beyond an old wall the suburbs are thinner and thatched
+  const B = [], SIZES = v.rank >= 3 ? [[3, 4], [2, 3], [2, 2]] : v.rank >= 2 ? [[2, 3], [2, 2]] : [[2, 2]], RF = v.reg.rf, SR = v.reg.st || [3, 1], tr = (ph >>> 14) & 3;
   const tryPlot = (px, pz, hw, hd, door) => {
     if (B.length >= RK.houses) return 0;
+    const hh = hash2(px, pz, S + 97), d0 = vd(px, pz), sub = wk && d0 > wr * R, fx = px + DDX[door] * (hw + 1), fz = pz + DDZ[door] * (hd + 1);
+    if (d0 > R * 0.985 || (sub && (old ? (hh & 3) === 0 : (hh & 3) !== 0))) return 0;   // beyond a wall: an old town's suburbs, else a hut or two
+    let onSt = 0;   // the door opens onto a street that was actually laid: the step, or a tile either side of it
+    for (const q of [0, -1, 1]) { const c = get(fx + (DDX[door] ? 0 : q), fz + (DDZ[door] ? 0 : q)); if (c === G_ROAD || c === G_PAVED || c === G_GATE) onSt = 1; }
+    if (!onSt) return 0;
     for (let a = -hw - 1; a <= hw + 1; a++) for (let b = -hd - 1; b <= hd + 1; b++) {   // footprint plus a one-tile skirt
-      const c = get(px + a, pz + b), edge = (a < -hw || a > hw || b < -hd || b > hd);
-      if (c === 255 || (!edge && c !== G_EMPTY) || (edge && (c === G_BUILD || c === G_WALL || c === G_KEEP))) return 0;
+      const c = get(px + a, pz + b), edge = (a < -hw || a > hw || b < -hd || b > hd), step = a === DDX[door] * (hw + 1) && b === DDZ[door] * (hd + 1);
+      if (c === 255 || (!edge && c !== G_EMPTY) || (edge && (c === G_WALL || c === G_KEEP || c === G_GE || (c === G_BUILD && (v.rank < 2 || sub || step))))) return 0;
     }
     let lo = 1e9, hi = -1e9;
     for (const ox of [-hw, 0, hw]) for (const oz of [-hd, 0, hd]) { const y = heightAt(px + ox, pz + oz); if (y < lo) lo = y; if (y > hi) hi = y; }
     if (hi - lo > 1.7 || lo < 1.8) return 0;
-    const hh = hash2(px, pz, S + 97);
-    const RF = v.reg.rf, SR = v.reg.st || [3, 1];
+    const rf = (hh >>> 3) & 3, ri = rf < 2 ? tr : rf, nearKeep = v.keep && v.rank >= 2 && Math.hypot(px - v.keep.x, pz - v.keep.z) < v.keep.R + 10;
     const b = { x: px, z: pz, y: hi, hw, hd, w: hw * 2 + 1, d: hd * 2 + 1, h: 3.4 + (hw + hd) * 0.22 + ((hh >>> 26) & 15) / 15 * 1.6,
-      roofC: RF ? RF[(hh >>> 3) & 3] : v.rank <= 1 && ((hh >>> 3) & 3) ? C_THATCH : ROOFS[(hh >>> 3) & 3],   // the kingdom's roofline; else villages thatch, towns tile
-      st2: v.rank >= 2 && hw + hd >= 5 && ((hh >>> 12) & 7) < 3 ? 1 : 0, stone: v.rank >= SR[0] && ((hh >>> 15) & 3) < SR[1] ? 1 : 0,
+      roofC: (sub && old && (hh & 4)) || (v.rank <= 1 && rf) ? C_THATCH : RF ? RF[ri] : ROOFS[ri],   // the kingdom's roofline; else villages thatch, towns tile
+      st2: v.rank >= 2 && hw + hd >= 5 && ((hh >>> 12) & 7) < 3 ? 1 : 0, stone: !(sub && old) && ((v.rank >= SR[0] && ((hh >>> 15) & 3) < SR[1]) || nearKeep) ? 1 : 0,
       gable: ((hh >>> 17) & 3) !== 0 ? 1 : 0, door, shop: null, forge: 0, range: 0, bank: 0, barber: 0, roof: null, blk: null,
       dx: px + DDX[door] * hw, dz: pz + DDZ[door] * hd, cx: px - DDX[door] * (hw - 1), cz: pz - DDZ[door] * (hd - 1) };
     for (let a = -hw; a <= hw; a++) for (let b2 = -hd; b2 <= hd; b2++) force(px + a, pz + b2, G_BUILD);
@@ -2256,21 +2511,28 @@ function layoutCity(v) {
       const hw = sz[0] + (hs >>> 4) % (sz[1] - sz[0] + 1), hd = sz[0] + (hs >>> 8) % (sz[1] - sz[0] + 1);
       for (const side of [-1, 1]) {
         if (B.length >= RK.houses) break;
-        const off = s.w + 1.3 + hd, bx = -nx * side, bz = -nz * side;   // the door faces the street
-        tryPlot(Math.round(s.x0 + ex * t + nx * side * off), Math.round(s.z0 + ez * t + nz * side * off), hw, hd,
-                Math.abs(bx) > Math.abs(bz) ? (bx > 0 ? 3 : 1) : (bz > 0 ? 0 : 2));
+        const bx = -nx * side, bz = -nz * side, door = Math.abs(bx) > Math.abs(bz) ? (bx > 0 ? 3 : 1) : (bz > 0 ? 0 : 2), off = s.w + 0.6 + (door & 1 ? hw : hd);   // the door faces the street, a step off its edge
+        tryPlot(Math.round(s.x0 + ex * t + nx * side * off), Math.round(s.z0 + ez * t + nz * side * off), hw, hd, door);
       }
     }
   }
-  if (B.length < RK.houses * 0.6) for (let i = 0; i < 900 && B.length < RK.houses; i++) {
-    const h = hash2(v.x + i * 197, v.z - i * 89, S + 101);
-    const [px, pz] = polar(ring(h, 0), 6 + ((h >>> 10) & 255) / 255 * (R * 0.82));
-    tryPlot(px, pz, 2 + ((h >>> 18) & 1), 2 + ((h >>> 20) & 1), (h >>> 22) & 3);
+  // then every street that was laid gets its frontage: one pass over the grid, a house wherever open ground meets a road
+  for (let iz = 1; iz < D - 1 && B.length < RK.houses; iz++) for (let ix = 1; ix < D - 1 && B.length < RK.houses; ix++) {
+    if (G[iz * D + ix] !== G_EMPTY) continue;
+    const x = v.x - gR + ix, z = v.z - gR + iz, h = hash2(x, z, S + 103);
+    if ((h & 7) === 0) continue;   // a gap now and then: gardens, yards, a lane between
+    for (let d = 0; d < 4; d++) {
+      const c = get(x + DDX[d], z + DDZ[d]);
+      if (c !== G_ROAD && c !== G_PAVED) continue;
+      const hw = 2 + ((h >>> 4) & 1), hd = 2 + ((h >>> 5) & 1);
+      if (tryPlot(x - DDX[d] * hw, z - DDZ[d] * hd, hw, hd, d)) break;
+    }
   }
   v.b = B;
 
   // shops on the busiest ground, nearest the square
-  const byCentre = B.slice().sort((p, q) => Math.hypot(p.x - v.x, p.z - v.z) - Math.hypot(q.x - v.x, q.z - v.z));
+  const qx = v.sq ? v.sq.x : v.x, qz = v.sq ? v.sq.z : v.z;
+  const byCentre = B.slice().sort((p, q) => Math.hypot(p.x - qx, p.z - qz) - Math.hypot(q.x - qx, q.z - qz));
   const shops = SHOP_FOR_RANK[v.rank];
   let si = 0;
   for (const b of byCentre) { if (si >= shops.length) break; if (b.hw >= 2 && b.hd >= 2) b.shop = SHOP[shops[si++]].i; }
@@ -2308,10 +2570,13 @@ function layoutCity(v) {
     if (hb) { hb.range = 1; const c = corners(hb); FIX.push({ t: 6, x: c.ax, z: c.az, y: hb.y + FLOOR_TOP, in: hb }); }
   }
   v.f = FIX;
-  if (v.rank >= 2 || (v.rank === 1 && (hash2(v.x, v.z, S + 47) & 7) < 3)) { const hb = host(2, b => !b.range); if (hb) hb.bank = 1; }
+  if (v.rank >= 2 || role === 1 || (v.rank === 1 && (hash2(v.x, v.z, S + 47) & 7) < 3)) {
+    const hb = host(2, b => !b.range); if (hb) hb.bank = 1;
+    if (role === 2 && hb) { const hb2 = host(2, b => !b.range && !b.bank && Math.sign(b.x - v.x) !== Math.sign(hb.x - v.x)); if (hb2) hb2.bank = 1; }   // Varrock banks east and west
+  }
   if (v.rank >= 2 || (v.rank === 1 && (hash2(v.x, v.z, S + 49) & 3) === 0)) { const hb = host(2, b => !b.range && !b.bank); if (hb) hb.barber = 1; }
 
-  // guaranteed amenities: OSRS players route by them. Every village prays; every town banks, even from a street booth.
+  // guaranteed amenities: OSRS players route by them. Every village prays; every town (and Lumbridge) banks, even from a street booth.
   const spotIn = (so, tries, maxR) => {   // an open interior tile, claimed
     for (let i = 0; i < tries; i++) {
       const h2 = hash2(v.x + i * 37 + so, v.z - i * 51 - so, S + 124);
@@ -2325,21 +2590,30 @@ function layoutCity(v) {
     return null;
   };
   if (v.rank >= 1 && !(v.lm && v.lm.t === 0)) v.shrine = spotIn(0, 14, R - 8);   // a wayside altar when the church did not come
-  if (v.rank >= 2 && !B.some(b => b.bank)) v.booth = spotIn(477, 14, 9);   // no hall took the strongbox: a counter on the square
+  if ((v.rank >= 2 || role === 1) && !B.some(b => b.bank)) v.booth = spotIn(477, role === 1 ? 48 : 14, role === 1 ? R - 6 : 9);   // no hall took the strongbox: a counter on the square
+  const taken = [];   // the field ring's yards keep clear of each other
   const ringSpot = (so, tries, lo, span, ext, dh) => {   // flat open ground on the field ring, facing town
     for (let i = 0; i < tries; i++) {
       const h2 = hash2(v.x + i * 61 + so, v.z + i * 43 - so, S + 125);
       const [x, z] = polar(ring(h2, 0, 1, i * 0.9), R * (lo + (i % 4) * span));
+      if (taken.some(t => chebDist(t.x, t.z, x, z) < t.r + ext + 2)) continue;
       const sp = spanHeights(x, z, ext, 2, (px, pz, py) => py >= 1.9);
       if (!sp || sp.hi - sp.lo > dh || highwayAt(x, z) > 0.1) continue;
       const ddx = v.x - x, ddz = v.z - z;
+      taken.push({ x, z, r: ext });
       return { x: Math.round(x), z: Math.round(z), y: sp.hi, fd: Math.abs(ddx) > Math.abs(ddz) ? (ddx > 0 ? 1 : 3) : (ddz > 0 ? 2 : 0) };
     }
     return null;
   };
-  if (v.rank >= 1) {   // the livestock pen replaces the old tame() spawn filter: authored beasts, fenced
+  if (v.rank >= 1) {   // the livestock pen: authored beasts, fenced
     v.pen = ringSpot(0, 16, 1.08, 0.09, 5, 1.4);
-    if (v.pen) { const ph = hash2(v.x, v.z, S + 123); Object.assign(v.pen, { w: 5, d: 4, k: v.reg.wm > 0 && (ph & 1) ? 3 : ph % 3 }); }
+    if (v.pen) { const ph2 = hash2(v.x, v.z, S + 123); Object.assign(v.pen, { w: 5, d: 4, k: v.reg.wm > 0 && (ph2 & 1) ? 3 : ph2 % 3 }); }
+  }
+  v.circle = null;
+  if (role === 2) for (let i = 0; i < 80 && !v.circle; i++) {   // the dark wizards' circle, beside the road out of the south gate (or the next gate round)
+    const [x, z] = polar([0, PI / 2, -PI / 2, PI][i >> 4] + (i % 5 - 2) * 0.13, R * (1.2 + Math.floor((i & 15) / 5) * 0.08)), sp = spanHeights(x, z, 4, 2, (px, pz, py) => py >= 1.9);
+    if (!sp || sp.hi - sp.lo > 1.6 || highwayAt(x, z) > 0.1 || taken.some(t => chebDist(t.x, t.z, x, z) < t.r + 6)) continue;
+    taken.push({ x, z, r: 4 }); v.circle = { x, z, y: sp.hi, k: 8, name: 'the Dark Wizards\' Circle' };
   }
   for (let i = 0; i < 4 && !v.dock; i++) {   // a boardwalk from firm ground across the strand and out past the waterline
     const dir = [[1, 0], [-1, 0], [0, 1], [0, -1]][(hash2(v.x, v.z, S + 127) + i) & 3];
@@ -2366,15 +2640,20 @@ function layoutCity(v) {
 
   // street trees in whatever ground is left
   const trees = [], step = v.rank >= 3 ? 2 : 3;
-  for (let a = -R; a <= R && trees.length < 220; a += step) for (let b = -R; b <= R && trees.length < 220; b += step) {
+  for (let a = -gR; a <= gR && trees.length < 220; a += step) for (let b = -gR; b <= gR && trees.length < 220; b += step) {
     const x = v.x + a, z = v.z + b;
-    if (get(x, z) !== G_EMPTY || !inTown(x, z)) continue;
+    if (get(x, z) !== G_EMPTY || vd(x, z) > R) continue;
     const h = hash2(x, z, S + 99);
     if ((h & 15) > 4) continue;
     const y = heightAt(x, z);
     if (y < 1.9) continue;
     force(x, z, G_PARK);
     trees.push({ x, z, y, s: 0.7 + (h >>> 8 & 31) / 31 * 0.7, broad: (h >>> 5) & 1 });
+  }
+  for (const g of greens) for (let a = -g.r; a <= g.r; a += 2) for (let b = -g.r; b <= g.r; b += 2) {   // the greens grow their own
+    const x = g.x + a, z = g.z + b, h = hash2(x, z, S + 99);
+    if (a * a + b * b > g.r * g.r || get(x, z) !== G_PARK || (h & 3) || trees.length >= 240) continue;
+    trees.push({ x, z, y: heightAt(x, z), s: 0.9 + (h >>> 8 & 31) / 31 * 0.6, broad: 1 });
   }
   v.trees = trees;
   // where the townsfolk stand
@@ -2438,7 +2717,7 @@ function cityCell(x, z) {
   if (!n) return 0;
   const v = n.v;
   if (!v.G) layoutCity(v);
-  const R = v.r, D = v.gD, ix = x - v.x + R, iz = z - v.z + R;
+  const gR = v.gR, D = v.gD, ix = x - v.x + gR, iz = z - v.z + gR;
   return (ix < 0 || iz < 0 || ix >= D || iz >= D) ? 0 : v.G[iz * D + ix];
 }
 /* ---- 15. CHUNKS ---- */
@@ -2688,7 +2967,7 @@ function buildStructures(rec, cx, cz) {
   const gx = Math.floor(cx * CHUNK * INV_CELL), gz = Math.floor(cz * CHUNK * INV_CELL);
   const x0 = cx * CHUNK, x1 = x0 + CHUNK, z0 = cz * CHUNK, z1 = z0 + CHUNK;
   const inChunk = (x, z) => x >= x0 && x < x1 && z >= z0 && z < z1;
-  const mine = [], forges = [], walls = [], citytrees = [], lms = [], furn = [], ges = [], vs = [];
+  const mine = [], forges = [], walls = [], gts = [], citytrees = [], lms = [], furn = [], ges = [], vs = [];
   let castle = null;
   for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
     const v = villageAt(gx + a, gz + b);
@@ -2716,16 +2995,18 @@ function buildStructures(rec, cx, cz) {
       if (fu.t === 2) { for (let p = -1; p <= 1; p++) for (let q = -1; q <= 1; q++) rec.blk.push(tk(fu.x + p, fu.z + q)); } else rec.blk.push(tk(fu.x, fu.z));
     }
     for (const w of v.wall) if (inChunk(w.x, w.z)) { walls.push(w); rec.blk.push(w.key); }
+    for (const g of v.gates) if (inChunk(g.x, g.z)) gts.push(g);
     for (const t of v.trees) if (inChunk(t.x, t.z)) { citytrees.push(t); rec.blk.push(tk(t.x, t.z)); }
   }
   for (const f of structHooks) f(rec, vs, inChunk);
   if (castle) {
     batchInto(rec, B => emitCastle(B, castle)); rec.blk.push(...castle.blk);
     const k = castle.hall, dx2 = Math.round(k.x + DDX[castle.gate] * (k.w / 2)), dz2 = Math.round(k.z + DDZ[castle.gate] * (k.d / 2));
-    rec.objs.push({ t: 23, k: 0, x: dx2, z: dz2, y: castle.y, key: tk(dx2, dz2), n: 'Dungeon' });   // sits on the slab itself; the walk stops at reach 1, outside the wall
+    if (castle.v.rank >= 3) rec.objs.push({ t: 23, k: 0, x: dx2, z: dz2, y: castle.y, key: tk(dx2, dz2), n: 'Dungeon' });   // sits on the slab itself; the walk stops at reach 1, outside the wall. Lumbridge's small keep has no cellar
   }
-  if (walls.length || citytrees.length || lms.length || furn.length || ges.length) batchInto(rec, W => {
+  if (walls.length || gts.length || citytrees.length || lms.length || furn.length || ges.length) batchInto(rec, W => {
     for (const w of walls) emitWallCell(W, w);
+    for (const g of gts) emitGate(W, g, rec);
     for (const t of citytrees) emitCityTree(W, t);
     for (const L of lms) emitLandmark(W, L);
     for (const fu of furn) emitFurniture(W, fu);
@@ -3204,12 +3485,13 @@ function askPvp(onGo) {
 /* ---- the wilderness ditch: click the trench anywhere and the character runs up and leaps it. Going in asks (once,
    unless silenced); coming out never does. The trench itself is never walkable, so the leap is the only dry crossing. ---- */
 let petHop = null;
+const nearDitch = (x, z) => ditchT(x, z) < 5 && !isWater(tileH(x, z)) && !inDunPlane(z);   // the trench, its berms and a stride either side: a generous target
 function ditchClick(cx, cz) {
   const gdx = wildD(cx + 1, cz) - wildD(cx - 1, cz), gdz = wildD(cx, cz + 1) - wildD(cx, cz - 1);
   const L = Math.hypot(gdx, gdz) || 1, nx2 = gdx / L, nz2 = gdz / L;   // uphill in the field: toward the deep wilds
   const dir = wildD(P.tx, P.tz) > 0 ? -1 : 1;   // leap to whichever side you are not on
   const lip = s => {
-    for (let k = 2; k <= 9; k++) {
+    for (let k = 1; k <= 13; k++) {   // a bank click starts nearer one lip and farther from the other
       const x = Math.round(cx + nx2 * s * k), z = Math.round(cz + nz2 * s * k), wd = wildD(x, z);
       if (wd * s > 0 && ditchT(x, z) > 3.3 && !isWater(tileH(x, z)) && !blocked.has(tk(x, z)) && !floorMap.has(tk(x, z))) return { x, z };
     }
@@ -3492,6 +3774,13 @@ function refreshNpcs() {
       if (Math.abs(s.x - P.tx) > 60 || Math.abs(s.z - P.tz) > 60 || !dry(s.x, s.z)) continue;
       spawnNpc(s.t, s.x, s.z, key, s.pw);
     }
+    if (v.circle) for (let i = 0; i < 3 && npcs.length < CAP; i++) {   // the dark wizards keep their circle
+      const key = 'w' + v.x + '_' + v.z + '_' + i;
+      if (hasNpc(key)) continue;
+      const c2 = v.circle, hh = hash2(c2.x + i * 7, c2.z - i * 5, S + 129), sx = c2.x + hh % 5 - 2, sz = c2.z + (hh >>> 8) % 5 - 2;
+      if (Math.abs(sx - P.tx) > 58 || Math.abs(sz - P.tz) > 58 || !dry(sx, sz)) continue;
+      spawnNpc(NPC_BY.darkwizard, sx, sz, key, powerAt(sx, sz));
+    }
     if (v.pen) for (let i = 0; i < 3 && npcs.length < CAP; i++) {   // the pen's own beasts, the same three forever
       const key = 'p' + v.x + '_' + v.z + '_' + i;
       if (hasNpc(key)) continue;
@@ -3521,14 +3810,14 @@ const villageSpawnN = v => 4 + v.rank * 3 + hash2(v.x, v.z, S + 51) % 4;
 function villageSpawn(v, i) {
   const h = hash2(v.x + i * 71, v.z - i * 37, S + 52), B = v.b, r = { v, i };
   if ((B ? v.keep : RANKS[v.rank].keep) && i < 2 + v.rank) {
-    const c = B ? v.keep : v, sp = 6 + ((h >>> 3) & 7);
+    const c = B ? v.keep : v, sp = Math.min(6 + ((h >>> 3) & 7), (B ? c.R : 13) - 2);
     return Object.assign(r, { t: NPC_BY.guard, x: c.x + (((h & 1) ? 1 : -1) * sp), z: c.z + ((((h >>> 1) & 1) ? 1 : -1) * sp) });
   }
   if ((!B || v.spots.length) && (h & 1)) {
     const folk = TOWNFOLK[Math.min(TOWNFOLK.length - 1, v.rank)], sp = B ? v.spots[(h >>> 6) % v.spots.length] : v;
     return Object.assign(r, { t: NPC_BY[folk[(h >>> 17) % folk.length]], x: sp.x, z: sp.z });
   }
-  const ang = (h & 1023) / 1024 * TAU, rad = v.r * (0.9 + ((h >>> 10) & 63) / 64 * 0.6), x = Math.round(v.x + Math.cos(ang) * rad), z = Math.round(v.z + Math.sin(ang) * rad), pw = powerAt(x, z);
+  const [x, z] = townPt(v, (h & 1023) / 1024 * TAU, v.r * (1.0 + ((h >>> 10) & 63) / 64 * 0.5)), pw = powerAt(x, z);   // outside the outline, whatever its shape
   return Object.assign(r, { t: pickMonster(x, z, h, pw), x, z, pw });
 }
 /* the shared wander: destination is a pure function of (key hash, shared tick) */
@@ -4014,7 +4303,7 @@ function swing(o) {
     hitsplat(o.rx, o.ry + 1.5, o.rz, dmg);
     xps = st.xp;
   }
-  if (dmg > 0) { if (xps) for (const k of xps) gainXp(k, dmg * 4 / xps.length); gainXp('hitpoints', dmg * 1.33); }
+  if (dmg > 0) { if (xps) for (const k of xps) gainXp(k, dmg * 4 / xps.length); gainXp('hitpoints', dmg * 4 / 3); }
   return dmg;
 }
 /* gathering tables: chop and mine share one loop */
@@ -5265,7 +5554,7 @@ on(dom, 'pointerup', e => {
   const g = rayGround(ray);
   if (g) {
     const dx2 = Math.round(g.x), dz2 = Math.round(g.z);
-    if (inDitch(dx2, dz2) && !isWater(tileH(dx2, dz2))) ditchClick(dx2, dz2); else walkTo(g.x, g.z);
+    if (nearDitch(dx2, dz2)) ditchClick(dx2, dz2); else walkTo(g.x, g.z);
   }
 });
 on(dom, 'contextmenu', e => {
@@ -5274,7 +5563,7 @@ on(dom, 'contextmenu', e => {
   const ray = rayAt(e.clientX, e.clientY), opts = optionsFor(pickObject(ray)), g = rayGround(ray);
   if (g) {
     const dx2 = Math.round(g.x), dz2 = Math.round(g.z);
-    if (inDitch(dx2, dz2) && !isWater(tileH(dx2, dz2))) opts.push({ t: 'Jump over', o: 'Wilderness ditch', f: () => ditchClick(dx2, dz2) });
+    if (nearDitch(dx2, dz2)) opts.push({ t: 'Jump over', o: 'Wilderness ditch', f: () => ditchClick(dx2, dz2) });
     opts.push({ t: 'Walk here', o: '', f: () => walkTo(g.x, g.z) });
   }
   openCtx(e.clientX, e.clientY, opts);
@@ -5673,8 +5962,8 @@ function loadSeed(str) {
   closeOverlays();
   // spawn inside the settlement nearest the origin: town ground is truce ground
   let bx = 0, bz = 0;
-  const sv = nearestVillageTo(0, 0, 7);
-  if (sv) { const s = safeSpotIn(sv); bx = s.x; bz = s.z; }
+  const sv = homeVillage();
+  if (sv) { const s = safeSpotIn(villageAt(sv.cx, sv.cz)); bx = s.x; bz = s.z; }
   else {
     let best = -1e9;
     for (let i = 0; i < 900; i++) {
@@ -5751,7 +6040,7 @@ function gameTick() {
     const up = tickN % (prayHas('restore') ? 50 : 100) === 0, down = tickN % (prayHas('preserve') ? 150 : 100) === 0;
     for (let i = 0; i < NSK; i++) if (bst[i] < 0 ? up : bst[i] > 0 && down) { bst[i] -= Math.sign(bst[i]); dirty.sk = 1; }
   }
-  if ((!P.moved || !P.run) && P.energy < 100) { P.energy = Math.min(100, P.energy + (15 + Math.floor(lvl[SK.agility] / 10)) / 100); dirty.orb = 1; }   // restore: (15 + agility/10) units a tick
+  if ((!P.moved || !P.run) && P.energy < 100) { P.energy = Math.min(100, P.energy + (15 + Math.floor(lvl[SK.agility] / 10)) / 100); dirty.orb = 1; }   // restore: (15 + agility/10) units a tick, the wiki's own rate
   if (tickN % (prayHas('heal') || capeOn('hitpoints') ? 50 : 100) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }   // one point a minute, twice as fast under Rapid Heal or the hitpoints cape (they never stack)
   if (tickN % 100 === 0 && P.hp > P.maxhp) { P.hp--; dirty.orb = 1; }   // an overfed brew or anglerfish settles back a point a minute
   if (P.prayers) {
@@ -5761,7 +6050,7 @@ function gameTick() {
     if (P.pray <= 0) { P.pray = 0; P.prayers = 0; sfx(2672); say('You have run out of prayer points.', 'bad'); drawPrayers(); }
     dirty.orb = 1;
   }
-  if (P.spec < 100 && tickN % 50 === 0) { P.spec = Math.min(100, P.spec + 10); if (SPEC[eq.weapon]) drawStyles(); }   // 10% back each 30 seconds
+  if (P.spec < 100 && tickN - (P.specT || 0) >= 50) { P.specT = tickN; P.spec = Math.min(100, P.spec + 10); if (SPEC[eq.weapon]) drawStyles(); }   // 10% back each 30 seconds
   if (P.psn > 0 && tickN >= P.psnT && !P.dead) {   // poison bites every 30 ticks; the wound shallows one point per five bites
     P.psnT = tickN + 30;
     hurtSnd = 2408; hurtPlayer(P.psn);   // the wound hisses instead of grunting
@@ -5927,7 +6216,7 @@ function frame(now) {
   if (indoors !== was) {
     if (was && was.roof) was.roof.visible = roofShown(was);
     if (indoors && indoors.roof) indoors.roof.visible = roofShown(indoors);
-    el('inside').textContent = indoors ? (indoors.shop !== null ? SHOP_KINDS[indoors.shop].n : indoors.bank ? 'Bank of Seedworld' : 'indoors') : 'outdoors';
+    el('inside').textContent = indoors && !indoors.deck ? (indoors.shop != null ? SHOP_KINDS[indoors.shop].n : indoors.bank ? 'Bank of Seedworld' : 'indoors') : 'outdoors';   // a deck is a floor, not a room
     el('inside').className = indoors ? 'in' : '';
   }
   labelsBegin();
@@ -6263,7 +6552,7 @@ function freshCharacter() {
 let saveDirty = 0, lastSave = 0, saveTimer = 0, saveArmed = 0, savedOnce = 0, ackPending = 0, ackWarned = 0;
 let saveFatal = 0, leftOnce = 0;   // the server refused a blob outright; and: the page is going away, once
 const NEED_BUILD = 10;   // the wire contract this client speaks. 10 is a floor, not a preference: this client relies on the room to stamp op 12's clock and to set op 21's owner from the sender, and an older room does neither
-const SPAWN_REV = 8;   // bumped with any change to powerAt / spawnTable / pickMonster / regions / sites / TOWNFOLK / LADDERS / bossAt / TREES / ruinAt / the dungeon band
+const SPAWN_REV = 9;   // 9: town outlines, plans and charters (Lumbridge/Varrock) moved the belts and the spawns. Bumped with any change to powerAt / spawnTable / pickMonster / regions / sites / TOWNFOLK / LADDERS / bossAt / TREES / ruinAt / the dungeon band
 let worldSync = 0, srvBuild = 0;   // build >= 4: rooms relay 20/21/22; build >= 5 accepts batched sends
 /* every routine message a tick produces rides one socket send (one billable request), flushed at tick's end.
    Saves go alone (their own size lane), and clock pings and trade signals go straight out (latency-sensitive). */
@@ -7241,8 +7530,9 @@ function emitPen(B, p, rec) {   // post-and-rail round the flock, a gate gap tow
     if (((a + b) & 1) === 0) B.add(BOX, px, py + 0.5, pz, 0.18, 1.0, 0.18, 0, C_BEAM);
     B.add(BOX, px, py + 0.78, pz, ex ? 0.1 : 1.05, 0.1, ex ? 1.05 : 0.1, 0, C_BEAM);
     B.add(BOX, px, py + 0.42, pz, ex ? 0.1 : 1.05, 0.1, ex ? 1.05 : 0.1, 0, C_BEAM);
-    rec.blk.push(tk(px, pz));
+    if (rec) rec.blk.push(tk(px, pz));
   }
+  if (p.bare) return;
   const ty = heightAt(x, z);
   B.add(BOX, x, ty + 0.3, z, 1.6, 0.4, 0.7, 0, C_BEAM); B.add(BOX, x, ty + 0.46, z, 1.4, 0.1, 0.5, 0, [0.35, 0.5, 0.55]);
 }
@@ -7410,6 +7700,7 @@ structHooks.push((rec, vs, inChunk) => {
       if (v.pen && inChunk(v.pen.x, v.pen.z)) emitPen(B, v.pen, rec);
       if (v.dock && inChunk(v.dock.x, v.dock.z)) emitDock(B, v.dock, rec);
       if (v.guild && inChunk(v.guild.x, v.guild.z)) emitGuild(B, v.guild, rec);
+      if (v.circle && inChunk(v.circle.x, v.circle.z)) emitPOI(B, v.circle, rec, hash2(v.circle.x, v.circle.z, S + 8));
     }
     const gx0 = Math.floor(rec.cx * CHUNK / SITE_CELL), gz0 = Math.floor(rec.cz * CHUNK / SITE_CELL);
     for (let a = 0; a <= 1; a++) for (let b = 0; b <= 1; b++) {   // a 32-chunk touches at most 2x2 of the 56-cells
@@ -7447,7 +7738,7 @@ function ruinAt(gx, gz) {   // pure in (cell, S): every client raises the same r
     if (y < 2.2 || y > 58 || nearTown(x, z)) continue;
     const sp = spanHeights(x, z, 4, 2, (px, pz, py) => py >= 1.9);
     if (!sp || sp.hi - sp.lo > 2.5) continue;
-    const p = powerAt(x, z), top = p < 0.3 ? 3 : p < 0.7 ? 5 : p < 1.2 ? 7 : p < 1.8 ? 9 : p < 2.6 ? 11 : 12;   // the soul altar keeps to the deepest ground
+    const p = powerAt(x, z), top = p < 0.3 ? 3 : p < 0.7 ? 5 : p < 1.2 ? 7 : p < 1.8 ? 9 : p < 2.6 ? 11 : p < 3.4 ? 12 : 13;   // the soul and wrath altars keep to the deepest ground
     R = { r: RC[(h >>> 8) % (top + 1)], x, z, y };
   }
   ruinCache.set(key, R);
@@ -7479,7 +7770,7 @@ structHooks.push((rec, vs, inChunk) => {
 /* the altar: the matching talisman (carried) or tiara (worn) lets you bind every essence in the pack; pure always, rune essence up to body */
 function rcAltar(o) {
   const r = RC[o.k], k = r.k;
-  if (!invCount(k + '_talisman') && !(eq.head && ITEMS[eq.head].tiara === k)) return say('The stones are silent to you. You need the ' + k + ' talisman or tiara.', 'bad');
+  if (k !== 'wrath' && !invCount(k + '_talisman') && !(eq.head && ITEMS[eq.head].tiara === k)) return say('The stones are silent to you. You need the ' + k + ' talisman or tiara.', 'bad');   // the wrath stones ask only the level
   if (needLv('runecraft', r.lv)) return;
   const ess = invCount('pure_essence') + (r.i <= 5 ? invCount('rune_essence') : 0);
   if (!ess) return say('You have no essence to bind.');
@@ -7504,13 +7795,13 @@ USE_ON[11] = (o, uit) => uit.id === 'tiara' && invCount(RC[o.k].k + '_talisman')
 
 /* ---- AGILITY: log balances over narrow water and climbing rocks up short cliffs, pure functions of the tile; a crossing lands you on the far end ---- */
 structHooks.push((rec, vs, inChunk) => {
-  const ox = rec.cx * CHUNK, oz = rec.cz * CHUNK, bk = new Set(rec.blk), objs = [];
+  const ox = rec.cx * CHUNK, oz = rec.cz * CHUNK, bk = new Set(rec.blk), objs = [], bridges = [];
   const hAt = (x, z) => inChunk(x, z) ? recH(rec, x, z) : heightAt(x, z);
   const open = (x, z) => !bk.has(tk(x, z)) && dryOpen(x, z);   // this chunk's own claims are not in blocked yet
   for (let j = 1; j < CHUNK && objs.length < 3; j += 2) for (let i = 1; i < CHUNK && objs.length < 3; i += 2) {   // odd tiles never share a fishing spot's key
     const x = ox + i, z = oz + j, y = recH(rec, x, z), h = hash2(x, z, S + 320);
     if (y < SEA) {   // a log: open banks 3-4 tiles out on both sides, water between; such narrows are rare, so only space them
-      if (objs.some(q => !q.k && chebDist(q.x, q.z, x, z) < 10)) continue;
+      if (objs.some(q => !q.k && chebDist(q.x, q.z, x, z) < 10) || bridges.some(q => chebDist(q.x, q.z, x, z) < 10)) continue;
       const bank = (dx, dz) => {   // first dry tile out; it must be 3-4 away, open, and walkable from the tile behind it
         for (let d = 1; d <= 4; d++) {
           const bx = x + dx * d, bz = z + dz * d, yb = hAt(bx, bz); if (yb < SEA) continue;
@@ -7521,6 +7812,11 @@ structHooks.push((rec, vs, inChunk) => {
       for (const [dx, dz] of [[1, 0], [0, 1]]) {
         const a = bank(-dx, -dz), b = a && bank(dx, dz);
         if (b) {
+          const hA = hAt(x - dx * a, z - dz * a), hB = hAt(x + dx * b, z + dz * b), dy = clamp((hA + hB) / 2, 1.1, 2.6);
+          if (hash2(x, z, S + 321) % 100 < 60 && Math.abs(hA - dy) <= 1.1 && Math.abs(hB - dy) <= 1.1) {   // most narrows are bridged for everyone; the rest keep their log
+            bridges.push({ x: x - dx * a, z: z - dz * a, dx, dz, len: a + b - 1, y: dy });
+            break;
+          }
           const alv = clamp(1 + Math.round(Math.max(0, powerAt(x, z)) * 12), 1, 75);   // the deeper the ground, the surer the feet it asks — 2007 logs are levelled
           objs.push({ t: 16, k: 0, x, z, y: 0, key: tk(x, z), n: AGIL_N[0], lv: alv, xp: alv * 1.2 + 6, ax: x - dx * a, az: z - dz * a, bx: x + dx * b, bz: z + dz * b, noMark: 1 });
           break;
@@ -7537,6 +7833,7 @@ structHooks.push((rec, vs, inChunk) => {
       }
     }
   }
+  if (bridges.length) batchInto(rec, B => { for (const b of bridges) emitBridge(B, b, rec); });
   if (!objs.length) return;
   rec.objs.push(...objs);
   batchInto(rec, B => { for (const o of objs) {
@@ -7570,8 +7867,8 @@ tickHooks.push(() => { const t = P.task; if (P.acting && t && t.k === 'agil') { 
    a stall is one grab, then a shared respawn clock. (dev) coins land straight in the pack, no pouches. ---- */
 defStack('bread', 'Bread', 'crop', '#c8a060', '#7a5a2a', 12, { heal: 5 });
 defStack('silk', 'Silk', 'wool', '#e8d8f0', '#8a6aa0', 24); defStack('fur', 'Fur', 'fur', '#8a6a48', '#4a3622', 12); defStack('spice', 'Spice', 'seed', '#d8702a', '#7a3a10', 90);
-const STALLS = [['baker', "Baker's stall", 5, 16, 'bread', 4], ['silk', 'Silk stall', 20, 24, 'silk', 13], ['fur', 'Fur stall', 35, 36, 'fur', 25], ['silver', 'Silver stall', 50, 54, 'silver_ore', 50],
-  ['spice', 'Spice stall', 65, 81, 'spice', 133], ['gem', 'Gem stall', 75, 160, null, 300]].map(([k, n, lv, xp, loot, rs]) => ({ k, n, lv, xp, loot, rs }));
+const STALLS = [['baker', "Baker's stall", 5, 16, 'bread', 4], ['silk', 'Silk stall', 20, 24, 'silk', 13], ['fur', 'Fur stall', 35, 45, 'fur', 25], ['silver', 'Silver stall', 50, 205, 'silver_ore', 50],
+  ['spice', 'Spice stall', 65, 92, 'spice', 133], ['gem', 'Gem stall', 75, 408, null, 300]].map(([k, n, lv, xp, loot, rs]) => ({ k, n, lv, xp, loot, rs }));
 const lootOf = T => { const d = rollTable(T); return [d[0], randInt(d[2] || 1, d[3] || d[2] || 1)]; };   // a weighted [id, w, min, max] row → [id, n]
 const pickChance = (L, req) => clamp(0.55 + 0.39 * (L - req) / (99 - req), 0.55, 0.95);   // 55% at the requirement, 94% at 99, whoever the mark
 TASKS.pick = (t, o) => {
@@ -7611,14 +7908,14 @@ structHooks.push((rec, vs, inChunk) => {
 });
 
 /* ---- SLAYER: one master a settlement hands out a family to hunt; every kill of it pays its hitpoints in xp ---- */
-const MASTERS = [['Turael', 0, 15, 30, 0, 25], ['Mazchna', 20, 30, 50, 10, 45], ['Vannaka', 40, 40, 80, 20, 80], ['Chaeldar', 70, 60, 120, 40, 130], ['Duradel', 100, 80, 160, 60, 1e9]]
-  .map(([n, cb, lo, hi, a, b]) => ({ n, cb, lo, hi, a, b }));   // one a settlement rank: combat needed, task size, the band of base levels it assigns
+const MASTERS = [['Turael', 0, 15, 50, 0, 25], ['Mazchna', 20, 40, 70, 10, 45], ['Vannaka', 40, 40, 120, 20, 80], ['Chaeldar', 70, 70, 130, 40, 130], ['Duradel', 100, 130, 200, 60, 1e9, 50]]
+  .map(([n, cb, lo, hi, a, b, sl]) => ({ n, cb, lo, hi, a, b, sl: sl || 0 }));   // one a settlement rank: combat needed, task size, the band of base levels it assigns
 const slayPool = m => NPC_TYPES.filter(t => !t.boss && !t.town && !t.flee && t.lv >= m.a && t.lv <= m.b && (!t.slayLv || lvl[SK.slayer] >= t.slayLv));
 const plural = (s, n) => n === 1 ? s : s.replace(/^(.*?)( of .*)?$/, (_, w, of) => (/[mM]an$/.test(w) ? w.slice(0, -2) + 'en' : /f$/.test(w) ? w.slice(0, -1) + 'ves' : w + (/s$/.test(w) ? 'es' : 's')) + (of || ''));
 let slayO = null;   // the master whose window is open
 function slayerTalk(o) {
   const m = MASTERS[o.k], s = P.slay, ico = MK07[12] ? mk07p(MK07[12]) : drawIcon(...MK_ART[12]);
-  const why = s ? 'Finish or give up the task you have before asking for another.' : combatLevel() < m.cb ? m.n + ' only assigns fighters of combat level ' + m.cb + ' or more.' : '';
+  const why = s ? 'Finish or give up the task you have before asking for another.' : combatLevel() < m.cb ? m.n + ' only assigns fighters of combat level ' + m.cb + ' or more.' : lvl[SK.slayer] < m.sl ? m.n + ' only serves slayers of level ' + m.sl + ' or more.' : '';
   slayO = o;
   showModal(m.n + ', Slayer Master', stRow('Task', s ? 'Kill ' + s.n + ' more ' + plural(NPC_BY[s.k].n, s.n) + '.' : 'No task assigned.') +
     liRow('data-sl="new"', 0, why, ico, 'New assignment', '', '<u>' + m.lo + '–' + m.hi + ' of a kind' + (m.cb ? ', combat ' + m.cb + '+' : '') + '</u>') +
@@ -7628,7 +7925,7 @@ function slayerTalk(o) {
 on(modalBody, 'click', e => {
   const b = e.target.closest('[data-sl]'); if (!b || !slayO) return;
   const m = MASTERS[slayO.k], drop = b.dataset.sl === 'drop';
-  if (drop ? !P.slay : P.slay || combatLevel() < m.cb) return;
+  if (drop ? !P.slay : P.slay || combatLevel() < m.cb || lvl[SK.slayer] < m.sl) return;
   if (drop) { P.slay = null; say('You give up your Slayer task.'); }
   else { const pool = slayPool(m), t = pool[Math.random() * pool.length | 0], n = randInt(m.lo, m.hi); P.slay = { k: t.k, n, m: slayO.k }; say('Your new task is to kill ' + n + ' ' + plural(t.n, n) + '.'); }
   markDirty(2); slayerTalk(slayO);
@@ -7679,10 +7976,10 @@ for (const [id, src, lv, xp] of [['bow_string', 'flax', 10, 15], ['ball_of_wool'
 /* ---- FLETCHING: a knife on logs, a string on a bow, feathers and tips on shafts; every row is a hand recipe (use one item on the other) ---- */
 defStack('arrow_shaft', 'Arrow shaft', 'arrow', '#c4a06a', '#7a5a30', 1); defStack('headless_arrow', 'Headless arrow', 'arrow', '#c4a06a', '#e8e8e8', 1);
 for (const b of BOWS) for (const f of BOWFORM) { const s = ITEMS[b.k + f.k]; defItem({ id: s.id + '_u', name: s.name + ' (u)', g: 'bow', c: b.c, c2: b.c2, val: s.val >> 1 }); }
-/* a tree: [shortbow lv, xp, longbow lv, xp]; stringing repeats the cut's level and xp, any logs give 15 shafts */
+/* a tree: [shortbow lv, xp, longbow lv, xp]; stringing repeats the cut's level and xp; a wood cuts 15 shafts a rung up from plain logs */
 [[5, 5, 10, 10], [20, 16.5, 25, 25], [35, 33.3, 40, 41.5], [50, 50, 55, 58.3], [65, 67.5, 70, 75], [80, 83.3, 85, 91.5]].forEach((w, i) => {
   const log = TREES[i].log;
-  recipe('arrow_shaft', 'fletching', 1, 5, [[log, 1]], { tool: 'knife', n: 15, msg: 'You carefully cut the wood into 15 arrow shafts.' });
+  recipe('arrow_shaft', 'fletching', [1, 15, 30, 45, 60, 75][i], 5 + 5 * i, [[log, 1]], { tool: 'knife', n: 15 + 15 * i, msg: 'You carefully cut the wood into ' + (15 + 15 * i) + ' arrow shafts.' });
   BOWFORM.forEach((f, j) => {
     const id = BOWS[i].k + f.k, lv = w[j * 2], xp = w[j * 2 + 1];
     recipe(id + '_u', 'fletching', lv, xp, [[log, 1]], { tool: 'knife', msg: 'You carefully cut the wood into a ' + f.n + '.' });
@@ -7712,7 +8009,7 @@ defItem({ id: 'onyx_bolt_tips', name: 'Onyx bolt tips', g: 'bolt', c: '#2a2028',
 defItem({ id: 'blighted_anglerfish', name: 'Blighted anglerfish', g: 'cfish', c: '#4a4a5a', c2: '#3a2a3a', stack: 1, val: 140, heal: 22, blight: 1, ang: 1 });
 ITEMS.anglerfish.ang = 1;   // both anglers heal by the wiki's Hitpoints-level table and past full
 recipe('steel_cannonball', 'smithing', 35, 25.6, [['steel_bar', 1]], { at: 4, tool: 'hammer', n: 4, msg: 'You pour the molten metal into the mould; four cannonballs clatter out.' });
-recipe('onyx_bolt_tips', 'fletching', 73, 225.6, [['onyx', 1]], { tool: 'chisel', n: 24, msg: 'You carefully chip the onyx into 24 bolt tips.' });
+recipe('onyx_bolt_tips', 'fletching', 73, 9.4, [['onyx', 1]], { tool: 'chisel', n: 24, msg: 'You carefully chip the onyx into 24 bolt tips.' });
 /* onyx bolts: the tips finally attach to something — runite bolts, fletching 73, +120, as in 2007 */
 W('onyx_bolts', 0, 'bolt', 0, 'ammo', 1800, { ranged: 61 }, { stack: 1, ammo: 1, aT: 'bolt', rst: 120, rat: 0 });
 recipe('onyx_bolts', 'fletching', 73, 94, [['rune_bolts', 10], ['onyx_bolt_tips', 10]], { n: 10, tk: 1, msg: 'You attach onyx tips to 10 runite bolts.' });
@@ -7733,7 +8030,7 @@ function drink(i) {
 defStack('goat_horn', 'Goat horn', 'horn', '#d8ccb0', '#8a7a5a', 12);   // every goat carries a pair; ground dust in all but name
 defStack('egg', 'Egg', 'egg', '#f0e8d0', '#b0a070', 4);
 /* [key, name, herb, secondary, level, xp, colour, effect]; ranarr shares one unfinished potion between defence and prayer */
-const POTS = [
+const POTS_R = [
   ['attack', 'Attack potion', 'guam', 'eye_of_newt', 3, 25, '#4aa0d8', () => potBoost('attack', 3, .1)],
   ['antipoison', 'Antipoison', 'marrentill', 'unicorn_horn', 5, 37.5, '#3a9a5a', () => { P.psn = 0; P.psnImm = tickN + 150; say('The poison leaves your body.'); }],   // horn stands in for its ground dust
   ['strength', 'Strength potion', 'tarromin', 'limpwurt_root', 12, 50, '#d03a6a', () => potBoost('strength', 3, .1)],
@@ -7768,11 +8065,12 @@ const POTS = [
     for (const k of ['attack', 'strength', 'magic', 'ranged']) potDrain(k, 2, .1);   // the rest down 2 + 10% of current, stacking
     dirty.orb = dirty.sk = 1;
   }]   // the egg stands in for a crushed nest; heals and armours past full, at the cost of your edge
-].map(([k, n, herb, sec, lv, xp, c, fx]) => {
+];
+const POTS = POTS_R.map(([k, n, herb, sec, lv, xp, c, fx]) => {
   const p = { k, n, herb, sec, lv, xp, fx }, unf = herb + '_potion_u', hn = ITEMS[herb].name;
   if (!ITEMS[unf]) {
     defItem({ id: unf, name: hn + ' potion (unf)', g: 'vial', c: '#7aa86a', c2: CORK, val: ITEMS[herb].val + 3 });
-    recipe(unf, 'herblore', lv, 0, [[herb, 1], ['vial_of_water', 1]], { tk: 2, msg: 'You put the ' + hn.toLowerCase() + ' leaf into the vial of water.' });
+    recipe(unf, 'herblore', { toadflax: 34, avantoe: 50 }[herb] || Math.min(...POTS_R.filter(r => r[2] === herb).map(r => r[4])), 0, [[herb, 1], ['vial_of_water', 1]], { tk: 2, msg: 'You put the ' + hn.toLowerCase() + ' leaf into the vial of water.' });
   }
   for (let d = 4; d >= 1; d--) defItem({ id: k + '_' + d, name: n + '(' + d + ')', g: 'vial' + d, c, c2: CORK, val: (20 + lv * 4) * d, dose: d, pot: p, opt: ['Drink', drink] });
   recipe(k + '_3', 'herblore', lv, xp, [[unf, 1], [sec, 1]], { tk: 2, msg: 'You mix the ' + ITEMS[sec].name.toLowerCase() + ' into your potion.' });   // a mixed potion holds three doses, as ever; four-dose stock falls from monsters
@@ -7787,7 +8085,7 @@ function farmPatches(v) {   // two allotments, a herb and a tree patch, hashed o
   const out = v.patches = [];
   for (let i = 0; i < 24 && out.length < 4; i++) {
     const h = hash2(v.x + i * 53, v.z - i * 29, S + 151), a = (h & 1023) / 1024 * TAU, d = v.r * (1.05 + (h >>> 10 & 255) / 255 * 0.45);
-    const rx = Math.sin(a) * d * v.ax, rz = Math.cos(a) * d * v.az, x = Math.round(v.x + rx * v.cs - rz * v.sn), z = Math.round(v.z + rx * v.sn + rz * v.cs), y = heightAt(x, z), g = hash2(x, z, S + 101);
+    const [x, z] = townPt(v, a, d), y = heightAt(x, z), g = hash2(x, z, S + 101);
     if (y < 1.9 || (g & 1023) < 8 || (g >>> 3 & 4095) < 82 || !fieldAt(x, z, { v, d: villageDist(v, x, z) }) || highwayAt(x, z) || out.some(p => chebDist(p.x, p.z, x, z) < 3)) continue;   // g: the tile must not roll a tree or a vein
     const k = [0, 0, 1, 2][out.length];
     out.push({ t: 15, k, x, z, y, key: tk(x, z), n: PATCH_N[k], noMark: 1 });
@@ -7854,9 +8152,9 @@ defItem({ id: 'ferret', name: 'Ferret', g: 'fur', c: '#e8dcc8', c2: '#9a8a70', v
 defStack('kebbit_fur', 'Kebbit fur', 'fur', '#a07848', '#5b4123', 40);
 ITEMS.knife.opt = ['Set deadfall', () => layTrap(2)];   // on the knife, so logs keep Use as their first option
 /* creatures: trap kind (0 snare, 1 box, 2 deadfall), level, xp; birds give feathers and bones, box traps the animal, kebbits their fur */
-const HUNT = [[0, 'Crimson swift', 1, 34], [0, 'Golden warbler', 5, 47], [0, 'Copper longtail', 9, 61], [0, 'Cerulean twitch', 11, 64.5], [0, 'Tropical wagtail', 19, 95],
-  [1, 'Ferret', 27, 115, 'ferret'], [1, 'Chinchompa', 53, 198.25, 'chinchompa'], [1, 'Carnivorous chinchompa', 63, 265, 'red_chinchompa'],
-  [2, 'Barb-tailed kebbit', 33, 168], [2, 'Prickly kebbit', 37, 204], [2, 'Sabre-toothed kebbit', 51, 200]].map(([k, n, lv, xp, loot], i) => ({ k, n, lv, xp, loot, i }));
+const HUNT = [[0, 'Crimson swift', 1, 34], [0, 'Golden warbler', 5, 47], [0, 'Copper longtail', 9, 61.2], [0, 'Cerulean twitch', 11, 64.5], [0, 'Tropical wagtail', 19, 95.2],
+  [1, 'Ferret', 27, 115.2, 'ferret'], [1, 'Chinchompa', 53, 198.4, 'chinchompa'], [1, 'Carnivorous chinchompa', 63, 265, 'red_chinchompa'],
+  [2, 'Barb-tailed kebbit', 33, 134.4], [2, 'Prickly kebbit', 37, 147.2], [2, 'Sabre-toothed kebbit', 51, 160]].map(([k, n, lv, xp, loot], i) => ({ k, n, lv, xp, loot, i }));
 const huntLoot = c => c.k === 0 ? [['feather', randInt(5, 12)], ['bones', 1]] : c.k === 1 ? [[c.loot, 1]] : [['kebbit_fur', randInt(1, 2)]];
 const traps = []; pickLists.push(traps);   // { t: 17, k, n, x, z, y, t0, got: null set | -1 collapsed | HUNT index }
 const trapCap = () => 1 + Math.floor(lvl[SK.hunter] / 20);
@@ -8811,9 +9109,15 @@ structHooks.push((rec, vs, inChunk) => {
   for (let a = 0; a <= 1; a++) for (let b2 = 0; b2 <= 1; b2++) {
     const b = bridgeAt(gx0 + a, gz0 + b2);
     if (!b || !inChunk(b.x, b.z)) continue;
-    const wild = wildLvAt(b.x, b.z) > 0, deckC = wild ? [0.30, 0.24, 0.20] : C_FLOOR, railC = wild ? [0.20, 0.17, 0.15] : C_BEAM;
-    const dk = { y: b.y - FLOOR_TOP, deck: 1 };
-    batchInto(rec, B => {
+    batchInto(rec, B => emitBridge(B, b, rec));
+  }
+});
+/* a plank bridge: deck, rails and posts from one bank tile across len water tiles; the deck registers as a floor so walking just works */
+function emitBridge(B, b, rec) {
+  const wild = wildLvAt(b.x, b.z) > 0, deckC = wild ? [0.30, 0.24, 0.20] : C_FLOOR, railC = wild ? [0.20, 0.17, 0.15] : C_BEAM;
+  const dk = { y: b.y - FLOOR_TOP, deck: 1 };
+  {
+    {
       for (let q = 1; q <= b.len; q++) {
         const px = b.x + b.dx * q, pz = b.z + b.dz * q;
         floorMap.set(tk(px, pz), dk);
@@ -8829,9 +9133,9 @@ structHooks.push((rec, vs, inChunk) => {
       B.add(BOX, b.x, heightAt(b.x, b.z) + 0.1, b.z, 1.4, 0.2, 1.4, 0, C_STONE2);   // a stone step at each end
       const ex = b.x + b.dx * (b.len + 1), ez = b.z + b.dz * (b.len + 1);
       B.add(BOX, ex, heightAt(ex, ez) + 0.1, ez, 1.4, 0.2, 1.4, 0, C_STONE2);
-    });
+    }
   }
-});
+}
 const dunWebs = new Map();   // web tile key -> {x, z}: so a slash heard over the wire opens the way here too
 /* fixtures into the chunks: the way out, webs that bar and boulders to squeeze past */
 structHooks.push((rec, vs, inChunk) => {
@@ -9102,17 +9406,17 @@ armSeg('seg3');
 armSeg('seg4');
 /* the far shore of ranged: what outranges the dark bow */
 W('armadyl_crossbow', 0, 'cbow', 0, 'weapon', 600000, { ranged: 70 }, { bow: 1, ammoT: 'bolt', spd: 6, rng: 8, rat: 100, pb: 1 });
-W('dragon_hunter_crossbow', 0, 'cbow', 0, 'weapon', 500000, { ranged: 65 }, { bow: 1, ammoT: 'bolt', spd: 6, rng: 8, rat: 95 });   // its dragonbane bite (30% acc, 25% dmg) lands in swing()
+W('dragon_hunter_crossbow', 0, 'cbow', 0, 'weapon', 500000, { ranged: 70 }, { bow: 1, ammoT: 'bolt', spd: 6, rng: 8, rat: 95 });   // its dragonbane bite (30% acc, 25% dmg) lands in swing()
 W('toxic_blowpipe', 0, 'pipe', 0, 'weapon', 700000, { ranged: 75 }, { bow: 1, two: 1, selfAmmo: 1, spd: 3, rng: 7, rat: 30, rst: 35, psn: 6, venom: 1 });   // the darts are abstracted into the pipe; the venom is its own
 SPEC.toxic_blowpipe = { cost: 50, dmg: 1.5, heal: 0.5 };   // the spec drinks half of what it deals
-W('twisted_bow', 0, 'bow', 0, 'weapon', 1200000, { ranged: 75 }, { bow: 1, two: 1, spd: 6, rng: 10, rat: 70, rst: 20 });   // scales off the target's Magic in swing(), the wiki's own curves
+W('twisted_bow', 0, 'bow', 0, 'weapon', 1200000, { ranged: 85 }, { bow: 1, two: 1, spd: 6, rng: 10, rat: 70, rst: 20 });   // scales off the target's Magic in swing(), the wiki's own curves
 W('crystal_bow', 0, 'bow', 0, 'weapon', 350000, { ranged: 70 }, { bow: 1, two: 1, selfAmmo: 1, spd: 5, rng: 10, rat: 100, rst: 78 });
 W('crystal_shield', 0, 'shield', 0, 'shield', 250000, { defence: 70 }, { def: 53 });
 /* the far shore of magic */
 W('ancient_staff', 0, 'staff', 0, 'weapon', 90000, { magic: 50, attack: 50 }, { atk: 40, str: 50, mag: 15, spd: 4 });
 W('staff_of_the_dead', 0, 'staff', 0, 'weapon', 400000, { magic: 75, attack: 75 }, { atk: 70, str: 72, mag: 17, mdmg: 15, spd: 4 });
 W('toxic_staff_of_the_dead', 0, 'staff', 0, 'weapon', 500000, { magic: 75, attack: 75 }, { atk: 70, str: 72, mag: 25, mdmg: 15, psn: 6, venom: 1, spd: 4 });
-defStaff('kodai_wand', 'Kodai wand', '#654e98', '#3f179f', 0, 0, 28, 75, 800000, 'water_rune', 'wand');
+defStaff('kodai_wand', 'Kodai wand', '#654e98', '#3f179f', 0, 0, 28, 80, 800000, 'water_rune', 'wand');
 armSeg('seg5');
 /* 3rd age: the treasure trails' impossible metal, in all three disciplines */
 armSeg('seg6');
@@ -9158,7 +9462,7 @@ recipe('dragonfire_shield', 'smithing', 90, 2000, [['anti_dragon_shield', 1], ['
 bossTert('kbd', ['draconic_visage', 5000]); bossTert('vorkath', ['draconic_visage', 5000]);   // the wiki's own 1/5000 heads
 /* the slayer's helmet: mask and helm forged into one — its bite is the mask's, read by the same swing */
 W('slayer_helmet', 0, 'skull', 0, 'head', 50000, { defence: 10 }, { def: 30 });
-recipe('slayer_helmet', 'crafting', 55, 55, [['black_mask', 1], ['steel_full_helm', 1], ['leather', 2]], { tk: 2, msg: 'You fit the mask to the helm: the slayer helmet glowers back.' });   // game-economy: the four protective masks fold into the forging
+recipe('slayer_helmet', 'crafting', 55, 0, [['black_mask', 1], ['steel_full_helm', 1], ['leather', 2]], { tk: 2, msg: 'You fit the mask to the helm: the slayer helmet glowers back.' });   // game-economy: the four protective masks fold into the forging
 /* the void knights' kit: no pest control here — the great pest herself yields it. The set speaks in swing() */
 for (const [id, name, g, slot, def2, val] of [['void_melee_helm', 'Void melee helm', 'helm', 'head', 6, 45000], ['void_ranger_helm', 'Void ranger helm', 'helm', 'head', 6, 45000],
   ['void_mage_helm', 'Void mage helm', 'helm', 'head', 6, 45000], ['void_knight_top', 'Void knight top', 'robe', 'body', 45, 120000],
@@ -9174,7 +9478,7 @@ bossTert('trollgeneral', ['granite_shield', 128], ['granite_legs', 128], ['grani
 /* the volcano's remainder */
 W('toktz_ket_xil', 'Toktz-ket-xil', 'shield', 0, 'shield', 65000, { defence: 60 }, { def: 40, str: 5 });
 W('obsidian_cape', 0, 'cape', 0, 'cape', 90000, 0, { def: 9 });
-W('toktz_mej_tal', 'Toktz-mej-tal', 'staff', 0, 'weapon', 70000, { attack: 60 }, { two: 1, atk: 55, str: 55, mag: 15, pb: 5, spd: 6 });
+W('toktz_mej_tal', 'Toktz-mej-tal', 'staff', 0, 'weapon', 70000, { attack: 60, magic: 60 }, { two: 1, atk: 55, str: 55, mag: 15, pb: 5, spd: 6 });
 bossTert('branda', ['toktz_ket_xil', 128], ['obsidian_cape', 128], ['toktz_mej_tal', 200]);
 /* the salve amulet: a sixth harder against the risen dead, read in swing() beside the mask — the two never stack */
 W('salve_amulet', 0, 'amulet', 0, 'neck', 40000, 0, { def: 3, pb: 3 });

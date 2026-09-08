@@ -139,7 +139,7 @@ const SCHEMA = Object.values(DDL);
    (element 6). A client whose own SPAWN_REV differs keeps its world private
    rather than sharing keys that name different monsters. Keep in step with the
    client's SPAWN_REV when deploying both. */
-const SPAWN_REV = 8;   // 8: region layer + named sites (mines/groves/waypoints), tame() removed, pen/waypoint spawns
+const SPAWN_REV = 9;   // 9: town outlines, plans and charters (Lumbridge/Varrock). 8: region layer + named sites (mines/groves/waypoints), tame() removed, pen/waypoint spawns
 
 /* The clients' shared clock, mirrored so world deadlines can be sanity-checked
    and expired entries pruned. Same epoch, same 600 ms tick. */

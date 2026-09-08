@@ -571,11 +571,11 @@ const ENCH = [['sapphire', 7, 17.5, [['cosmic_rune', 1], ['water_rune', 1]], 'ri
   ['ruby', 49, 59, [['cosmic_rune', 1], ['fire_rune', 5]], 0, 'amulet_of_strength'],
   ['diamond', 57, 67, [['cosmic_rune', 1], ['earth_rune', 10]], 'ring_of_life', 'amulet_of_power'],
   ['dragonstone', 68, 78, [['cosmic_rune', 1], ['water_rune', 15], ['earth_rune', 15]], 'ring_of_wealth', 'amulet_of_glory'],
-  ['onyx', 87, 97, [['cosmic_rune', 1], ['fire_rune', 20], ['death_rune', 1]], 0, 0]]   // the onyx amulet and necklace gain their products post-hoc: the fury and the berserker
+  ['onyx', 87, 97, [['cosmic_rune', 1], ['earth_rune', 20], ['fire_rune', 20]], 0, 0]]   // the onyx amulet and necklace gain their products post-hoc: the fury and the berserker
   .map(([g, lv, xp, need, ring, amu]) => ({ g, lv, xp, need, ring, amu }));
 /* gem-tipped bolts: cut the tips, pin them to the matching metal, enchant ten at a time. Strengths are the book's own. */
-const EBOLT = [['sapphire', 'mithril_bolts', 56, 48, 59, 83, 36], ['emerald', 'mithril_bolts', 58, 66, 55, 85, 36], ['ruby', 'adamant_bolts', 63, 72, 63, 103, 46],
-  ['diamond', 'adamant_bolts', 65, 84, 70, 105, 46], ['dragonstone', 'rune_bolts', 71, 98.4, 82, 117, 61]];
+const EBOLT = [['sapphire', 'mithril_bolts', 56, 4, 47, 83, 36], ['emerald', 'mithril_bolts', 58, 5.5, 55, 85, 36], ['ruby', 'adamant_bolts', 63, 6.3, 63, 103, 46],
+  ['diamond', 'adamant_bolts', 65, 7, 70, 105, 46], ['dragonstone', 'rune_bolts', 71, 8.2, 82, 117, 61]];
 const BARROWS_SUB = [['dharoks_helm', 1], ['dharoks_platebody', 1], ['dharoks_platelegs', 1], ['dharoks_greataxe', 1],
   ['guthans_helm', 1], ['guthans_platebody', 1], ['guthans_chainskirt', 1], ['guthans_warspear', 1],
   ['torags_helm', 1], ['torags_platebody', 1], ['torags_platelegs', 1], ['torags_hammers', 1],
@@ -635,7 +635,7 @@ const ARM = {
     ['ahrims_hood', "Ahrim's hood", 'hat', 0, 'head', 50000, { magic: 70, defence: 70 }, { def: 15, mag: 6, mdmg: 1 }],
     ['ahrims_robetop', "Ahrim's robetop", 'robe', 0, 'body', 170000, { magic: 70, defence: 70 }, { def: 51, mag: 30, mdmg: 1 }],
     ['ahrims_robeskirt', "Ahrim's robeskirt", 'skirt', 0, 'legs', 110000, { magic: 70, defence: 70 }, { def: 33, mag: 22, mdmg: 1 }],
-    ['ahrims_staff', "Ahrim's staff", 'staff', 0, 'weapon', 130000, { attack: 70, magic: 70 }, { two: 1, atk: 65, str: 68, mag: 15, mdmg: 5, spd: 6 }],
+    ['ahrims_staff', "Ahrim's staff", 'staff', 0, 'weapon', 130000, { attack: 70, magic: 70 }, { atk: 65, str: 68, mag: 15, mdmg: 5, spd: 6 }],
   ],
   seg2: [
     ['bandos_godsword', 0, 'sword2h', 0, 'weapon', 350000, { attack: 75 }, { two: 1, atk: 132, str: 132, spd: 6, pb: 8 }],
@@ -834,12 +834,14 @@ const SPELLS_R = [
   ['earth_wave', 70, 40, 19, 0x8a6a3a, [['earth', 7], ['air', 5], ['blood', 1]]],
   ['fire_wave', 75, 42.5, 20, 0xd05a2a, [['fire', 7], ['air', 5], ['blood', 1]]],
   ['confuse', 3, 13, 0, 0x9a7ad0, [['body', 1], ['earth', 2], ['water', 3]], "atk"],
-  ['weaken', 11, 20.5, 0, 0x9a7ad0, [['body', 1], ['earth', 2], ['water', 3]], "str"],
+  ['weaken', 11, 21, 0, 0x9a7ad0, [['body', 1], ['earth', 2], ['water', 3]], "str"],
   ['curse', 19, 29, 0, 0x9a7ad0, [['body', 1], ['earth', 3], ['water', 2]], "def"],
   ['crumble_undead', 39, 24.5, 15, 0xd8cfa0, [['earth', 2], ['air', 2], ['chaos', 1]], null, 0, 1],
   ['bind', 20, 30, 0, 0x3aa04a, [['nature', 2], ['earth', 3], ['water', 3]], "hold", 8],
   ['snare', 50, 60, 0, 0x2a8a3a, [['nature', 3], ['earth', 4], ['water', 4]], "hold", 16],
   ['entangle', 79, 89, 0, 0x1e7a2e, [['nature', 4], ['earth', 5], ['water', 5]], "hold", 24],
+  ['wind_surge', 81, 44.5, 21, 0xcfd8e0, [['air', 7], ['wrath', 1]]], ['water_surge', 85, 46.5, 22, 0x4f8fd0, [['water', 10], ['air', 7], ['wrath', 1]]],
+  ['earth_surge', 90, 48.5, 23, 0x8a6a3a, [['earth', 10], ['air', 7], ['wrath', 1]]], ['fire_surge', 95, 50.5, 24, 0xd05a2a, [['fire', 10], ['air', 7], ['wrath', 1]]]
 ];
 
 const PRAYERS_R = [
@@ -853,7 +855,7 @@ const PRAYERS_R = [
   ['sharp_eye', 'Sharp Eye', 8, 0.0167, { rng: 1.05, rngs: 1.05 }, 'arrow'], ['mystic_will', 'Mystic Will', 9, 0.0167, { mag: 1.05 }, 'rune'], ['rapid_restore', 'Rapid Restore', 19, 0.0167, { restore: 1 }, 'leaf'],
   ['prot_item', 'Protect Item', 25, 0.0333, { item: 1 }, 'ring'], ['hawk_eye', 'Hawk Eye', 26, 0.1, { rng: 1.10, rngs: 1.10 }, 'arrow'], ['mystic_lore', 'Mystic Lore', 27, 0.1, { mag: 1.10, mdmg: 1 }, 'rune'],
   ['incredible_refl', 'Incredible Refl.', 34, 0.2, { atk: 1.15 }, 'sword'], ['retribution', 'Retribution', 46, 0.05, { retri: 1, prot: 0 }, 'skull'], ['redemption', 'Redemption', 49, 0.1, { redeem: 1, prot: 0 }, 'heart'],
-  ['preserve', 'Preserve', 55, 0.0333, { preserve: 1 }, 'vial'], ['chivalry', 'Chivalry', 60, 0.4, { def: 1.20, str: 1.18, atk: 1.15 }, 'fhelm', 65],
+  ['preserve', 'Preserve', 55, 0.0333, { preserve: 1 }, 'vial'], ['chivalry', 'Chivalry', 60, 0.2, { def: 1.20, str: 1.18, atk: 1.15 }, 'fhelm', 65],
   ['piety', 'Piety', 70, 0.4, { def: 1.25, str: 1.23, atk: 1.20 }, 'star', 70], ['rigour', 'Rigour', 74, 0.4, { rng: 1.20, rngs: 1.23, def: 1.25 }, 'bow', 70], ['augury', 'Augury', 77, 0.4, { mag: 1.25, def: 1.25, mdmg: 4 }, 'staff', 70],
   ['smite', 'Smite', 52, 0.3, { smite: 1, prot: 0 }, 'star']
 ];
