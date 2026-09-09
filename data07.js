@@ -807,13 +807,13 @@ const NPCS = [
   ['babygreendragon', 'Baby green dragon', 48, 50, 40, 40, 40, 0, 1.3, '244022', ['DR', 0.9, 1.5, '304826', '183217'], { agg: 1, db: 50, mspd: 0.9 }],
   ['babybluedragon', 'Baby blue dragon', 48, 50, 40, 40, 40, 0, 1.3, '203252', ['DR', 0.9, 1.5, '264060', '152440'], { agg: 1, db: 50, mspd: 0.9 }],
   ['bluedragon', 'Blue dragon', 111, 105, 95, 95, 95, 0, 2.6, '183054', ['DR', 1.6, 2.6, '243862', '132242'], { agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 4882384, db: 70, mspd: 0.7, big: 1 }],
-  ['bronzedragon', 'Bronze dragon', 131, 122, 112, 112, 112, 0, 2.7, '523618', ['DR', 1.8, 2.9, '604322', '382613'], { agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 13668426, db: 70, mspd: 0.7, big: 1, stay: 1 }],
+  ['bronzedragon', 'Bronze dragon', 131, 122, 112, 112, 112, 0, 2.7, '523618', ['DR', 1.8, 2.9, '604322', '382613'], { agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 13668426, db: 70, mspd: 0.7, big: 1 }],
   ['reddragon', 'Red dragon', 152, 140, 130, 130, 130, 0, 2.7, '521412', ['DR', 1.7, 2.8, '621915', '381009'], { agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 13650474, db: 70, mspd: 0.7, big: 1 }],
-  ['irondragon', 'Iron dragon', 189, 165, 165, 165, 165, 0, 2.9, '343538', ['DR', 1.9, 3, '424346', '262729'], { agg: 1, fire: 1, at: 'mg', rng: 7, bolt: 10134704, db: 70, mspd: 0.6, big: 1, stay: 1 }],
-  ['steeldragon', 'Steel dragon', 246, 210, 215, 215, 215, 0, 3.1, '666974', ['DR', 2, 3.2, '747782', '505358'], { agg: 1, fire: 1, at: 'mg', rng: 7, bolt: 14213354, db: 70, mspd: 0.6, big: 1, stay: 1 }],
-  ['mithrildragon', 'Mithril dragon', 304, 254, 268, 268, 268, 0, 3.2, '363972', ['DR', 2.1, 3.3, '444780', '283058'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 9081576, arrow: 10133759, db: 100, mspd: 0.6, big: 1, stay: 1 }],
-  ['adamantdragon', 'Adamant dragon', 338, 295, 280, 280, 272, 0, 3.3, '314932', ['DR', 2.2, 3.4, '385840', '223824'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 7319664, arrow: 9097354, db: 110, mspd: 0.6, big: 1, stay: 1 }],
-  ['runedragon', 'Rune dragon', 380, 330, 284, 284, 276, 0, 3.4, '237177', ['DR', 2.3, 3.5, '308086', '165560'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 3847876, arrow: 8052970, db: 115, mspd: 0.6, big: 1, stay: 1 }],
+  ['irondragon', 'Iron dragon', 189, 165, 165, 165, 165, 0, 2.9, '343538', ['DR', 1.9, 3, '424346', '262729'], { agg: 1, fire: 1, at: 'mg', rng: 7, bolt: 10134704, db: 70, mspd: 0.6, big: 1 }],
+  ['steeldragon', 'Steel dragon', 246, 210, 215, 215, 215, 0, 3.1, '666974', ['DR', 2, 3.2, '747782', '505358'], { agg: 1, fire: 1, at: 'mg', rng: 7, bolt: 14213354, db: 70, mspd: 0.6, big: 1 }],
+  ['mithrildragon', 'Mithril dragon', 304, 254, 268, 268, 268, 0, 3.2, '363972', ['DR', 2.1, 3.3, '444780', '283058'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 9081576, arrow: 10133759, db: 100, mspd: 0.6, big: 1 }],
+  ['adamantdragon', 'Adamant dragon', 338, 295, 280, 280, 272, 0, 3.3, '314932', ['DR', 2.2, 3.4, '385840', '223824'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 7319664, arrow: 9097354, db: 110, mspd: 0.6, big: 1 }],
+  ['runedragon', 'Rune dragon', 380, 330, 284, 284, 276, 0, 3.4, '237177', ['DR', 2.3, 3.5, '308086', '165560'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 3847876, arrow: 8052970, db: 115, mspd: 0.6, big: 1 }],
 ];
 
 /* SPELLS_R rows: [k, lv, xp, max, tint, need [rune-sans-_rune, n]..., drain?, hold?, undead?].

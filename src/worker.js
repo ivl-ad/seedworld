@@ -36,6 +36,7 @@ const HIT_MAX = 130;   // a single pvp hit: a claws cascade off a max-hit 59 rea
 const HIT_WIN = 6000, HIT_SUM = 150;   // and a sustained budget over six seconds, above any legitimate dps
 const TRADE_MAX = 2147483647;   // per-stack ceiling on a trade offer; the pack cannot carry more than an int
 const GE_MIN = 2000, GE_BURST = 6;   // exchange mutations: one every two seconds, six in hand
+const HOUSE_TTL = 604800000;   // a week: past that a house row is history, not a standing building
 /* Movement is the root budget. Every other gate in this file measures against me.x/me.z — near() for ops 11/14/15,
    the pile's reach for 12, the leash for 21, the interest set in flush() — and nothing bounded how fast those two
    fields could move, so a modified client could stand on any victim and swing. Credit accrues at MV_TILE per tick of
@@ -214,6 +215,10 @@ export class World extends DurableObject {
     this.players = new Map();   // pid -> record
     this.pending = new Map();   // dedupe key -> message
     this.timer = null;
+   /* Every per-player budget the room enforces, kept OUTSIDE the socket record. Inheriting from the live record only
+       covers a second socket racing a live one; an ordinary reconnect deletes that record first, so redialling used to
+       refresh the teleport bucket, the save cooldown and the pile ceiling. pid -> {t, mvT, mvB, wT, wN, own, saveT, pileT}. */
+    this.budget = new Map();
 
    /* Shared world state: nodes depleted and monsters dead, each a key mapped
        to the shared tick it comes back on. In memory only, self-expiring, and
@@ -282,9 +287,10 @@ export class World extends DurableObject {
     server.serializeAttachment(rec);
    /* The movement clock, the teleport bucket and the pile ceiling ride the record rather than the attachment, so a
        reconnecting pid inherits them and dropping the socket is not a way to buy a fresh budget. */
+    const bud = old || this.budget.get(pid) || {};
     this.players.set(pid, { ws: server, ...rec, seen: new Set(), n: 0, t0: 0,
-                            mvT: (old && old.mvT) || 0, mvB: (old && old.mvB) || 0,
-                            wT: (old && old.wT) || 0, wN: (old && old.wN) | 0, own: (old && old.own) || null });
+                            mvT: bud.mvT || 0, mvB: bud.mvB || 0, wT: bud.wT || 0, wN: bud.wN | 0,
+                            own: bud.own || null, saveT: bud.saveT || 0, pileT: bud.pileT || 0 });
 
    // extra fields appended, so older clients reading only [1] and [2] still work
    // element 7 is the pvp ceiling: the client carried its own copy and the two drifted (60 against 130)
@@ -369,13 +375,19 @@ export class World extends DurableObject {
    /* Spend the credit, or spend a warp. Out of warps the claim is dropped and the room goes on holding the last
            honest position — credit keeps banking and the bucket refills, so a client that overspends is ghosted for a
            window, never for the session. */
+   /* A fresh record is seated at the origin while the client's first op 1 carries its real position, thousands of tiles
+           away — so without this every login spent a teleport token and stamped the blade lock. me.pos is exactly the flag
+           for "this connection has reported a position". */
+        if (!me.pos) { me.mvB = MV_CAP; me.mvT = now; me.wpT = now; }
+        else {
         me.mvB = me.mvT ? Math.min(MV_CAP, (me.mvB || 0) + (now - me.mvT) / 600 * MV_TILE) : MV_CAP;
         me.mvT = now;
         if (jump > me.mvB) {
           if (now - (me.wT || 0) > WARP_WIN) { me.wT = now; me.wN = 0; }
           if ((me.wN || 0) >= WARP_MAX) return;
           me.wN = (me.wN || 0) + 1; me.wpT = now; me.mvB = 0;   // arriving by teleport also stays the blade (case 11)
-        } else me.mvB -= jump;
+        } else { me.mvB -= jump; if (jump > MV_TILE) me.wpT = now; }   // a bank full of credit still cannot buy an instant blink onto a victim: one message, one tick's worth
+        }
         const first = !me.pos;
         me.x = x; me.z = z; me.pos = 1;
         me.face = (face | 0) & 15;
@@ -465,7 +477,7 @@ export class World extends DurableObject {
         const act = (m[2] | 0) & 7;
    // act 2 is "called off" and must always land, or the other party is stranded in an open trade window
    // an accept quotes the two offer versions it was made against; the client refuses to settle on a mismatch
-        if (other && (act === 2 || near(me, other))) {
+        if (other && (act === 2 || act === 4 || near(me, other))) {   // act 4 says the leader has already moved: it must land even if they stepped apart
           try { other.ws.send(JSON.stringify([[14, me.pid, me.name, act, m[3] | 0, m[4] | 0]])); } catch {}
         }
         return;
@@ -524,31 +536,62 @@ export class World extends DurableObject {
            takes the instant-drop branch. */
         if (now - (me.hp0 || 0) > DEAD_WIN) return;
         me.hp0 = 0;
+   /* me.own is only written by writeSave, so before the session's first save there was no ceiling at all and the clamp
+       fell through to the whole-pile bound — one million of any id a row, every PILE_MIN, forever. Read it once. */
+        if (!me.own) {
+          try {
+            const r = await this.env.DB.prepare('SELECT save FROM characters WHERE pid=? AND seed=?').bind(me.pid, me.seed).first();
+            me.own = r && r.save ? carried(JSON.parse(r.save)) : new Map();
+          } catch { me.own = new Map(); }
+        }
         if (now - (me.pileT || 0) < PILE_MIN) return;
         me.pileT = now;
         const items = [];
         let sum = 0;
         for (const it of (Array.isArray(m[3]) ? m[3].slice(0, 40) : [])) {
           const id = String((it && it[0]) || '').slice(0, 32);
-          const n = Math.min((me.own && me.own.get(id)) || PILE_GRACE, Math.max(0, (it && it[1] | 0) || 0), PILE_SUM - sum);
+   /* The grace is ADDED to what the save knows, not a fallback for rows it does not name — a gatherer who filled a
+             stack since the last flush must still drop it. And until a save has actually landed this connection there is
+             no ceiling to measure against, so the whole-pile bound is the only one that applies: clamping an unknown
+             character to PILE_GRACE a row would have quietly shrunk the pile of anyone who died within a minute of
+             logging in, and a pvp pile exists ONLY on the wire. */
+          const cap = (me.own.get(id) || 0) + PILE_GRACE;
+          const n = Math.min(cap, Math.max(0, (it && it[1] | 0) || 0), PILE_SUM - sum);
           if (id && n > 0) { items.push([id, n]); sum += n; }
         }
         const kp = this.players.get(String(m[4] || ''));
+   /* What the room believes is lying there, so a claim can be clamped to it. Keyed by tile AND owner: two players
+           die a tile apart in a chokepoint routinely, and a claim must not reach the wrong heap. */
+        if (!this.piles) this.piles = new Map();
+        this.piles.set(dx + ':' + dz + ':' + me.pid, { t: now, rows: new Map(items) });
+        if (this.piles.size > 500) for (const [k, v] of this.piles) if (now - v.t > 960000) this.piles.delete(k);   // a pile lives 1500 ticks
         this.queue('12:' + me.pid + ':' + now, [12, me.pid, dx, dz, items, kp && near(me, kp) ? kp.pid : '', wTick()]);
         break;
       }
 
       case 16: {   // rows taken off a broadcast pile, so the other mirrors of it can retract
-   /* Same authority as ops 20/22 — it only ever deletes ground items, never creates them — so it spends the same
-           world-edit bucket, and it is delivered by where the pile lies, exactly as op 12 is. */
-        if ((me.eN || 0) >= EDIT_RATE) return;
+   /* op 12 is a CREATE and is rightly gated on locality; this is a DELETE, and a mirror lives a quarter of an hour —
+           long enough to walk well past VIEW and back — so a retraction that only reaches the neighbourhood leaves the
+           pile standing and lootable a second time. It goes room-wide in flush(), which is safe because a claim can only
+           ever remove, and is bounded by the ledger below rather than by the sender's word. */
+        if (now - (me.eT || 0) > EDIT_WIN) { me.eT = now; me.eN = 0; }   // roll the window: case 20/22 does, and copying only the check meant the bucket never refilled
+        const px = m[1] | 0, pz = m[2] | 0, own = String(m[4] || '').slice(0, 40);
+        if (Math.abs(px - me.x) > 12 || Math.abs(pz - me.z) > 12 || !own) return;   // you can only pick up what you can reach
+        const led = this.piles && this.piles.get(px + ':' + pz + ':' + own);
+        if (!led) return;   // the room never announced a pile there: nothing exists to retract
+        const rows = [];
+        for (const it of (Array.isArray(m[3]) ? m[3].slice(0, 12) : [])) {
+          const id = String((it && it[0]) || '').slice(0, 32);
+          const have = led.rows.get(id) || 0;
+   // the room, not the sender, says how much is on that tile — the same rule op 12 now applies through me.own
+          const n = Math.min(have, Math.max(0, (it && it[1] | 0) || 0));
+          if (id && n > 0) { rows.push([id, n]); led.rows.set(id, have - n); }
+        }
+        if (!rows.length) return;
+        if ((me.eN || 0) >= EDIT_RATE) return;   // check, then spend, and only once the claim is known good
         me.eN = (me.eN || 0) + 1;
-        const px = m[1] | 0, pz = m[2] | 0;
-        if (Math.abs(px - me.x) > 12 || Math.abs(pz - me.z) > 12) return;   // you can only pick up what you can reach
-        const rows = (Array.isArray(m[3]) ? m[3].slice(0, 12) : [])
-          .map(it => [String((it && it[0]) || '').slice(0, 32), Math.min(TRADE_MAX, Math.max(0, (it && it[1] | 0) || 0))])
-          .filter(it => it[0] && it[1] > 0);
-        if (rows.length) this.queue('16:' + me.pid + ':' + now, [16, me.pid, px, pz, rows]);
+        me.pSeq = (me.pSeq || 0) + 1;   // one tile's claims chunk into several messages in one batch; pending is last-write-wins
+        this.queue('16:' + me.pid + ':' + now + ':' + me.pSeq, [16, me.pid, px, pz, rows, own]);
         break;
       }
 
@@ -708,7 +751,9 @@ export class World extends DurableObject {
     if (!this.env.DB) return;
     try {
    // seed leads the primary key, so this is a range walk on it and needs no second index
-      const q = () => this.env.DB.prepare('SELECT pid, data FROM houses WHERE seed=?').bind(seed).all();
+   // bounded: a busy seed's whole history was read on every join, and a house nobody has touched in a week is gone anyway
+      const cut = Date.now() - HOUSE_TTL;
+      const q = () => this.env.DB.prepare('SELECT pid, data FROM houses WHERE seed=? AND updated>? ORDER BY updated DESC LIMIT 400').bind(seed, cut).all();
       let rows;
       try { rows = await q(); } catch (e) {
         if (!/no such table/i.test(String(e))) throw e;
@@ -799,11 +844,14 @@ export class World extends DurableObject {
            Judging that message by whether the dead player is still visible
            loses it exactly when it matters, so ground items are delivered by
            where they fell rather than by who dropped them. */
-        if (m[0] === 12 || m[0] === 16) {   // op 16 retracts a pile the same way op 12 announced it
+        if (m[0] === 12) {
           const dx = m[2] | 0, dz = m[3] | 0;
           if (m[1] !== p.pid && Math.abs(dx - p.x) <= VIEW && Math.abs(dz - p.z) <= VIEW) out.push(m);
           continue;
         }
+   // op 16 is a retraction: it must reach everyone still holding a mirror, including the victim the pile belongs to,
+   // who die() has already teleported to town and out of any proximity window
+        if (m[0] === 16) { if (m[1] !== p.pid) out.push(m); continue; }
    /* World state is room-wide: a stump matters to whoever walks up next,
            seen-set or not. Live monster frames only matter near the fight. */
         if (m[0] === 20 || m[0] === 22) {
@@ -840,11 +888,25 @@ export class World extends DurableObject {
     const cur = this.players.get(a.pid);
     if (!cur || cur.ws !== ws) return;
     this.players.delete(a.pid);
+   /* A save held back by SAVE_MIN is the newest thing this player owns; letting the close throw it away lost the whole
+       window's play. The parked waiter finds a null saveQ and does nothing, so this cannot double-write. */
+    const q = cur.saveQ;
+    if (q) { cur.saveQ = null; cur.saveW = 0; this.ctx.waitUntil(this.writeSave(ws, cur, q.seed, q.blob, q.payload)); }
+   // the budgets outlive the socket, or a reconnect is a way to buy a fresh one
+    const bt = Date.now();
+    this.budget.set(a.pid, { t: bt, mvT: cur.mvT || 0, mvB: cur.mvB || 0, wT: cur.wT || 0, wN: cur.wN | 0,
+                             own: cur.own || null, saveT: cur.saveT || 0, pileT: cur.pileT || 0 });
+    if (this.budget.size > 4000) for (const [k, v] of this.budget) if (bt - v.t > 600000) this.budget.delete(k);
    /* the leaver's house folds with them: houses stand only while their owner walks the world.
        Their record leaves memory and D1 too — the character blob is the one true copy, and the
        client re-announces it on every join. A row surviving an evicted object without this close
        is filtered from snapshots by the connected-pids check above. */
-    if (this.houses && this.houses.delete(a.pid)) this.hDirty.add(a.pid);
+   /* A close can land on a wake where the map was never loaded, and dropping it there orphaned the row for good —
+       an empty house standing in everyone's world with no owner to fold it. */
+    if (this.houses) { if (this.houses.delete(a.pid)) this.hDirty.add(a.pid); }
+    else if (this.env.DB && a.seed) this.ctx.waitUntil(this.loadHouses(a.seed).then(() => {
+      if (this.houses.delete(a.pid)) { this.hDirty.add(a.pid); this.flushHouses(1); }
+    }).catch(() => {}));
     this.flushHouses(1);   // a leaver's pending house edits (now including the fold) go to disk
     this.queue('23:' + a.pid, [23, a.pid, 0]);
     for (const p of this.players.values()) {
@@ -874,6 +936,7 @@ export class World extends DurableObject {
 const GE_SLOTS = 8;
 const GE_MAXQ = 100000;   // per offer; arrows are the volume case
 const GE_MAXP = 1000000000;   // coins per item
+const GE_MAXV = 2147483647;   // and the whole offer: price x qty alone reached 1e14, which the fill path pays out as real coins
 
 export class Exchange extends DurableObject {
   constructor(ctx, env) {
@@ -881,6 +944,7 @@ export class Exchange extends DurableObject {
     this.lock = Promise.resolve();
     this.tables = null;   // the ensure() promise, memoised — see below
     this.buckets = new Map();   // pid -> {t, n} token bucket on mutations
+    this.recent = new Map();    // memo key -> [when, reply]: a retry of a lost reply is answered, not re-run
   }
   /* Every mutation in the game queues on one promise chain in one object, so an
      unthrottled client could hold the world's order book to itself. This runs
@@ -926,11 +990,15 @@ export class Exchange extends DurableObject {
   /* A debit commits before the reply is built, so a dropped response is indistinguishable from a refusal — and the
      retry meets a row that is already empty, or deleted. The reply is memoised against the client's token instead:
      a repeat is answered, not re-run. Object memory, not D1, because the window this closes is one round trip. */
-  replay(k) { const h = this.recent && this.recent.get(k); return h ? h[1] : null; }
+  replay(k) { const h = this.recent.get(k); return h ? h[1] : null; }
   remember(k, r) {
-    if (!this.recent) this.recent = new Map();
     this.recent.set(k, [Date.now(), r]);
-    if (this.recent.size > 512) { const cut = Date.now() - 300000; for (const [kk, v] of this.recent) if (v[0] < cut) this.recent.delete(kk); }
+   // a hard cap, not a trigger: above a couple of mutations a second the age test alone freed nothing and rescanned every call.
+   // Map iterates in insertion order, so the oldest are a prefix.
+    if (this.recent.size > 512) {
+      const cut = Date.now() - 300000;
+      for (const [kk, v] of this.recent) { if (v[0] >= cut && this.recent.size <= 512) break; this.recent.delete(kk); }
+    }
     return r;
   }
   async fetch(req) {
@@ -945,13 +1013,20 @@ export class Exchange extends DurableObject {
       try { await this.ensure(); return Response.json(await this.state(pid)); }
       catch (e) { console.log('ge error', String(e)); return Response.json({ e: 'exchange error' }, { status: 500 }); }
     }
+   /* The body is read here, once, because the memo has to be consulted BEFORE the limiter: a retry of a request whose
+       reply was lost is not new work, and answering it 429 is exactly how the collected goods went missing — the box was
+       already empty and collect() was never entered to say so. */
+    let b = {};
+    if (req.method === 'POST') { try { b = await req.json(); } catch {} }
+    const tok = String(b.tok || '').slice(0, 48);
+    const pre = u.pathname === '/ge/place' ? 'p:' : u.pathname === '/ge/collect' ? 'c:' : '';
+    const memoKey = tok && pre ? pre + pid + ':' + tok : '';
+    if (memoKey) { const was = this.replay(memoKey); if (was) return Response.json(was); }
    // the bucket is spent before the lock is taken and before anything is inserted
     if (!this.allow(pid)) return Response.json({ e: 'too many exchange requests' }, { status: 429 });
     return this.serial(async () => {
       try {
         await this.ensure();
-        let b = {};
-        if (req.method === 'POST') { try { b = await req.json(); } catch {} }
         if (u.pathname === '/ge/place') return Response.json(await this.place(pid, b));
         if (u.pathname === '/ge/abort') return Response.json(await this.abort(pid, b));
         if (u.pathname === '/ge/collect') return Response.json(await this.collect(pid, b));
@@ -978,6 +1053,7 @@ export class Exchange extends DurableObject {
     if (kind !== 0 && kind !== 1) return { e: 'bad kind' };
     if (!/^[a-z0-9_]{1,32}$/.test(item) || item === 'coins') return { e: 'bad item' };
     if (!(price >= 1 && price <= GE_MAXP)) return { e: 'bad price' };
+    if (price * qty > GE_MAXV) return { e: 'offer too large' };
     if (!(qty >= 1 && qty <= GE_MAXQ)) return { e: 'bad quantity' };
     if (await this.row(pid, slot)) return { e: 'slot in use' };
     const now = Date.now();
@@ -1078,7 +1154,8 @@ function cors(origin) {
   return {
     'access-control-allow-origin': origin || '*',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
-    'access-control-allow-headers': 'content-type'
+    'access-control-allow-headers': 'authorization,content-type',
+    'access-control-max-age': '86400'
   };
 }
 
@@ -1089,6 +1166,10 @@ const json = (body, status, origin) => new Response(JSON.stringify(body), {
 
 /* Resolve an auth token to an account row. Every authed route needs this
    and every one of them wants the same 401 on failure. */
+/* The key is the whole credential, so it belongs in a header rather than on the query string, where Cloudflare's own
+   request logs, wrangler tail, Logpush, browser history and any Referer all keep a copy. The query form is still read
+   so a client and a worker can be deployed in either order. */
+const bearer = req => (req.headers.get('Authorization') || '').replace(/^Bearer /i, '');
 async function whoami(env, auth) {
   if (!/^[0-9a-f]{64}$/.test(auth || '')) return { e: 'bad auth', code: 400 };
   let row;
@@ -1130,8 +1211,8 @@ async function population(env, u, origin, ctx) {
   if (ctx && ctx.waitUntil) ctx.waitUntil(put); else await put;
   return json(body, 200, origin);
 }
-async function characters(env, u, origin) {
-  const who = await whoami(env, u.searchParams.get('auth') || '');
+async function characters(env, u, origin, tok) {
+  const who = await whoami(env, tok || u.searchParams.get('auth') || '');
   if (who.e) return json({ e: who.e }, who.code, origin);
   const row = who.row;
 
@@ -1292,7 +1373,7 @@ export default {
       if (req.method === 'POST') {
         try { body = await req.json(); } catch { return json({ e: 'bad json' }, 400, origin); }
       }
-      const who = await whoami(env, (body && body.auth) || u.searchParams.get('auth') || '');
+      const who = await whoami(env, (body && body.auth) || bearer(req) || u.searchParams.get('auth') || '');
       if (who.e) return json({ e: who.e }, who.code, origin);
       try {
         const stub = env.EXCHANGE.get(env.EXCHANGE.idFromName('ge'));
@@ -1409,9 +1490,9 @@ export default {
 
    // ?pop=1 needs no account, so answer before authenticating
       if (u.searchParams.get('pop')) return population(env, u, origin, ctx);
-      if (u.searchParams.get('list')) return characters(env, u, origin);
+      if (u.searchParams.get('list')) return characters(env, u, origin, bearer(req));
 
-      const who = await whoami(env, u.searchParams.get('auth') || '');
+      const who = await whoami(env, bearer(req) || u.searchParams.get('auth') || '');
       if (who.e) return json({ e: who.e }, who.code, origin);
       const row = who.row;
 
@@ -1498,7 +1579,7 @@ export default {
    /* ---------------- /characters and /population ---------------- */
     if (u.pathname === '/characters' && req.method === 'GET') {
       if (!originOk) return json({ e: 'origin' }, 403, 'null');
-      return characters(env, u, origin);
+      return characters(env, u, origin, bearer(req));
     }
     if (u.pathname === '/population' && req.method === 'GET') {
       if (!originOk) return json({ e: 'origin' }, 403, 'null');
@@ -1546,7 +1627,7 @@ export default {
        an anonymous lever on your own D1 reads and R2 writes, and it hands out a
        live player count. Any valid account key will do — it triggers only the work
        the cron already does on a schedule. */
-      const who = await whoami(env, u.searchParams.get('auth') || '');
+      const who = await whoami(env, bearer(req) || u.searchParams.get('auth') || '');
       if (who.e) return json({ e: who.e }, who.code, origin);
       const r = await sweepArchive(env, Math.min(1000, Math.max(1, +u.searchParams.get('limit') || ARCH_BATCH)));
       const live = await env.DB.prepare('SELECT COUNT(*) AS n FROM characters').first().catch(() => null);

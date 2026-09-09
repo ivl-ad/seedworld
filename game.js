@@ -528,6 +528,7 @@ const POI_T = [
   { k: 14, f: 'X Keep', sp: ['blackknight', 'blackknight'], wild: 1 }
 ];
 function siteAt(gx, gz) {
+  if (gz * SITE_CELL > 499000) return null;   // hoisted above the key: the band's null used to be cached under a key a real cell shares
   if (siteCache.S !== S) { siteCache.clear(); siteCache.S = S; }
   const key = gx * 8191 + gz;
   let s = siteCache.get(key);
@@ -811,7 +812,7 @@ function gainXp(k, amount) {
     say('Congratulations, you just advanced a ' + skName(i) + ' level.', 'lv');
     say('Your ' + skName(i) + ' level is now ' + lvl[i] + '.', 'lv');
     if (i === SK.hitpoints) { P.hp += lvl[i] - P.maxhp; P.maxhp = lvl[i]; }   // a level heals only the point it grants
-    if (i === SK.defence) sendEquip();   // the room rolls against it
+    if (i < 6 || i === SK.hitpoints) sendEquip();   // defence for the room's rolls, and every skill the combat level is made of   // the room rolls against it
     dirty.orb = 1;
     markDirty();   // levels re-derive from the xp array in the same blob: a routine save suffices
   }
@@ -1507,6 +1508,7 @@ function Pool(geo, n, tinted) {
   for (let i = 0; i < n; i++) mesh.setMatrixAt(i, ZERO);
   if (tinted) for (let i = 0; i < n; i++) mesh.setColorAt(i, _col.setHex(0xffffff));
   mesh.instanceMatrix.needsUpdate = true;
+  mesh.count = 0;   // draw only what a frame actually fills
   scene.add(mesh);
   return { mesh, n, used: 0 };
 }
@@ -1520,11 +1522,13 @@ function poolPut(p, x, y, z, rot, sx, sy, sz, hex) {
   if (hex !== undefined && p.mesh.instanceColor) p.mesh.setColorAt(i, _col.setHex(hex));
 }
 function poolFlush(p) {
-  for (let i = p.used; i < p.n; i++) p.mesh.setMatrixAt(i, ZERO);
+  p.mesh.count = p.used;   // the tail no longer needs zeroing: it is simply not drawn
+  if (!p.used) return;
   p.mesh.instanceMatrix.needsUpdate = true;
   if (p.mesh.instanceColor) p.mesh.instanceColor.needsUpdate = true;
 }
-const POOL_STUMP = Pool(STUMP_GEO, 64), POOL_FIRE = Pool(FIRE_GEO, 24), POOL_DROP = Pool(DROP_GEO, 64, 1), POOL_SPOT = Pool(SPOT_GEO, 40);
+const DROP_CAP = 200;   // ground items at once, and the pool holds every one: at 64 the newest drops drew nothing yet answered the mouse
+const POOL_STUMP = Pool(STUMP_GEO, 64), POOL_FIRE = Pool(FIRE_GEO, 24), POOL_DROP = Pool(DROP_GEO, DROP_CAP, 1), POOL_SPOT = Pool(SPOT_GEO, 40);
 /* an overlay mesh that ignores depth and culling */
 function fxMesh(geo, order, color) {
   const m = new THREE.Mesh(geo, fxMat());
@@ -2779,8 +2783,11 @@ function buildChunk(cx, cz, step, ring) {
     const ax = x1 - x0, ay = y1 - y0, az = z1 - z0, bx = x2 - x0, by = y2 - y0, bz = z2 - z0;
     const nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx, L = Math.hypot(nx, ny, nz) || 1;
     const sh = 0.46 + 0.54 * Math.max(0, (nx * NLX + ny * NLY + nz * NLZ) / L), R = r * sh, G = g * sh, Bl = b * sh;
-    const v = [x0, y0, z0, x2, y2, z2, x1, y1, z1, x1, y1, z1, x2, y2, z2, x3, y3, z3];
-    for (let k = 0; k < 18; k++) pos[p++] = v[k];
+   // the two triangles go straight into the buffer: the scratch array was one allocation per quad, thousands a chunk
+    pos[p] = x0; pos[p + 1] = y0; pos[p + 2] = z0; pos[p + 3] = x2; pos[p + 4] = y2; pos[p + 5] = z2;
+    pos[p + 6] = x1; pos[p + 7] = y1; pos[p + 8] = z1; pos[p + 9] = x1; pos[p + 10] = y1; pos[p + 11] = z1;
+    pos[p + 12] = x2; pos[p + 13] = y2; pos[p + 14] = z2; pos[p + 15] = x3; pos[p + 16] = y3; pos[p + 17] = z3;
+    p += 18;
     for (let k = 0; k < 6; k++) { col[c2++] = R; col[c2++] = G; col[c2++] = Bl; }
   }
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
@@ -2811,7 +2818,7 @@ function buildChunk(cx, cz, step, ring) {
 function populateChunk(rec) {
   rec.pop = 1;
   if (!rec.near) return;
-  scatterResources(rec, rec.cx, rec.cz, rec.ring); scatterDecor(rec, rec.cx, rec.cz, rec.ring); buildStructures(rec, rec.cx, rec.cz);
+  scatterResources(rec, rec.cx, rec.cz); scatterDecor(rec, rec.cx, rec.cz); buildStructures(rec, rec.cx, rec.cz);   // no ring term: what a chunk grows is a function of its tiles, not of how far away it was when it was laid
   for (const k of rec.blk) block(k);
   for (const o of rec.objs) { objIndex.set(o.key, o); if (depleted.has(o.key)) hideInst(o); else if (o.t === 0) claim(o); }   // a stump felled while we were away keeps its tile open
 }
@@ -2839,9 +2846,9 @@ const tileSlope = (rec, x, z, y) => Math.abs(recH(rec, x + 1, z) - y) + Math.abs
 const treeScale = (k, h) => (0.66 + ((h >>> 10) & 255) / 255 * 0.62) * TREES[k].sc;
 const rockScale = h => 0.8 + ((h >>> 17) & 15) / 15 * 0.45;
 /* trees, veins and fishing spots: instanced, so a chopped tree can vanish without rebuilding the chunk */
-function scatterResources(rec, cx, cz, ring) {
+function scatterResources(rec, cx, cz) {
   const ox = cx * CHUNK, oz = cz * CHUNK, cm = [], cc = [], bm = [], bc = [], rm = [], rc = [];
-  const dens = ring <= 1 ? 1 : 0.72, TCAP = 96, RCAP = 34;
+  const TCAP = 96, RCAP = 34;
   const putRock = (x, z, y, k, h, key) => {
     const st = rockScale(h);
     rec.objs.push({ t: 1, k, x, z, y, key, n: ORES[k].n });
@@ -2886,7 +2893,7 @@ function scatterResources(rec, cx, cz, ring) {
     }
     const slope = tileSlope(rec, x, z, y);
     if (rm.length < RCAP) {   // stray surface rock is low-tier texture; the seams live in the mines
-      const rocky = (slope > 1.5 && y > 6) || y > 34, chance = (rocky ? 0.006 : 0.0005) * dens;
+      const rocky = (slope > 1.5 && y > 6) || y > 34, chance = rocky ? 0.006 : 0.0005;
       if (!inTown && slope < 5.5 && ((h >>> 3) & 4095) / 4096 < chance) {
         const k = oreKind(y, h);
         if (lvlOk(k, y)) { putRock(x, z, y, k, h, key); continue; }
@@ -2895,7 +2902,7 @@ function scatterResources(rec, cx, cz, ring) {
     if (y > 48 || cm.length + bm.length >= TCAP) continue;
     if (st && st.s.t === 1 && st.d < st.s.r + 1.5) continue;   // no saplings on the mine floor
     const moist = biomeAt(x, z), A = regionAt(x, z).a;
-    let td = (0.010 + Math.max(0, moist + 0.10) * 0.13) * (1 - smoothstep(30, 47, y)) * dens * A.td;   // the kingdom sets the woods
+    let td = (0.010 + Math.max(0, moist + 0.10) * 0.13) * (1 - smoothstep(30, 47, y)) * A.td;   // the kingdom sets the woods
     const wl2 = wildLvAt(x, z);
     if (wl2) {   // the wilds grow thin and scraggly whatever the kingdom; never on a door
       td = Math.min(td * 0.45, 0.024);
@@ -2929,8 +2936,8 @@ function instance(geo, rows, cols, rec, tag, broad) {
 }
 const hideInst = o => { if (o.inst) { o.inst.setMatrixAt(o.slot, ZERO); o.inst.instanceMatrix.needsUpdate = true; } };
 /* scenery with no gameplay: one merged mesh per chunk */
-function scatterDecor(rec, cx, cz, ring) {
-  const ox = cx * CHUNK, oz = cz * CHUNK, dens = ring <= 1 ? 1 : 0.55;
+function scatterDecor(rec, cx, cz) {
+  const ox = cx * CHUNK, oz = cz * CHUNK;
   let n = 0;
   batchInto(rec, B => {
     for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
@@ -2940,7 +2947,7 @@ function scatterDecor(rec, cx, cz, ring) {
       const h = hash2(x, z, S + 103), r1 = (h & 1023) / 1024, r2 = ((h >>> 10) & 1023) / 1024, rot = ((h >>> 20) & 63) / 64 * TAU;
       const jx = x + ((h >>> 26) & 7) / 8 - 0.5, jz = z + ((h >>> 6) & 7) / 8 - 0.5;
       if (y > -0.5 && y < 1.15) {   // reed beds — nothing green fringes a lava shore
-        if (r1 < 0.16 * dens && !wildLvAt(x, z)) { for (let q = 0; q < 3; q++) { const a = rot + q * 2.1, rr = 0.35 + q * 0.12; B.add(SPIRE, jx + Math.cos(a) * rr, y + 0.34, jz + Math.sin(a) * rr, 0.26, 1.0 + r2 * 0.7, 0.26, 0, REED); } n++; }
+        if (r1 < 0.16 && !wildLvAt(x, z)) { for (let q = 0; q < 3; q++) { const a = rot + q * 2.1, rr = 0.35 + q * 0.12; B.add(SPIRE, jx + Math.cos(a) * rr, y + 0.34, jz + Math.sin(a) * rr, 0.26, 1.0 + r2 * 0.7, 0.26, 0, REED); } n++; }
         continue;
       }
       if (y < 1.7 || y > 66) continue;
@@ -2958,7 +2965,7 @@ function scatterDecor(rec, cx, cz, ring) {
       }
       const rocky = smoothstep(1.1, 2.6, slope) * 0.5 + smoothstep(34, 60, y) * 0.35;
       const gv = wildLvAt(x, z) ? 0.12 : clamp(regionAt(x, z).a.td, 0.12, 1.2);   // sparse kingdoms grow sparse scrub; the wilds barely any
-      if (r2 < (0.008 + rocky * 0.14) * dens) {
+      if (r2 < 0.008 + rocky * 0.14) {
         const rs = 0.5 + ((h >>> 3) & 15) / 15 * 1.7;
         B.add(BLOB, jx, y + rs * 0.2, jz, rs * 1.5, rs * 1.1, rs * 1.25, rot, STONE);
         if (rs > 1.4) B.add(BLOB, jx + rs * 0.6, y + rs * 0.1, jz - rs * 0.4, rs * 0.7, rs * 0.6, rs * 0.7, rot, STONE);
@@ -3141,7 +3148,7 @@ function pump(budgetMs, maxChunks) {
     const rec = buildChunk(job.cx, job.cz, job.step, job.d);
     chunks.set(job.k, rec);
     if (rec.near) popQueue.push(rec); else rec.pop = 1;
-    nearDirty = 1;
+    if (rec.near || (old && old.near)) nearDirty = 1;   // a far chunk carries no objs either way: only a near one moves the list
   }
 }
 let nearObjs = [], nearDirty = 1;
@@ -3164,6 +3171,7 @@ function rebuildNear() {
 }
 /* move the player and the world around them in one go; ms is the chunk-build budget */
 function teleport(x, z, ms) {
+  P.atkT = Math.max(P.atkT, tickN + 5);   // the room stays the blade for WARP_LOCK after a jump: never spend a swing it will silently drop
   focus.set(x, 0, z); refresh(); pump(ms);
   while (popQueue.length) { const r = popQueue.shift(); if (!r.pop && r.mesh.parent) populateChunk(r); }   // arrival ground must be fully furnished
   placePlayer(x, z); rebuildNear(); refreshNpcs();
@@ -3172,6 +3180,9 @@ function teleport(x, z, ms) {
 
 /* ---- 18. PATHFINDING: A* over tiles, octile heuristic, capped; diagonals need both orthogonals open ---- */
 const DX = [1, -1, 0, 0, 1, 1, -1, -1], DZ = [0, 0, 1, -1, 1, -1, 1, -1], MAX_NODES = 6000;
+/* which two orthogonals each diagonal's corner rule needs: d4 (+1,+1) wants E(0) and S(2), d5 (+1,-1) E(0) and N(3),
+   d6 (-1,+1) W(1) and S(2), d7 (-1,-1) W(1) and N(3) — the same probes the loop has already made this expansion */
+const CX4 = [0, 0, 1, 1], CZ4 = [2, 3, 2, 3], _ok4 = [0, 0, 0, 0];
 const _hf = [], _hi = [];
 function heapPush(f, id) {
   let i = _hf.length; _hf.push(f); _hi.push(id);
@@ -3211,10 +3222,14 @@ function findPath(sx, sz, gx, gz, reach) {
     if (hit(cx, cz)) { found = cur; break; }
     expanded++; stale++;
     const g0 = gs.get(cur);
+   /* The four orthogonals are probed first and remembered, because each diagonal's corner rule asks for exactly two of
+       them again — twelve canStep probes an expansion where eight will do, over thousands of expansions. */
+    _ok4[0] = _ok4[1] = _ok4[2] = _ok4[3] = 0;
     for (let d = 0; d < 8; d++) {
       const nx = cx + DX[d], nz = cz + DZ[d];
-      if (Math.abs(nx - sx) > 190 || Math.abs(nz - sz) > 190 || !canStep(cx, cz, nx, nz)) continue;
-      if (d > 3 && (!canStep(cx, cz, nx, cz) || !canStep(cx, cz, cx, nz))) continue;
+      if (Math.abs(nx - sx) > 190 || Math.abs(nz - sz) > 190) continue;
+      if (d < 4) { if (!(_ok4[d] = canStep(cx, cz, nx, nz) ? 1 : 0)) continue; }
+      else if (!_ok4[CX4[d - 4]] || !_ok4[CZ4[d - 4]] || !canStep(cx, cz, nx, nz)) continue;
       const nk = tk(nx, nz), ng = g0 + (d > 3 ? 1.41 : 1), old = gs.get(nk);
       if (old !== undefined && old <= ng) continue;
       gs.set(nk, ng); came.set(nk, cur); px.set(nk, nx); pz.set(nk, nz);
@@ -3283,8 +3298,8 @@ function bankAdd(id, n) {
   const s = bank.find(b => b.id === id);
   if (s) { s.n += n; return n; }
   if (bank.length >= BANK_N) return 0;
-  bank.push({ id, n });
-  if (!OFFLINE && saveBytes() > SAVE_CAP - 64) { bank.pop(); return 0; }   // put it back: this row would make the character unsaveable
+  bank.push({ id, n }); saveStale();   // the cached size must not answer for the blob without this row
+  if (!OFFLINE && saveBytes() > SAVE_CAP - 64) { bank.pop(); saveStale(); return 0; }   // put it back: this row would make the character unsaveable
   return n;
 }
 function invFree() { let n = 0; for (let i = 0; i < INV_N; i++) if (!inv[i]) n++; return n; }
@@ -3318,7 +3333,14 @@ function invRemove(id, n) {
 }
 /* a consumption that must not half-happen. Capacity cannot be judged before the fact — spending the last coins frees
    the slot the goods land in — so take the input, try the output, and put the input back if it has nowhere to go. */
-const invSwap = (outId, outN, inId, inN) => { invRemove(inId, inN); return invAdd(outId, outN) ? 1 : (invAdd(inId, inN), 0); };
+const invSwap = (outId, outN, inId, inN) => {
+  invRemove(inId, inN);
+  const got = invAdd(outId, outN);
+  if (got === outN) return 1;
+  if (got) invRemove(outId, got);   // a partial landing is not a swap: unwind it before the input goes back
+  invAdd(inId, inN);
+  return 0;
+};
 const hasAll = need => { for (const [id, n] of need) if (invCount(id) < n) return false; return true; };
 const coins = () => invCount('coins');
 function bestTool(kind) {   // best usable tool carried or wielded
@@ -3355,7 +3377,7 @@ function canEquip(it) {
   if (it.req99 && lvl[SK[it.req99]] < 99) { say('Only a master of ' + skName(SK[it.req99]) + ' may wear that cape.', 'bad'); return false; }
   return true;
 }
-const gearChanged = () => { dirty.inv = dirty.eq = 1; dressAvatar(); drawStyles(); markDirty(1); };
+const gearChanged = () => { P.specArm = 0; dirty.inv = dirty.eq = 1; dressAvatar(); drawStyles(); markDirty(1); };   // an arm belongs to the weapon it was made on
 function equip(slotIdx) {
   const s = inv[slotIdx]; if (!s) return;
   const it = ITEMS[s.id];
@@ -3401,7 +3423,7 @@ scene.add(player);
 const P = {
   tx: 0, tz: 0, px: 0, pz: 0, rx: 0, ry: 0, rz: 0, face: 0, faceT: 0, span: 1,
   path: [], goal: null, task: null, actT: 0, atkT: 0, acting: 0, actSpan: 2, walkPhase: 0, bobPhase: 0, swingPhase: 0,
-  run: 1, energy: 100, hp: 10, maxhp: 10, style: 0, rstyle: 1, cstyle: 0, ammoN: 0, pose: 0, spell: null, prayers: 0, pray: 10, maxpray: 10, foodT: 0, spec: 100, specArm: 0, psn: 0, psnN: 0, psnT: 0, psnImm: 0,
+  run: 1, energy: 100, hp: 10, maxhp: 10, style: 0, rstyle: 1, cstyle: 0, ammoN: 0, pose: 0, spell: null, prayers: 0, pray: 10, maxpray: 10, foodT: 0, potT: 0, spec: 100, specArm: 0, psn: 0, psnN: 0, psnT: 0, psnImm: 0,
   afloat: 0, moved: 0, dead: 0, stuckT: 0, stun: 0, afire: 0, clue: null, slay: null, farm: Object.create(null), look: { skin: 0, shirt: 0, legs: 0, face: 0 }, home: { x: 0, z: 0 }, regionK: '', regionT: 0,
   turn: player, rig: avatar, boat, oarL, oarR
 };
@@ -3620,45 +3642,47 @@ function walkTo(wx, wz) {
 const drops = [], pendingPiles = [], pileClaims = [];   // pendingPiles: another player's spill, sealed until its tick comes (their safe half, or the killer's minute)
 function dropStack(id, n, x, z) {   // merge into the heap already on that tile, so spent arrows gather in one place
   const d = drops.find(q => q.id === id && q.x === x && q.z === z);
-  if (d) { d.n += n; d.life = Math.max(d.life, 200); return; }
+  if (d) { d.n += n; d.until = Math.max(d.until, tickN + 200); return; }
   dropItem(id, n, x, z);
 }
 function dropItem(id, n, x, z, life, pub) {
-  if (drops.length > 200) drops.shift();   // roomy enough that a boss pile can't evict a death pile
-  drops.push({ drop: 1, id, n: n || 1, x, z, y: Math.max(walkY(x, z), 0), name: ITEMS[id].name, life: life || 200, pub: pub || 0 });
+  while (drops.length >= DROP_CAP) drops.shift();   // roomy enough that a boss pile can't evict a death pile
+  drops.push({ drop: 1, id, n: n || 1, x, z, y: Math.max(walkY(x, z), 0), name: ITEMS[id].name, until: tickN + (life || 200), pub: pub || 0 });   // a deadline on the shared clock: a per-tick countdown stalls whenever the tab is backgrounded
 }
 /* A spill announced over the wire is mirrored by every client in earshot, and nothing announced the pickup — so each
    mirror stayed lootable on its own and one death fed two or three full copies. Only broadcast piles carry `pub`;
    monster loot, spent arrows and your own drops are local and cost nothing. Claims batch to one message a tile a tick. */
-const claimPile = d => { if (d.pub) pileClaims.push([d.x, d.z, d.id, d.n]); };
+const claimPile = d => { if (d.pub) pileClaims.push([d.x, d.z, d.id, d.n, d.pub]); };
 function netPiles() {
   if (!pileClaims.length) return;
   if (srvBuild >= 11) {
-    const byTile = new Map();
-    for (const [x, z, id, n] of pileClaims) { const k = x + ',' + z; if (!byTile.has(k)) byTile.set(k, []); byTile.get(k).push([id, n]); }
-    for (const [k, rows] of byTile) {
-      const c = k.split(','), x = +c[0], z = +c[1];
-      for (let i = 0; i < rows.length; i += 12) netWorld([16, x, z, rows.slice(i, i + 12)]);   // 12 rows keeps one message inside the 512-byte lane
+    const byPile = new Map();
+    for (const [x, z, id, n, own] of pileClaims) { const k = x + ',' + z + ',' + own; if (!byPile.has(k)) byPile.set(k, []); byPile.get(k).push([id, n]); }
+    for (const [k, rows] of byPile) {
+      const c = k.split(','), x = +c[0], z = +c[1], own = c.slice(2).join(',');
+      for (let i = 0; i < rows.length; i += 8) netWorld([16, x, z, rows.slice(i, i + 8), own]);   // 8 rows so four chunks plus a tick's ordinary traffic stay inside the batch lane
     }
   }
   pileClaims.length = 0;
 }
 /* the mirror side: take these rows off whatever this client is holding for that tile, live heap or still-sealed pile */
-function losePile(x, z, rows) {
+function losePile(x, z, rows, own) {
+  if (!own) return;   // an unowned claim names no pile, and pendingPiles aliases P.dpile.rows: a wrong match is permanent
   for (const row of rows) {
     const id = String(row && row[0] || ''), want = (row && row[1] | 0) || 0;
    /* the two lists are alternative representations of the same pile, not additive — a client holds it sealed until its
-      tick comes and live afterwards — so each is retracted by the full amount, never by a shared remainder */
+      tick comes and live afterwards — so each is retracted by the full amount, never by a shared remainder. The tile
+      must match exactly and the owner must match too: two players die a tile apart in a chokepoint routinely. */
     let n = want;
     for (let i = drops.length - 1; i >= 0 && n > 0; i--) {
       const d = drops[i];
-      if (!d.pub || d.id !== id || Math.abs(d.x - x) > 1 || Math.abs(d.z - z) > 1) continue;
+      if (d.pub !== own || d.id !== id || d.x !== x || d.z !== z) continue;
       const t = Math.min(n, d.n); d.n -= t; n -= t;
       if (d.n <= 0) drops.splice(i, 1);
     }
     n = want;
     for (const p of pendingPiles) {
-      if (Math.abs(p.x - x) > 1 || Math.abs(p.z - z) > 1) continue;
+      if (p.own !== own || p.x !== x || p.z !== z) continue;
       for (const r of p.rows) { if (n <= 0) break; if (r[0] !== id) continue; const t = Math.min(n, r[1]); r[1] -= t; n -= t; }
     }
   }
@@ -3679,8 +3703,8 @@ function takeDrop(d) {
 }
 const fires = []; pickLists.push(fires);
 function lightFire(x, z) {
-  fires.push({ fire: 1, x, z, y: walkY(x, z), life: 180 + (hash2(x, z, S) & 127), name: 'Fire' });
-  if (fires.length > 20) fires.shift();
+  fires.push({ fire: 1, x, z, y: walkY(x, z), until: tickN + 180 + (hash2(x, z, S) & 127), name: 'Fire' });
+  if (fires.length > 20) fires.shift().dead = 1;   // a task cooking at it must learn the fire is gone
 }
 /* ---- 23. NPCS: spawned off the settlement lattice, so a town has the same guards every time ---- */
 const npcs = [], npcDead = new Map();
@@ -3962,9 +3986,15 @@ function npcStep(n, tx, tz, strict) {
   const ok = (x, z, wet) => canStep(n.tx, n.tz, x, z, n.fpK) && (!wet || !isWater(walkY(x, z)));
   const corner = !(dx && dz) || (ok(n.tx + dx, n.tz, 0) && ok(n.tx, n.tz + dz, 0));   // findPath's rule: a diagonal needs both orthogonals, so nothing slips through a wall's staircase
   if ((!strict || (dx && dz)) && corner && ok(n.tx + dx, n.tz + dz, 1)) { n.tx += dx; n.tz += dz; }
-  else if ((!strict || dx) && ok(n.tx + dx, n.tz, strict)) n.tx += dx;
-  else if ((!strict || dz) && ok(n.tx, n.tz + dz, strict)) n.tz += dz;
-  else return 0;
+  else if (dx && (!strict || dx) && ok(n.tx + dx, n.tz, strict)) n.tx += dx;   // dx guarded: a zero delta made this canStep(from, from), a step onto its own tile that always "succeeded"
+  else if (dz && (!strict || dz) && ok(n.tx, n.tz + dz, strict)) n.tz += dz;
+  else {
+   // one lateral try, the same side on every client, so a wide body is not stopped for good by a single tile
+    const sd = ((n.kh ^ tickN) & 1) ? 1 : -1;
+    if (!dx && dz) { if (ok(n.tx + sd, n.tz + dz, strict)) { n.tx += sd; n.tz += dz; return 1; } if (ok(n.tx - sd, n.tz + dz, strict)) { n.tx -= sd; n.tz += dz; return 1; } }
+    else if (dx && !dz) { if (ok(n.tx + dx, n.tz + sd, strict)) { n.tx += dx; n.tz += sd; return 1; } if (ok(n.tx + dx, n.tz - sd, strict)) { n.tx += dx; n.tz -= sd; return 1; } }
+    return 0;
+  }
   return 1;
 }
 const chebDist = (ax, az, bx, bz) => Math.max(Math.abs(ax - bx), Math.abs(az - bz));
@@ -4209,21 +4239,21 @@ function die(byPlayer) {
   // three items stay with you, four under Protect Item — unless a player killed you while skulled: then the prayer's one thing is all
   const wasSkulled = skulled();
   const K = byPlayer && wasSkulled ? (prayHas('item') ? 1 : 0) : 3 + (prayHas('item') ? 1 : 0);
-  if (prayHas('retri')) for (const n of npcs) if (!n.dead && chebDist(n.tx, n.tz, dx, dz) <= 1) {   // Retribution: a last blast at whatever stands beside you
+  if (prayHas('retri')) for (const n of npcs.slice()) if (!n.dead && chebDist(n.tx, n.tz, dx, dz) <= 1) {   // killNpc splices npcs, so walk a copy   // Retribution: a last blast at whatever stands beside you
     const d = randInt(0, lvl[SK.prayer] >> 2); n.hp -= d; hitsplat(n.rx, n.ry + 1.2, n.rz, d); if (n.hp <= 0) killNpc(n);
   }
   let keep = K;
   for (const s of all) {
     const k = Math.min(keep, s.n); keep -= k;
     if (k) invAdd(s.id, k);
-    if (s.n > k) { spill.push([s.id, s.n - k]); if (!byPlayer) dropItem(s.id, s.n - k, dx, dz, 1500, 1); }   // a player's kill leaves nothing for you: the pile is the killer's
+    if (s.n > k) { spill.push([s.id, s.n - k]); if (!byPlayer) dropItem(s.id, s.n - k, dx, dz, 1500, PID); }   // a player's kill leaves nothing for you: the pile is the killer's
   }
   dirty.inv = dirty.eq = 1; dressAvatar();
   if (spill.length) {
     netWorld([12, dx, dz, spill.slice(0, 40), byPlayer || '', tickN]);   // monsters' kills go out too: the pile turns public after its safe half
    // your pile is your right: one saved record survives any relog, and after a killer's minute even a PvP corpse may be reclaimed
     P.dpile = { x: dx, z: dz, t: tickN, pv: byPlayer ? 1 : 0, rows: spill.slice(0, 40).map(r => [r[0], r[1]]) };
-    if (byPlayer) pendingPiles.push({ due: tickN + 100, x: dx, z: dz, rows: P.dpile.rows, life: 1400 });
+    if (byPlayer) pendingPiles.push({ due: tickN + 100, x: dx, z: dz, rows: P.dpile.rows, life: 1400, own: PID });
     say(byPlayer
     ? (wasSkulled ? 'The skull takes its due: ' + (K - keep ? 'you clutch one thing; the rest' : 'everything you carried') + ' falls to your killer.'
                   : 'You keep your ' + (K - keep) + ' most valuable items; the rest falls to your killer.')
@@ -4236,7 +4266,8 @@ function die(byPlayer) {
     let sx = P.home.x, sz = P.home.z;
     if (v) { const s = safeSpotIn(v); sx = s.x; sz = s.z; }
     teleport(sx, sz, 200);
-    P.hp = P.maxhp = lvl[SK.hitpoints]; P.dead = 0; P.energy = 100; P.psn = 0; P.spec = 100; pvpOn = 0; dirty.orb = 1;
+    P.hp = P.maxhp = lvl[SK.hitpoints]; P.dead = 0; P.energy = 100; P.psn = 0; P.spec = 100; P.specArm = 0; pvpOn = 0; dirty.orb = 1;
+    P.prayers = 0; P.pray = 0; bst.fill(0); drawPrayers(); drawStyles(); drawSk();   // you do not get up with the overheads still lit, quietly burning prayer on the walk back
     const where = v ? villageName(v) : 'where you started';
     say('You wake up in ' + where + '.');
     markDirty(2);
@@ -4254,10 +4285,10 @@ const devMul = d => devDmgMul === 1 || !(d > 0) ? d : Math.round(d * devDmgMul);
 const rollChance = (l, req, tier) => clamp((0.30 + (l - req) * 0.0095 + tier * 0.035) / (1 + req / 60), 0.06, 0.92);
 const gatherChance = (l, req, tier) => clamp((0.32 + (l - req) * 0.0085 + tier * 0.040) / (1 + req / 26), 0.05, 0.92);   // the material resists too
 function deplete(o, ticks) {   // tickN is the shared clock, so the deadline needs no translation
-  const due = tickN + ticks;
+  const due = tickN + ticks, cur = objIndex.get(o.key) || o;   // a chunk can be rebuilt mid-chop: unclaim the live object, not the caller's stale one
   depleted.set(o.key, due);
-  hideInst(o);
-  if (o.t === 0) unclaim(o);
+  hideInst(cur);
+  if (cur.t === 0) unclaim(cur);
   netWorld([20, o.key, due]);
 }
 function hearDeplete(key, due) {
@@ -4308,11 +4339,19 @@ function swing(o) {
   P.pose = sp || ps ? 2 : rng ? 1 : stabbing() ? 4 : 0;
   if (tickN < P.atkT) return -1;   // the clock runs whether or not you are swinging, so a fresh fight opens at once
   P.atkT = tickN + P.actSpan;
+   /* The arm survived weapon swaps, deaths and an emptied bar: a dagger armed and then swapped for a two-hander fired
+      the two-hander's spec for nothing. Judge it once, here, against the weapon actually held. */
+  let arm = null;
+  if (P.specArm) {
+    const sa = SPEC[eq.weapon];
+    if (sa && !sa.fx && P.spec >= sa.cost) arm = sa;
+    else { P.specArm = 0; drawStyles(); }
+  }
   P.swingPhase = 0;   // the blow starts the animation: the bolt or the spell leaves on its first frame
   const [dl, db] = o.npc ? [Math.max(0, o.t.def * (o.defDr > tickN ? 0.95 : 1) * (o.specDr || 1) - (o.defCut || 0)) + 9, o.t.db] : remoteDef(o);
   let dmg, xps = null;
   if (rng) {
-    const st = RSTYLES[P.rstyle], spc = P.specArm && SPEC[eq.weapon] && SPEC[eq.weapon].rng ? SPEC[eq.weapon] : null;
+    const st = RSTYLES[P.rstyle], spc = arm && arm.rng ? arm : null;
     const rv = voidSet('ranger') ? 1.1 : 1;   // the wiki's 10% ranged accuracy and damage
     let ta = 1, td = 1;   // the twisted bow reads the target's Magic; the dhcb bites dragonkind (wiki curves)
     if (o.npc && eq.weapon === 'twisted_bow') { const m = Math.min(250, o.t.mag); ta = Math.min(1.4, (140 + (3 * m - 10) / 100 - Math.pow(3 * m / 10 - 100, 2) / 100) / 100); td = Math.min(2.5, (250 + (3 * m - 14) / 100 - Math.pow(3 * m / 10 - 140, 2) / 100) / 100); }
@@ -4365,7 +4404,7 @@ function swing(o) {
     if (sp) { wsSend([18, sp.i, o.tx, o.tz]); drawSpells(); }   // observers cannot see a bolt they were never told about
     else wsSend([19, o.tx, o.tz, ps.tint]);   // a trident's bolt rides the arrow op, teal
   } else {
-    const st = STYLES[P.style], spc = P.specArm && SPEC[eq.weapon] && !SPEC[eq.weapon].rng ? SPEC[eq.weapon] : null;
+    const st = STYLES[P.style], spc = arm && !arm.rng ? arm : null;
     const bm = meleeAmp(o);   // the mask on assignment, the salve on the risen dead, the void as a set
     const aEff = (Math.floor(eff('attack') * prayerMul('atk')) + st.acc + 8) * (spc && spc.acc || 1) * bm;
     if (spc) {
@@ -4378,7 +4417,7 @@ function swing(o) {
         else if (Math.random() < ch) { const h3 = randInt(Math.max(1, M >> 2), Math.max(1, Math.floor(M * 3 / 4))); dmg = h3 * 2 + 1; }
         else if (Math.random() < ch) { dmg = randInt(Math.max(1, M >> 2), Math.max(1, Math.floor(M * 5 / 4))); }
         else if (Math.random() < 2 / 3) dmg = 2;
-      } else for (let h = 0, hn = spc.n || 1; h < hn; h++) dmg += Math.random() < ch ? Math.max(spc.min || 0, randInt(0, M)) : 0;
+      } else for (let h = 0, hn = spc.n || 1; h < hn; h++) dmg += Math.random() < ch ? Math.max(spc.min || 0, randInt(0, M)) : 0;   // the floor rides a landed hit; a missed roll adds nothing
       if (spc.big2 && o.npc && o.t.big) dmg += roll(hitChance(aEff * 0.75, bonus('atk'), dl, db), M);   // the halberd sweeps large prey a second time
       if (spc.drainDef && dmg > 0 && o.npc) o.specDr = (o.specDr || 1) * spc.drainDef;
       if (spc.drainFlat && dmg > 0 && o.npc) o.defCut = (o.defCut || 0) + dmg;   // the bgs caves in Defence by the wound it deals
@@ -4418,11 +4457,17 @@ function taskTick() {
     const ox = (o.npc || o.remote) ? o.tx : o.x, oz = (o.npc || o.remote) ? o.tz : o.z;
    // reach: a spell ten tiles, a bow its range, melee one tile — or the bulk of the thing for the big ones, or a halberd's two
     const reach = t.k !== 'attack' ? (t.reach || 1) : P.spell !== null ? MAGIC_RANGE : pstaffOn() ? 7 : bowRange() || Math.max((eq.weapon && ITEMS[eq.weapon].reach) || 1, o.npc ? npcReach(o.t) : 1);   // a powered staff reaches the wiki's seven
-    const blind = reach > 1 && chebDist(P.tx, P.tz, ox, oz) <= reach && !hasLos(P.tx, P.tz, ox, oz);   // in range but round a corner: 2007 walks in until it can see
-    if (blind || chebDist(P.tx, P.tz, ox, oz) > reach) {
-      if (!P.path.length) {   // chase, or give up if it walked off a cliff; blind closes in and stops the tick the line opens
-        const p = findPath(P.tx, P.tz, ox, oz, blind ? 1 : reach);
-        if (!p || !p.length) { if (p) P.task = null; return; }
+   /* In range but round a corner: 2007 walks in until it can see. The goal is the closest ring OUTSIDE the thing's own
+       footprint — asking for cheb 1 of a big monster's centre names only tiles inside its own claims, which findPath can
+       never reach, and the old give-up branch was dead code, so that combination simply froze the character. */
+    const edge = o.npc ? npcFp(o.t) + 1 : 1;
+    const gap = chebDist(P.tx, P.tz, ox, oz);
+    const blind = reach > 1 && gap <= reach && gap > edge && !hasLos(P.tx, P.tz, ox, oz);
+    if (blind || gap > reach) {
+      if (!P.path.length) {
+        const p = findPath(P.tx, P.tz, ox, oz, blind ? edge : reach);
+        if (!p) { say(blind ? 'You have no line of sight to that.' : "You can't reach that.", 'bad'); P.task = null; return; }
+        if (!p.length) return;
         P.path = p;
       }
       return;
@@ -4449,9 +4494,10 @@ function taskTick() {
    // each client owns its own hitpoints: we roll with our stats and send it; open ground ends a fight mid-chase
       const why = pvpGate(o);
       if (why) return fail(why);
-      if (!((pvpFoes.get(o.pid) || 0) > tickN)) skullUp();   // striking anyone but a standing aggressor marks you, and re-marks you every swing
       const dmg = swing(o);
-      if (dmg >= 0) wsSend([11, o.pid, dmg, prayHas('smite') ? 1 : 0, P.spell !== null || pstaffOn() ? 'g' : bowRange() ? 'r' : 'm']);   // extra elements are ignored by older builds; the class lets their overhead answer
+      if (dmg < 0) return;   // the swing timer refused it: nothing was thrown, so nothing is marked
+      if (!((pvpFoes.get(o.pid) || 0) > tickN)) skullUp();   // striking anyone but a standing aggressor marks you, and re-marks you every swing
+      wsSend([11, o.pid, dmg, prayHas('smite') ? 1 : 0, P.spell !== null || pstaffOn() ? 'g' : bowRange() ? 'r' : 'm']);   // extra elements are ignored by older builds; the class lets their overhead answer
       return;
     }
     if (o.owner && o.owner !== PID) return fail('Someone else is fighting that.');
@@ -4555,6 +4601,7 @@ function startMake(r, o) {
 }
 /* one go at a recipe: inputs out, outputs in (refunded if the pack is full), xp unless the go was ruined */
 function craft(r) {
+  if (!mkOk(r)) return 0;   // the inputs can leave between ticks (a drop, a bank, a trade): never spend what is no longer there
   for (const [id, n] of r.need) { invRemove(id, n); if (id === 'coins') gpSunk += n; }
   const out = r.fn ? r.fn(r) : [[r.id, r.n]];
   if (out) for (const [id, n] of out) if (!invAdd(id, n)) { for (const [id2, n2] of r.need) { invAdd(id2, n2); if (id2 === 'coins') gpSunk -= n2; } fail(FULL); return 0; }
@@ -4598,7 +4645,7 @@ function paintModal(title, html, foot) {
   modalEl.classList.add('on');
   showTab('inv');
 }
-function openBank() { clearUse(); openShop = null; bankOpen = 1; sfx(2021); say('The banker pulls out your vault book.'); drawBank(); }   // one counter at a time: with both open the pack deposited under a visible shop
+function openBank() { clearUse(); P.uspell = null; openShop = null; bankOpen = 1; sfx(2021); say('The banker pulls out your vault book.'); drawBank(); }   // one counter at a time: with both open the pack deposited under a visible shop
 let bankQ = '', bankMode = '1', bankX = 50;   // the 2007 quantity row: 1 / 5 / 10 / X / All drives both directions
 const bankQty = () => bankMode === 'all' ? 1e9 : bankMode === 'x' ? bankX : +bankMode;
 const bankQtyLbl = () => bankMode === 'all' ? 'all' : bankQty();
@@ -4689,14 +4736,14 @@ const geOn = () => !OFFLINE && AUTH;
 // is anything on the book still able to move? an unread book has to be read once
 const geLive = () => !geSlots || geSlots.some(o => o && o.state === 0 && o.filled < o.qty);
 async function geFetch() {
-  const j = await api('/ge?auth=' + AUTH);
+  const j = await api('/ge');
   if (j && j.slots) {
     if (geSlots) for (let i = 0; i < GE_SLOTS_N; i++) { const a = geSlots[i], b = j.slots[i]; if (a && b && a.state !== 1 && b.state === 1) { sfx(3925); break; } }   // an offer finished while we watched
     geSlots = j.slots; if (geOpen && !geView) drawGE();
   }
   return j;
 }
-const gePost = (path, body) => { body.auth = AUTH; return api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); };
+const gePost = (path, body) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 function openGE() {
   clearUse();
   if (!geOn()) return say('The exchange is closed to offline traders.', 'bad');
@@ -4801,8 +4848,12 @@ async function gePlace() {
      giving anything back: a slot that now holds an offer is the answer. */
   if (!j || j.e || !j.offer) {
     const back = await geFetch();
-    const live = back && back.slots && back.slots[V.slot];
-    if (live) {
+   /* Silence is not a refusal. If the probe itself fails we know nothing, and refunding on that turned a lost reply
+       into a duplicated escrow. And a slot that merely holds SOMETHING is not proof it holds OURS — an older offer
+       standing there is a genuine 'slot in use' whose escrow has to come back. Match the offer exactly. */
+    if (!back || !back.slots) return say('The exchange did not answer — your offer is unconfirmed. Open the exchange to check before placing it again.', 'bad');
+    const live = back.slots[V.slot];
+    if (live && live.kind === V.kind && live.item === V.item && live.price === price && live.qty === qty) {
       geSlots = back.slots; geView = null;
       say('The offer did reach the exchange — the reply was lost on the way back.', 'lv');
       if (geOpen) drawGE();
@@ -4866,8 +4917,11 @@ async function geGreet() {   // one probe on login: a sale that finished overnig
 }
 function shopBuy(id) {
   const it = ITEMS[id], price = buyPrice(it);
+  const st = openShop && openShop.stock.find(q => q.id === id);
+  if (!st || st.n < 1) return say('The shop has none of those left.', 'bad');   // the count was decorative, so every armoury was an unlimited faucet
   if (coins() < price) return say("You don't have enough coins.", 'bad');
   if (!invSwap(id, 1, 'coins', price)) return say(FULL, 'bad');   // a stackable with no stack and no free slot still needs room
+  st.n--;
   gpSunk += price;
   say('You buy a ' + it.name.toLowerCase() + ' for ' + price + ' coins.');
   markDirty(1); drawShop();
@@ -4876,6 +4930,8 @@ function shopSell(slotIdx) {
   const s = inv[slotIdx]; if (!s || s.id === 'coins') return;
   const it = ITEMS[s.id], price = sellPrice(it);
   if (!invSwap('coins', price, s.id, 1)) return say(FULL, 'bad');
+  const st = openShop && openShop.stock.find(q => q.id === s.id);
+  if (st) st.n++; else if (openShop) openShop.stock.push({ id: s.id, n: 1 });   // what you sell them, they will sell back
   gpMade += price;
   say('You sell a ' + it.name.toLowerCase() + ' for ' + price + ' coins.');
   markDirty(1); drawShop();
@@ -5014,6 +5070,7 @@ function drawOrbs() {
 const modalEl = el('modal'), modalBody = el('modalBody'), modalTitle = el('modalTitle'), modalFoot = el('modalFoot');
 function showModal(title, html, foot, keepTab) {
   barberOn = 0; statsOpen = 0;
+  openShop = null; bankOpen = 0; geOpen = 0; geView = null; clearInterval(geTimer);   // a modal takes the screen: leaving a counter open behind it made the pack deposit under a visible shop
   modalTitle.textContent = title; modalBody.innerHTML = html; modalFoot.textContent = foot || '';
   modalEl.classList.add('on');
   if (!keepTab) showTab('inv');
@@ -5031,7 +5088,7 @@ function showMake(title, rows, o) {
     'Click an item to make it; you keep going until you run out or walk off.');
 }
 function startShop(o) {
-  clearUse();
+  clearUse(); P.uspell = null;
   bankOpen = 0;
   const n = nearVillage(o.x, o.z), k = SHOP_KINDS[o.k];
   openShop = { kind: k.k, name: k.n, tier: n ? n.v.tier : 0 };
@@ -5041,7 +5098,7 @@ function startShop(o) {
 }
 function drawShop() {
   if (!openShop) return;
-  const rows = openShop.stock.map(s => { const it = ITEMS[s.id], p = buyPrice(it); return mkRow('data-buy="' + s.id + '"', s.id, it.name, s.n + ' in stock', '<b class="gp">' + p + '</b>', coins() >= p ? '' : ' no'); });
+  const rows = openShop.stock.map(s => { const it = ITEMS[s.id], p = buyPrice(it); return mkRow(s.n > 0 ? 'data-buy="' + s.id + '"' : '', s.id, it.name, s.n > 0 ? s.n + ' in stock' : 'out of stock', '<b class="gp">' + p + '</b>', s.n > 0 && coins() >= p ? '' : ' no'); });
   paintModal(openShop.name + ' — ' + coins() + ' gp', gridOf(rows), 'Click to buy. Click anything in your pack to sell it here.');
 }
 on(modalBody, 'click', e => {
@@ -5251,11 +5308,11 @@ function timerEl(i) {
 const timerOff = t => { if (t.on) { t.on = 0; t.el.style.display = 'none'; t.s = ''; } };
 function timerFrame() {
   let n = 0;
-  for (let i = 0; i < nearObjs.length && n < TIMER_CAP; i++) {
-    const o = nearObjs[i];
-    if (o.t > 2 && o.t !== 14) continue;
-    const due = depleted.get(o.key);
-    if (due === undefined || Math.abs(o.x - P.rx) > 44 || Math.abs(o.z - P.rz) > 44) continue;
+   // `depleted` is short — only what is actually down — where nearObjs is every rock, tree and crate in the near band
+  for (const [key, due] of depleted) {
+    if (n >= TIMER_CAP) break;
+    const o = objIndex.get(key);
+    if (!o || (o.t > 2 && o.t !== 14) || Math.abs(o.x - P.rx) > 44 || Math.abs(o.z - P.rz) > 44) continue;
     const pt = project(o.x, o.y + 1.1, o.z);
     if (!pt) continue;
     const t = timerEl(n);
@@ -5510,7 +5567,7 @@ function itemOptions(i) {
   if (openShop && s.id !== 'coins') opts.push(itm('Sell', nm, () => shopSell(i)));
   /* An armed utility spell takes the next pack click — but never out of an open interface's hands. It used to be the
      first branch, so opening the bank with High Alchemy armed alchemised the first thing you clicked to deposit. */
-  if (P.uspell) { opts.push(itm(P.uspell.n, nm, () => castItem(i))); if (!openShop) return opts.concat(examineOpt(it)); }
+  if (P.uspell) return opts.concat(itm(P.uspell.n, nm, () => castItem(i)), examineOpt(it));   // an open interface already cleared it, so reaching here means no interface is up
   if (it.equip) opts.push(itm('Wield', nm, () => equip(i)));
   if (it.heal) opts.push(itm('Eat', nm, () => eat(i)));
   if (it.opt) opts.push(itm(it.opt[0], nm, () => it.opt[1](i)));
@@ -5943,11 +6000,13 @@ function wmDraw() {
     wmCtx.font = 'bold ' + Math.round(clamp(9 + wmZoom * 1.2, 10, 15)) + 'px system-ui, sans-serif';
     wmCtx.textAlign = 'center'; wmCtx.textBaseline = 'bottom';
     const ico = (k, x, z, r) => wmIcon(k, px(x), pz(z), r);
+    let vbud = 3;   // a town's plan is 18-51 ms: lay at most a few an frame, as the ruin and site loops below already do
     for (let a = cx0; a <= cx1; a++) for (let b = cz0; b <= cz1; b++) {
       const v = villageAt(a, b); if (!v) continue;
       const x = px(v.x), y = pz(v.z);
       if (x < -80 || y < -40 || x > W + 80 || y > H + 40) continue;
       if (wmZoom >= 2.5) {
+        if (!v.b && --vbud < 0) { wmDirty = 1; continue; }   // come back for the rest next frame
         villageBuildings(v);
         for (const bd of v.b) {
           if (bd.shop !== null) ico('shop_' + SHOP_KINDS[bd.shop].k, bd.x, bd.z);
@@ -6059,10 +6118,12 @@ function loadSeed(str) {
   villageCache = new Map(); nbrCache = new Map(); resetLookups(); _bx = _bz = 1e9;
   for (const [, rec] of chunks) disposeChunk(rec);
   chunks.clear(); pending.length = 0; tilesGenerated = 0;
-  blocked.clear(); depleted.clear(); objIndex.clear(); floorMap.clear();
-  drops.length = 0; fires.length = 0; pendingPiles.length = 0; pvpFoes.clear(); npcDead.clear(); indoors = null; mhCache.clear(); popQueue.length = 0;   // a fresh world settles every grudge
+  blocked.clear(); opaque.clear(); depleted.clear(); objIndex.clear(); floorMap.clear();
+  wmTiles.clear(); wmDirty = 1;   // the tile keys carry no seed, so the old coastline would render under the new towns   // opaque is the sight half of blocked: leaving it standing blinds aggro in the next world
+  drops.length = 0; pendingPiles.length = 0; pvpFoes.clear(); npcDead.clear(); indoors = null; mhCache.clear(); popQueue.length = 0;   // a fresh world settles every grudge
   for (const pid of [...housesReg.keys()]) clearHouse(pid);  // houses belong to a world; the next save and snapshot restock them
-  hghosts.length = 0; litMap.clear(); bmOn = 0; moveSel = null;
+  for (const L of pickLists) { for (const o of L) o.dead = 1; L.length = 0; }   // fires, traps, campsite furniture, house ghosts: a world's litter dies with it, and a live task drops it
+  litMap.clear(); bmOn = 0; moveSel = null;
   hsAsked = 0; if (hsBarEl) hsBarEl.style.display = 'none'; hsHintClear();   // a fresh world asks fresh questions
   for (const n of npcs) scene.remove(n.mesh);
   npcs.length = 0;
@@ -6091,6 +6152,7 @@ const offMap = (x, z) => !isFinite(x) || !isFinite(z) || Math.abs(x) > 2e6 || Ma
 function travelTo(x, z) {
   x = Math.round(x); z = Math.round(z);
   if (offMap(x, z)) return say('Those coordinates are off the map.', 'bad');
+  if (wildLvAt(P.tx, P.tz) > TP_CAP) return say('A mysterious force blocks your teleport — the Wilderness is too deep here.', 'bad');   // the World tab is a teleport like any other
   closeOverlays();
   teleport(x, z, 400);
   wxEl.value = P.tx; wzEl.value = P.tz;
@@ -6157,24 +6219,24 @@ function gameTick() {
     if (P.pray <= 0) { P.pray = 0; P.prayers = 0; sfx(2672); say('You have run out of prayer points.', 'bad'); drawPrayers(); }
     dirty.orb = 1;
   }
-  if (P.spec < 100 && tickN - (P.specT || 0) >= 50) { P.specT = tickN; P.spec = Math.min(100, P.spec + 10); if (SPEC[eq.weapon]) drawStyles(); }   // 10% back each 30 seconds
+  if (tickN - (P.specT || 0) >= 50) { P.specT = tickN; if (P.spec < 100) { P.spec = Math.min(100, P.spec + 10); if (SPEC[eq.weapon]) drawStyles(); } }   // a free-running 30-second cycle: stamping it only while draining refunded on the very next tick
   if (P.psn > 0 && tickN >= P.psnT && !P.dead) {   // poison bites every 30 ticks; the wound shallows one point per five bites
     P.psnT = tickN + 30;
     hurtSnd = 2408; hurtPlayer(P.psn);   // the wound hisses instead of grunting
     if (++P.psnN % 5 === 0 && --P.psn <= 0) { P.psn = 0; say('The poison has worn off.', 'good'); }
   }
-  for (let i = drops.length - 1; i >= 0; i--) if (--drops[i].life <= 0) drops.splice(i, 1);
+  for (let i = drops.length - 1; i >= 0; i--) if (tickN >= drops[i].until) drops.splice(i, 1);
   for (let i = pendingPiles.length - 1; i >= 0; i--) if (tickN >= pendingPiles[i].due) {   // a sealed spill comes due: the pile appears for everyone
     const p = pendingPiles.splice(i, 1)[0];
-    for (const it of p.rows) dropItem(it[0], it[1] | 0, p.x, p.z, p.life, 1);
+    for (const it of p.rows) dropItem(it[0], it[1] | 0, p.x, p.z, p.life, p.own || PID);
   }
   if (P.dpile && tickN > P.dpile.t + 1500) { P.dpile = null; markDirty(); }   // the quarter hour is spent; the record dies with the pile
-  for (let i = fires.length - 1; i >= 0; i--) if (--fires[i].life <= 0) fires.splice(i, 1);
+  for (let i = fires.length - 1; i >= 0; i--) if (tickN >= fires[i].until) fires.splice(i, 1)[0].dead = 1;
   for (const [k, t] of npcDead) if (t <= tickN) npcDead.delete(k);
   if ((tickN & 7) === 0) { refreshNpcs(); foesTick(); }
   const rgn = (P.tx >> 6) + ':' + (P.tz >> 6);   // the tolerance clock restarts in a new region
   if (rgn !== P.regionK) { P.regionK = rgn; P.regionT = tickN; }
-  netSend(); netMon(); netPiles(); flushNet();
+  netPiles(); netSend(); netMon(); flushNet();   // claims first: the worker judges them against me.x, which netSend is about to move, and a full batch drops its tail
   if (P.moved && (tickN % 100) === 0) markDirty();   // a wandering player is worth persisting every minute or so
 }
 function cameraKeys(dt) {
@@ -6526,8 +6588,13 @@ async function useKey(raw) {
   return 1;
 }
 /* parsed JSON, or {__status, __html} when the reply was not JSON; null when the request never landed */
+/* The account key is the whole credential, so it rides an Authorization header rather than the query string, where
+   Cloudflare's request logs, wrangler tail and browser history all keep a copy. /ws is the exception: a WebSocket
+   handshake carries no headers of its own. The worker still reads the old query form, so either side may deploy first. */
+const authHead = () => (AUTH ? { authorization: 'Bearer ' + AUTH } : {});
 async function api(path, opts) {
   try {
+    opts = Object.assign({}, opts, { headers: Object.assign({}, authHead(), opts && opts.headers) });
     const r = await fetch(API + path, opts), t = await r.text();
     let j = null; try { j = JSON.parse(t); } catch {}
     if (!j) j = { e: 'not json', __html: 1 };
@@ -6564,6 +6631,7 @@ function packSave() {
     hs: P.hs || 0,
     clb: clogPack(), cln: CLOG_ORDER.length, pet: P.pet || 0, ins: P.ins, pl: P.petLost, dy: dyPack(), ca: P.ca,
     dr: P.dunRet || 0, cs: P.cstyle, bs: Array.from(bst), sku: P.skull || 0,   // sku: the skull's expiry on the shared clock — one entry, refreshed per initiated attack
+    sp: Math.round(P.spec), ht: Math.max(0, P.homeT), ac: Math.max(0, P.agiCapeT || 0),   // a relog used to hand back a full spec bar and an off-cooldown home teleport
     dp: P.dpile || 0 };   // dp: the unclaimed death pile, so a relog cannot cost you your right to it
 }
 /* What the blob would weigh right now. The bank used to advertise three hundred
@@ -6571,7 +6639,9 @@ function packSave() {
    player only found out when the server started refusing saves — silently, for
    the rest of the session. Now the pack knows its own size, so the game can
    refuse to enter a state it cannot store, and say why. */
-const saveBytes = () => { try { return JSON.stringify(packSave()).length; } catch { return 0; } };
+let sbLen = -1;
+const saveStale = () => { sbLen = -1; };   // any mutation invalidates it; markDirty is the one funnel every mutation already goes through
+const saveBytes = () => { if (sbLen < 0) { try { sbLen = JSON.stringify(packSave()).length; } catch { sbLen = 0; } } return sbLen; };
 /* The ONE place that knows which blob versions this build can read. Every gate
    outside applySave used to spell `b.v === 1` inline, so bumping packSave to v2
    quietly turned every returning character into "could not be read" — the login
@@ -6625,6 +6695,8 @@ function applySave(b) {
   const bs = b.bs || [];   // boosts and drains ride the blob, as 2007 logouts kept them
   for (let i = 0; i < NSK; i++) bst[i] = clamp(bs[i] | 0, -99, 99);
   P.skull = Math.min(b.sku | 0, tickN + SKULL_T);   // the skull serves out its saved sentence; a doctored future tick is clipped
+  P.spec = clamp(b.sp === undefined ? 100 : +b.sp || 0, 0, 100);
+  P.homeT = Math.min(b.ht | 0, tickN) || -1e9; P.agiCapeT = Math.min(b.ac | 0, tickN) || -1e9;
   P.dpile = null;
   const dp = b.dp;
   if (dp && isFinite(dp.x) && Array.isArray(dp.rows)) {   // the unclaimed pile returns: sealed until the killer's minute is out, gone at the quarter hour
@@ -6632,7 +6704,7 @@ function applySave(b) {
     const t = dp.t | 0, due = Math.max(t + (dp.pv ? 100 : 0), tickN), life = t + 1500 - due;
     if (rows.length && life > 0) {
       P.dpile = { x: dp.x | 0, z: dp.z | 0, t, pv: dp.pv ? 1 : 0, rows };
-      pendingPiles.push({ due, x: dp.x | 0, z: dp.z | 0, rows, life });
+      pendingPiles.push({ due, x: dp.x | 0, z: dp.z | 0, rows, life, own: PID });   // your own saved reclaim: yours to retract, nobody else's
     }
   }
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
@@ -6644,9 +6716,10 @@ function freshCharacter() {
   P.look.skin = P.look.shirt = P.look.legs = P.look.face = 0;
   for (const s of EQ_SLOTS) eq[s] = null;
   P.maxhp = P.hp = lvl[SK.hitpoints]; P.maxpray = P.pray = lvl[SK.prayer];
-  P.energy = 100; P.run = 1; P.atkT = 0; P.style = 0; P.cstyle = 0; P.prayers = 0; P.spell = null; P.slay = null; P.clue = null; P.farm = Object.create(null); bst.fill(0);
+  P.energy = 100; P.run = 1; P.atkT = 0; P.specArm = 0; P.style = 0; P.cstyle = 0; P.prayers = 0; P.spell = null; P.slay = null; P.clue = null; P.farm = Object.create(null); bst.fill(0);
   P.hs = null;   // loadSeed already tore any standing house down
   P.cl = new Set(); P.pet = null; P.ins = []; P.petLost = []; P.dy = {}; P.ca = {}; P.dunRet = null; P.skull = 0; P.dpile = null;
+  P.spec = 100; P.specArm = 0; P.homeT = P.agiCapeT = -1e9;
   for (const [id, n] of [['bronze_hatchet', 1], ['bronze_pickaxe', 1], ['tinderbox', 1], ['hammer', 1], ['small_net', 1], ['coins', 120]]) invAdd(id, n);
   eq.weapon = 'bronze_sword';
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
@@ -6657,7 +6730,7 @@ function freshCharacter() {
    purchase, gear, a trade, death) flushes promptly but bursts coalesce behind SAVE_GAP; unload and sign-out go straight through.
    Writing is disarmed until a read has succeeded: nothing may overwrite a character we could not load. Every send expects an ack. ---- */
 let saveDirty = 0, lastSave = 0, saveTimer = 0, saveArmed = 0, savedOnce = 0, ackPending = 0, ackWarned = 0;
-let saveFatal = 0, leftOnce = 0;   // the server refused a blob outright; and: the page is going away, once
+let saveFatal = 0, leftOnce = 0, saveDefer = 0, pendingForce = 0;   // the server refused a blob outright; and: the page is going away, once
 const NEED_BUILD = 10;   // the wire contract this client speaks. 10 is a floor, not a preference: this client relies on the room to stamp op 12's clock and to set op 21's owner from the sender, and an older room does neither
 const SPAWN_REV = 9;   // 9: town outlines, plans and charters (Lumbridge/Varrock) moved the belts and the spawns. Bumped with any change to powerAt / spawnTable / pickMonster / regions / sites / TOWNFOLK / LADDERS / bossAt / TREES / ruinAt / the dungeon band
 let worldSync = 0, srvBuild = 0;   // build >= 4: rooms relay 20/21/22; build >= 5 accepts batched sends
@@ -6691,6 +6764,7 @@ function offSave(now) {   // offline: the blob the worker would keep goes to loc
    markDirty(2)  now     — a level, a death, a trade, sign-out: down to SAVE_GAP
    markDirty(3)  unload  — the page is going away; skip every gap  */
 function markDirty(now) {
+  saveStale();   // ahead of the early returns: the blob changed whether or not this call schedules a write
   if (OFFLINE) return offSave(now);
   if (!AUTH || !saveArmed) return;
   saveDirty = 1;
@@ -6699,7 +6773,8 @@ function markDirty(now) {
 }
 function flushSave(force) {
   clearTimeout(saveTimer); saveTimer = 0;
-  if (!saveDirty || OFFLINE || !AUTH || !saveArmed) return;
+  force = pendingForce = Math.max(force | 0, pendingForce);   // a setTimeout retry carries no argument: keep the urgency the caller asked for
+  if (!saveDirty || OFFLINE || !AUTH || !saveArmed) { pendingForce = 0; return; }
   if (!ws || ws.readyState !== 1) { saveTimer = setTimeout(flushSave, 2000); return; }   // a socket not up yet must not swallow the flush
   const gap = Date.now() - lastSave, floor = force === 3 ? 0 : force === 2 ? SAVE_GAP : SAVE_SOON;
   if (gap < floor) { saveTimer = setTimeout(flushSave, floor - gap); return; }
@@ -6710,7 +6785,7 @@ function flushSave(force) {
        player everything they do afterwards; discovering it here costs one line of
        chat and leaves the last good blob in place on the server. */
     if (body.length > SAVE_CAP) {
-      saveDirty = 0;
+      saveDirty = 0; pendingForce = 0;
       if (!saveFatal) {
         saveFatal = 1;
         try { store.set('seedworld.rescue.' + SEED, body); } catch {}
@@ -6721,7 +6796,7 @@ function flushSave(force) {
     }
     const msg = '[8,' + JSON.stringify(SEED) + ',' + body + ']';
     ws.send(msg);
-    saveDirty = 0; lastSave = Date.now(); ackPending = lastSave;
+    saveDirty = 0; pendingForce = 0; lastSave = Date.now(); ackPending = lastSave;
     setTimeout(() => {
       if (!ackPending || ackWarned) return;
       ackWarned = 1;
@@ -6739,6 +6814,7 @@ function flushSave(force) {
    walking every time the tab went to the background. */
 on(document, 'visibilitychange', () => { if (document.hidden && !leftOnce) markDirty(3); });
 on(window, 'pagehide beforeunload', () => { if (leftOnce) return; leftOnce = 1; markDirty(3); });
+on(window, 'pageshow', () => { leftOnce = 0; });   // a bfcache restore returns to a live page: one hide must not disarm the unload save for good
 on(window, 'blur', () => { if (OFFLINE) offSave(1); else if (saveDirty) flushSave(); });   // a second window is often next: put the pending save on the wire before it can kick us
 
 /* ---- 38. THE SOCKET: everything degrades to single player ---- */
@@ -6840,7 +6916,7 @@ function onNet(m) {
     case 23: {   // a house stands (or falls) somewhere in this world
       const pid = String(m[1] || '');
       if (!pid || pid === PID) break;
-      const h = m[2] && Array.isArray(m[2].rm) && m[2].rm.length <= 12 && hValid(m[2]) &&
+      const h = m[2] && Array.isArray(m[2].rm) && hValid(m[2]) &&   // hValid now clamps the room count to the grid itself
         !hSiteBad((m[2].x | 0) + (RS >> 1), (m[2].z | 0) + (RS >> 1)) ? m[2] : null;   // the same siting rule the builder answered to
       const foe = h ? hBlocked(h, pid) : 0;
       if (foe === hMe()) hsYield();   // they held this land before us: ours folds away and the owner chooses
@@ -6876,7 +6952,11 @@ function onNet(m) {
       saveDirty = 1;
       clearTimeout(saveTimer);
       saveTimer = setTimeout(flushSave, 15000);   // one backoff beat, then the ordinary rails take it again
-      console.log('save deferred:', m[1] || '');
+      if (++saveDefer >= 4 && !ackWarned) {   // a minute of "come back later" is not transient any more, whatever the classifier thought
+        ackWarned = 1;
+        try { store.set('seedworld.rescue.' + SEED, JSON.stringify(packSave())); } catch {}
+        trouble('Seedworld keeps putting your save off. Progress is not landing right now — a copy is kept in this browser.', 'op 25 x' + saveDefer + ': ' + (m[1] || ''));
+      }
       break;
     case 11: {   // someone hit us
       const R = ensureRemote(m[1]); let dmg = clamp(m[2] | 0, 0, HIT_MAX);
@@ -6896,17 +6976,24 @@ function onNet(m) {
       else if (act === 3 && mine) {
    // they quote the version of my offer they accepted and their own: either moving inside the round trip voids the accept.
    // A room below build 11 does not forward the pair, so the check waits for one that does rather than refusing every trade.
-        if (srvBuild >= 11 && ((m[4] | 0) !== trade.ver || (m[5] | 0) !== trade.theirVer)) { trade.iOk = trade.theyOk = 0; drawTrade(); say('The offer changed — check it and accept again.', 'bad'); break; }
+   // A versioned accept always quotes at least 1, so an all-zero pair means this peer speaks no versions and the check
+   // must not fire. On a real mismatch, re-announce my offer at the same version so the peer's accept is cleared too.
+        if (srvBuild >= 11 && ((m[4] | 0) || (m[5] | 0)) && ((m[4] | 0) !== trade.ver || (m[5] | 0) !== trade.theirVer)) {
+          trade.iOk = trade.theyOk = 0; trade.pend = null;
+          wsSend([15, trade.pid, trade.mine, trade.ver]);
+          drawTrade(); say('The offer changed — check it and accept again.', 'bad'); break;
+        }
         trade.theyOk = 1; drawTrade(); tradeSettle();
       }
-   // act 4: the leader has moved. Perform on its word against the same version pair, spilling anything that will not fit
-      else if (act === 4 && mine && !tradeLead() && trade.iOk) {
-        if (srvBuild < 11 || ((m[4] | 0) === trade.ver && (m[5] | 0) === trade.theirVer)) tradeMove(1);
+   // act 4: the leader has moved, so the follower performs on that word against the pair it froze when it accepted.
+   // No iOk test: an edit after committing must not let this side dodge a bargain the other has already paid.
+      else if (act === 4 && mine && !tradeLead() && trade.pend) {
+        if (srvBuild < 11 || !((m[4] | 0) || (m[5] | 0)) || ((m[4] | 0) === trade.pend.ver && (m[5] | 0) === trade.pend.theirVer)) tradeMove(1);
       }
       break;
     }
     case 15:   // their offer changed: a changed offer is a new offer
-      if (trade && trade.pid === m[1]) { trade.theirs = (m[2] || []).filter(e => ITEMS[e[0]] && e[1] > 0); trade.theirVer = m[3] | 0; trade.iOk = 0; trade.theyOk = 0; drawTrade(); }
+      if (trade && trade.pid === m[1]) { trade.theirs = (m[2] || []).filter(e => ITEMS[e[0]] && e[1] > 0); trade.theirVer = m[3] | 0; trade.iOk = 0; trade.theyOk = 0; trade.pend = null; drawTrade(); }
       break;
     case 20: hearDeplete(/^-?\d+$/.test(m[1]) ? +m[1] : String(m[1]), m[2] | 0); break;   // tile keys are numbers; the relay stringifies them
     case 21: {   // a live monster, owned elsewhere
@@ -6947,19 +7034,19 @@ function onNet(m) {
     case 19: { const R = ensureRemote(m[1]); if (R) { shootArrow(R, aimAt(m[2] | 0, groundY(m[2] | 0, m[3] | 0), m[3] | 0), null, (m[4] | 0) || 0xc3c8d0); sfxAt(2692, R.tx, R.tz, 14, 0.7); } break; }
     case 18: { const R = ensureRemote(m[1]), sp = SPELLS[m[2] | 0]; if (R && sp) { remoteBolt(R, sp, m[3] | 0, m[4] | 0); sfxAt(spellSnd(sp), R.tx, R.tz, 14, 0.8); } break; }
     case 13: { const R = ensureRemote(m[1]); if (!R) break; R.hp = m[2] | 0; R.maxhp = Math.max(1, m[3] | 0); R.hurt = tickN; if (R.hp < R.maxhp) healthBar(R, 2.0); break; }
-    case 16: losePile(m[2] | 0, m[3] | 0, Array.isArray(m[4]) ? m[4] : []); break;   // someone took from a broadcast pile: retract our mirror
+    case 16: losePile(m[2] | 0, m[3] | 0, Array.isArray(m[4]) ? m[4] : [], String(m[5] || '')); break;   // someone took from a broadcast pile: retract our mirror
     case 12: {   // a player died near us and spilled; the pile answers to its clock
       const R = remotes.get(m[1]), rows = (m[4] || []).filter(it => ITEMS[it[0]] && (it[1] | 0) > 0);
       const killer = String(m[5] || ''), t0 = m[6] | 0;
       sfxAt(512, m[2] | 0, m[3] | 0);
       say((R ? R.name : 'Someone') + ' has been defeated.', 'lv');
       if (!rows.length) break;
-      if (!t0 || killer === PID) { for (const it of rows) dropItem(it[0], it[1] | 0, m[2] | 0, m[3] | 0, 1500, 1); break; }   // your kill: the pile is yours this minute
-      if (pendingPiles.length < 40) pendingPiles.push({ due: t0 + (killer ? 100 : 750), x: m[2] | 0, z: m[3] | 0, rows, life: killer ? 1400 : 750 });
+      if (!t0 || killer === PID) { for (const it of rows) dropItem(it[0], it[1] | 0, m[2] | 0, m[3] | 0, 1500, String(m[1])); break; }   // your kill: the pile is yours this minute
+      if (pendingPiles.length < 40) pendingPiles.push({ due: t0 + (killer ? 100 : 750), x: m[2] | 0, z: m[3] | 0, rows, life: killer ? 1400 : 750, own: String(m[1]) });
       break;   // a killer's minute, or the fallen's safe half, then the pile opens to all
     }
     case 10:   // write confirmed
-      ackPending = 0; ackWarned = 0;
+      ackPending = 0; ackWarned = 0; saveDefer = 0;
       if (ackResolve) ackResolve(true);
       if (!savedOnce) { savedOnce = 1; say('Character saved to ' + m[1] + '.', 'lv'); }
       break;
@@ -6981,7 +7068,7 @@ function onNet(m) {
       if (pid === PID) break;
       const had = remotes.get(pid);
       if (had) { had.name = m[2] || had.name; had.eq = m[5] || had.eq; had.eqDirty = 1; had.tx = had.px = m[3] | 0; had.tz = had.pz = m[4] | 0; had.lastSeen = tickN; had.q.length = 0; }
-      else remotes.set(pid, newRemote(pid, m[2], m[3], m[4], m[5]));
+      else { remotes.set(pid, newRemote(pid, m[2], m[3], m[4], m[5])); remoteSort = 1; }
       break;
     }
     case 9: {   // clock echo: the lowest-RTT sample wins
@@ -7059,7 +7146,7 @@ function ensureRemote(pid, x, z) {
   let R = remotes.get(pid);
   if (!R) {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
-    remotes.set(pid, R = newRemote(pid, null, x, z, null));
+    remotes.set(pid, R = newRemote(pid, null, x, z, null)); remoteSort = 1;
   }
   R.lastSeen = tickN;
   return R;
@@ -7072,7 +7159,7 @@ function dropRemote(pid) {
   if (R.skullSpr) { scene.remove(R.skullSpr); R.skullSpr = null; }
   freeP(R, 'plate'); freeP(R, 'bub');
   R.lod = -1;
-  remotes.delete(pid);
+  remotes.delete(pid); remoteSort = 1;
 }
 const clearRemotes = () => { for (const pid of [...remotes.keys()]) dropRemote(pid); };
 function dressRemote(R) {
@@ -7092,11 +7179,11 @@ on(plateWrap, 'click', e => {
   if (opts.length) opts[0].f();
 });
 on(plateWrap, 'contextmenu', e => { const m = e.target.closest('.plate'); if (!m || !m._obj) return; e.preventDefault(); openCtx(e.clientX, e.clientY, optionsFor(m._obj)); });
-function takePlate() {
-  for (const p of platePool) if (!p.live) { p.live = 1; p.el.style.display = ''; return p; }
-  const p = { el: div(plateWrap, 'plate'), live: 1, txt: '', claim: 1 }; platePool.push(p); return p;
+function takePlate(owner, key) {
+  for (const p of platePool) if (!p.live) { p.live = 1; p.own = owner; p.k = key; p.el.style.display = ''; return p; }
+  const p = { el: div(plateWrap, 'plate'), live: 1, txt: '', claim: 1, own: owner, k: key }; platePool.push(p); return p;
 }
-const freePlate = p => { p.live = 0; p.el.style.display = 'none'; p.el._obj = null; };   // a stale back-reference would hand the next borrower a ghost
+const freePlate = p => { p.live = 0; p.el.style.display = 'none'; p.el._obj = null; if (p.own) { p.own[p.k] = null; p.own = null; } };   // release through the owner, or a reclaimed plate is held twice and steals the click
 const _pv = new THREE.Vector3();
 /* One projected label, pooled; false when behind the camera. `html` must be
    passed by the three call sites that compose their own markup — and ONLY those.
@@ -7110,7 +7197,7 @@ function labelAt(owner, key, x, y, z, text, cls, html) {
   _pv.set(x, y, z).project(camera);
   if (_pv.z > 1) { freeP(owner, key); return false; }
   let q = owner[key];
-  if (!q) q = owner[key] = takePlate();
+  if (!q) q = owner[key] = takePlate(owner, key);
   q.claim = 1;
   if (q.txt !== text) { q.txt = text; if (html) q.el.innerHTML = text; else q.el.textContent = text; }
   if (q.cls !== cls) { q.cls = cls; q.el.className = cls; }
@@ -7131,10 +7218,11 @@ function markHtml(o) {
 function labelsBegin() { for (const g of allRigs) g.userData.claim = 0; for (const q of platePool) q.claim = 0; }
 function labelsEnd() { for (const g of allRigs) if (!g.userData.claim && g.visible) giveRig(g); for (const q of platePool) if (!q.claim && q.live) freePlate(q); }
 const lvlColour = (theirs, mine) => { const d = theirs - mine; return d <= -10 ? '#00ff00' : d <= -3 ? '#7fff2f' : d <= 2 ? '#ffff00' : d <= 9 ? '#ff9040' : '#ff3030'; };
-let sortedRemotes = [];
+let sortedRemotes = [], remoteSort = 1;   // a size test misses the compensating leave+enter the room batches into one message
 function updateRemotes(dt, alpha) {
   if (!remotes.size) { if (POOL_FAR.used) { poolReset(POOL_FAR); poolFlush(POOL_FAR); } return; }
-  if ((tickN & 7) === 0 || sortedRemotes.length !== remotes.size) {   // sort every 8 ticks: per-frame LOD churn would thrash the pool
+  if ((tickN & 7) === 0 || remoteSort) {   // sort every 8 ticks: per-frame LOD churn would thrash the pool
+    remoteSort = 0;
     sortedRemotes = [...remotes.values()].sort((a, b) => (Math.abs(a.tx - P.tx) + Math.abs(a.tz - P.tz)) - (Math.abs(b.tx - P.tx) + Math.abs(b.tz - P.tz)));
   }
   poolReset(POOL_FAR);
@@ -7271,7 +7359,7 @@ async function enterWorld(seed) {
     let j = null;
     for (let a = 0; a < 3 && !loaded; a++) {   // a blip must not cost the character: three tries
       if (a) await wait(400 * a);
-      j = await api('/save?auth=' + AUTH + '&seed=' + encodeURIComponent(seed));
+      j = await api('/save?seed=' + encodeURIComponent(seed));
       if (j && !j.e) loaded = 1;
       else if (j && j.__html) j.e = 'HTTP ' + j.__status + ' — /save is not reaching the Worker';
     }
@@ -7330,7 +7418,7 @@ let trade = null;
 const TR = () => el('tradeWrap');
 /* ver counts my offer's edits, theirVer the last of theirs I have seen. An accept quotes both, so an offer that moved
    inside the round trip can never be settled against — the window that let one side settle alone. */
-const newTrade = (pid, name) => ({ pid, name, mine: [], theirs: [], iOk: 0, theyOk: 0, open: 0, ver: 1, theirVer: 0 });
+const newTrade = (pid, name) => ({ pid, name, mine: [], theirs: [], iOk: 0, theyOk: 0, open: 0, ver: 1, theirVer: 1 });   // BOTH start at 1: a side that offers nothing never sends an op 15, and a 0 here refused every gift trade
 const tradeSend = (action, seen, mine) => { if (trade) wsSend([14, trade.pid, action, seen | 0, mine | 0]); };
 function tradeRequest(R) {
   if (trade) return say('You are already trading.', 'bad');
@@ -7348,6 +7436,7 @@ function tradeOpen() {
   drawTrade();
 }
 function tradeClose(msg) {
+  if (trade && !trade.open) hideBye();   // a request cancelled before it opened would leave its dialog up, and its button throws on a null trade
   TR().classList.remove('on');
   closeCtx();
   trade = null;
@@ -7355,7 +7444,7 @@ function tradeClose(msg) {
   dirty.inv = 1;
 }
 function tradeCancel(tell) { if (!trade) return; if (tell) tradeSend(2); tradeClose('The trade was called off.'); }
-function tradeTouch() { trade.iOk = 0; trade.theyOk = 0; wsSend([15, trade.pid, trade.mine, ++trade.ver]); drawTrade(); }
+function tradeTouch() { trade.iOk = 0; trade.theyOk = 0; trade.pend = null; wsSend([15, trade.pid, trade.mine, ++trade.ver]); drawTrade(); }
 /* the pack must hold what is coming once what is going has left, so capacity cannot be judged before the offer is known */
 function tradeFits() {
   let freed = 0, need = 0;
@@ -7387,6 +7476,9 @@ function tradeConfirm() {
   if (!trade || !trade.open || trade.iOk) return;
   if (P.dead) return say('You cannot trade right now.', 'bad');
   if (!tradeFits()) return say('You do not have room for that.', 'bad');   // refused here, before the wire ever hears an accept
+   // the rows are frozen at the moment of acceptance: settlement quotes this, never the live lists, so a later edit
+   // (or a death, or an X click) cannot make one side refuse a bargain the other has already performed
+  trade.pend = { ver: trade.ver, theirVer: trade.theirVer, mine: trade.mine.map(r => r.slice()), theirs: trade.theirs.map(r => r.slice()) };
   trade.iOk = 1; tradeSend(3, trade.theirVer, trade.ver); drawTrade(); tradeSettle();
 }
 /* One side has to go first, or both can refuse independently and only one of them will have moved. The pids come from
@@ -7394,8 +7486,9 @@ function tradeConfirm() {
    act 4, and the follower performs on that word alone — it never re-judges, it spills any overflow at its feet. */
 const tradeLead = () => String(PID) < String(trade.pid);   // both are room-issued strings; String() keeps a null PID from making both sides followers
 function tradeMove(spillOver) {
-  for (const [id, k] of trade.mine) invRemove(id, k);
-  for (const [id, k] of trade.theirs) {
+  const deal = trade.pend || trade;
+  for (const [id, k] of deal.mine) invRemove(id, k);
+  for (const [id, k] of deal.theirs) {
     if (!ITEMS[id]) continue;
     const got = invAdd(id, k) | 0;
     if (got < k && spillOver) { dropItem(id, k - got, P.tx, P.tz, 3000); say('Your pack was full — the rest falls at your feet.', 'bad'); }
@@ -7408,8 +7501,9 @@ function tradeMove(spillOver) {
 function tradeSettle() {
   if (!trade || !trade.iOk || !trade.theyOk) return;
   if (!tradeLead()) return;   // the follower waits for act 4: nothing of its own moves until the leader has moved
-  if (P.dead || !hasAll(trade.mine) || !tradeFits()) { say('You do not have room for that.', 'bad'); trade.iOk = 0; tradeSend(2); tradeClose('The trade was called off.'); return; }
-  tradeSend(4, trade.theirVer, trade.ver);
+  const deal = trade.pend || trade;
+  if (P.dead || !hasAll(deal.mine) || !tradeFits()) { say('You do not have room for that.', 'bad'); trade.iOk = 0; tradeSend(2); tradeClose('The trade was called off.'); return; }
+  tradeSend(4, deal.theirVer, deal.ver);
   tradeMove(0);
 }
 const itemName = id => ITEMS[id] ? ITEMS[id].name : id;
@@ -7485,14 +7579,14 @@ async function signOut() {
      declared too old. Telling somebody their character is saved when it is not
      is worse than telling them it failed. */
   const ok = saveFatal ? false : (OFFLINE || !AUTH || !saveArmed) ? true : await saveAndConfirm(5);
-  if (ok) { byeBusy = 0; toWorldSelect(); return; }
+  if (ok) { byeBusy = 0; toWorldSelect(1); return; }
   showBye('Could not save', 'Seedworld is not responding. Leaving now may lose the last few minutes of progress.', [
-    ['Keep trying', async () => { showBye('Signing out', 'Saving your character…'); const ok2 = await saveAndConfirm(5); byeBusy = 0; if (ok2) toWorldSelect(); else signOutFailed(); }], leaveAnyway]);
+    ['Keep trying', async () => { showBye('Signing out', 'Saving your character…'); const ok2 = await saveAndConfirm(5); byeBusy = 0; if (ok2) toWorldSelect(1); else signOutFailed(); }], leaveAnyway]);
   byeBusy = 0;
 }
-const askTrade = nm => showBye('Trade request', nm + ' wishes to trade with you.', [['Trade', () => { hideBye(); tradeSend(1); tradeOpen(); }], ['Decline', () => { hideBye(); tradeSend(2); tradeClose(''); }]]);
-const signOutFailed = () => showBye('Could not save', 'Still no response. You can keep playing and try again later, or leave and lose recent progress.', [['Keep playing', hideBye], ['Leave anyway', toWorldSelect]]);
-function toWorldSelect() {   // back to the world list, still signed in
+const askTrade = nm => showBye('Trade request', nm + ' wishes to trade with you.', [['Trade', () => { hideBye(); if (!trade) return say(nm + ' is no longer trading.', 'bad'); tradeSend(1); tradeOpen(); }], ['Decline', () => { hideBye(); tradeSend(2); tradeClose(''); }]]);
+const signOutFailed = () => showBye('Could not save', 'Still no response. You can keep playing and try again later, or leave and lose recent progress.', [['Keep playing', hideBye], ['Leave anyway', () => toWorldSelect()]]);   // wrapped: showBye hands the handler a MouseEvent, which is truthy
+function toWorldSelect(saved) {   // back to the world list, still signed in
   if (trade) tradeCancel(1);
   hideBye();
   started = 0;
@@ -7510,7 +7604,7 @@ function toWorldSelect() {   // back to the world list, still signed in
   setGo('Enter this world', 0);
   if (!OFFLINE && AUTH) loadCharacterList(); else if (OFFLINE) offChars();
   pollPopulation();
-  say('You have signed out. Your character is saved.', 'lv');
+  say(saved ? 'You have signed out. Your character is saved.' : 'You have signed out — recent progress was not saved.', saved ? 'lv' : 'bad');
 }
 el('signout').onclick = signOut;
 
@@ -7562,8 +7656,8 @@ el('lgToOld').onclick = () => showLogin('old');
 /* one account lookup serves the boot check, the login and the character list: name, last world and characters in a single request */
 let acct = null;
 async function fetchAccount() {
-  let j = await api('/characters?auth=' + AUTH);
-  if (!j || j.__status === 404) j = await api('/save?list=1&auth=' + AUTH);   // run_worker_first may not be deployed; /save always is
+  let j = await api('/characters');
+  if (!j || j.__status === 404) j = await api('/save?list=1');   // run_worker_first may not be deployed; /save always is
   if (j && !j.e) { acct = { key: KEY, name: j.name, last: j.last, characters: j.characters || [] }; NAME = j.name; if (j.last) SEED = j.last; }
   return j;
 }
@@ -7954,6 +8048,7 @@ USE_ON[11] = (o, uit) => uit.id === 'tiara' && invCount(RC[o.k].k + '_talisman')
 /* ---- AGILITY: log balances over narrow water and climbing rocks up short cliffs, pure functions of the tile; a crossing lands you on the far end ---- */
 structHooks.push((rec, vs, inChunk) => {
   const ox = rec.cx * CHUNK, oz = rec.cz * CHUNK, bk = new Set(rec.blk), objs = [], bridges = [];
+  for (const o of rec.objs) bk.add(o.key);   // trees claim their tiles in populateChunk, so rec.blk alone no longer sees them
   const hAt = (x, z) => inChunk(x, z) ? recH(rec, x, z) : heightAt(x, z);
   const open = (x, z) => !bk.has(tk(x, z)) && dryOpen(x, z);   // this chunk's own claims are not in blocked yet
   for (let j = 1; j < CHUNK && objs.length < 3; j += 2) for (let i = 1; i < CHUNK && objs.length < 3; i += 2) {   // odd tiles never share a fishing spot's key
@@ -8180,6 +8275,8 @@ const potRestore = (f, b, all) => { for (let i = 0; i < NSK; i++) if (bst[i] < 0
 const potPray = (b, f) => { P.pray = Math.min(P.maxpray, P.pray + b + Math.floor(P.maxpray * ((f || 0.25) + (capeOn('prayer') ? 0.02 : 0)))); };   // the prayer cape is a holy wrench: two points more in the hundred
 function drink(i) {
   const it = ITEMS[inv[i].id], p = it.pot, d = it.dose;
+  if (P.potT > tickN) return;   // a sip is a consumption like a bite: its own three-tick clock, and it delays the next swing
+  P.potT = tickN + 3; P.actT += 3; P.atkT = Math.max(P.atkT, tickN + 3);
   p.fx(); sfx(2390);
   inv[i] = d > 1 ? { id: p.k + '_' + (d - 1), n: 1 } : null;   // the vial keeps its slot
   say('You drink some of your ' + p.n.toLowerCase() + '.' + (d > 1 ? ' You have ' + (d - 1) + (d > 2 ? ' doses' : ' dose') + ' left.' : ' You have finished your potion.'));
@@ -8276,7 +8373,7 @@ function farmOpts(o) {
     : g < 1 ? c.n + ' is growing here; about ' + Math.ceil((c.grow - tickN + s[1]) * TICK / 60000) + ' minutes to go.' : 'The ' + c.n.toLowerCase() + ' is fully grown.') };
   return g < 1 ? [insp] : [{ t: c.t === 2 ? 'Check health' : 'Harvest', o: o.n, f: act(o, c.t === 2 ? 'checktree' : 'harvest') }, insp];
 }
-/* one item a go; the lives ride along as a third, unsaved state element. A tree pays its farming xp on the check, then five logs with woodcutting xp */
+/* one item a go; the lives ride along as a third element, saved from the first go. A tree pays its farming xp on the check, then five logs with woodcutting xp */
 TASKS.harvest = TASKS.checktree = (t, o) => {
   const s = P.farm[o.key], c = s && CROPS[s[0]];
   if (!c || cropStage(o) < 1) { P.task = null; return; }
@@ -8289,8 +8386,7 @@ TASKS.harvest = TASKS.checktree = (t, o) => {
   gainXp(c.t === 2 ? 'woodcutting' : 'farming', c.t === 2 ? c.tree.xp : c.xp);
   sfx(2442, 0.8);
   say((c.t === 2 ? 'You get some ' : 'You harvest some ') + ITEMS[c.yield].name.toLowerCase() + '.');
-  if (--s[2] <= 0) { delete P.farm[o.key]; markDirty(1); say('The patch is cleared.'); P.task = null; }
-  else markDirty();   // a repeatable action is never urgent, but the count has to reach the blob
+  if (--s[2] <= 0) { delete P.farm[o.key]; markDirty(1); say('The patch is cleared.'); P.task = null; }   // invAdd above already flagged the routine save that carries the count
 };
 /* what grows: a blob on the bed that swells and takes the produce's colour, or a sapling in the species' tint */
 const CROP_GEO = bakeW(shift(octa(0.5), 0.5)), SAPLING_GEO = merge([shade(shift(cyl(0.12, 0.16, 1, 5, 1), 0.5), BARK2), bakeW(shift(octa(0.55, 1), 1.3))]);
@@ -8376,7 +8472,7 @@ function campBuild(r, e) {
   const x = P.tx, z = P.tz;
   P.task = null;
   if (townCore(x, z) || !dryOpen(x, z) || fires.concat(builds).some(b => b.x === x && b.z === z)) { for (const [id, n] of r.need) invAdd(id, n); say("You can't build here.", 'bad'); return null; }
-  (e.fire ? fires : builds).push(Object.assign(e, { x, z, y: walkY(x, z), life: 1500 }));
+  (e.fire ? fires : builds).push(Object.assign(e, { x, z, y: walkY(x, z), until: tickN + 1500 }));
   return [];
 }
 const BUILDS = [['firepit', 'Fire pit', 'flame', 1, 58, [['plank', 2], ['logs', 1]], { fire: 1, t: 6, pit: 1 }], ['workbench', 'Workbench', 'hammer', 17, 143, [['plank', 5]], { t: 18 }],
@@ -8397,7 +8493,7 @@ const POOL_BENCH = Pool(merge([shade(shift(box(2.0, 0.14, 1.0), 0.9), C_FLOOR), 
   .concat([-1, 1].flatMap(a => [-1, 1].map(b => shade(box(0.18, 0.86, 0.18).translate(a * 0.85, 0.43, b * 0.38), C_BEAM))))), 8);
 POOLS.push(POOL_RING, POOL_ALTAR, POOL_BENCH);
 poolHooks.push(() => { for (const f of fires) if (f.pit) poolPut(POOL_RING, f.x, f.y, f.z, 0, 1); for (const b of builds) poolPut(b.t === 8 ? POOL_ALTAR : POOL_BENCH, b.x, b.y, b.z, 0, 1); });
-tickHooks.push(() => { for (let i = builds.length - 1; i >= 0; i--) if (--builds[i].life <= 0) builds.splice(i, 1)[0].dead = 1; });
+tickHooks.push(() => { for (let i = builds.length - 1; i >= 0; i--) if (tickN >= builds[i].until) builds.splice(i, 1)[0].dead = 1; });
 
 /* ---- CONSTRUCTION II: THE PLAYER HOUSE ----
    One house per character, claimed on any flat open ground with a deed (1000 gp, the estate agent's price).
@@ -8533,10 +8629,12 @@ const rotL = (lx, lz, r) => { for (let i = 0; i < (r & 3); i++) { const t = lx; 
 const SIDE = [[H_N, 0, 1], [H_E, 1, 0], [H_S, 0, -1], [H_W, -1, 0]];
 const roomAt = (h, gx, gz) => h.rm.find(r => r[1] === gx && r[2] === gz);
 /* a house record from the wire or an old save must be sound before it renders: one bad row would throw mid-frame for everyone */
+/* Clamped to the grid the builder actually offers: it admitted twelve rooms on a five-wide grid, so a hand-made record
+   off the wire could stand two rooms further out than any house this client can build. */
 const hValid = h => Number.isFinite(h.x) && Number.isFinite(h.z) && Number.isFinite(h.y) && Math.abs(h.y) <= 1000 &&
-  Array.isArray(h.rm) && h.rm.length >= 1 && h.rm.length <= 12 &&
-  h.rm.every(r => Array.isArray(r) && Number.isInteger(r[0]) && ROOMS[r[0]] && Number.isInteger(r[1]) && Math.abs(r[1]) <= 2 &&
-    Number.isInteger(r[2]) && Math.abs(r[2]) <= 2 && Number.isInteger(r[3]) && r[3] >= 0 && r[3] <= 3 && Array.isArray(r[4]));
+  Array.isArray(h.rm) && h.rm.length >= 1 && h.rm.length <= (HGRID * 2 + 1) ** 2 &&
+  h.rm.every(r => Array.isArray(r) && Number.isInteger(r[0]) && ROOMS[r[0]] && Number.isInteger(r[1]) && Math.abs(r[1]) <= HGRID &&
+    Number.isInteger(r[2]) && Math.abs(r[2]) <= HGRID && Number.isInteger(r[3]) && r[3] >= 0 && r[3] <= 3 && Array.isArray(r[4]));
 /* houses stand only while their owner walks this world: the character save is the one true record, the room a live mirror.
    Conflicts weigh the ACTUAL rooms of both houses, not the old blanket radius — a one-room cottage slips in where a mansion cannot. */
 const hRects = (h, e) => e ? [[h.x - RS, h.z - RS, RS * 3]] : h.rm.map(r => [h.x + r[1] * RS, h.z + r[2] * RS, RS]);   // e: the whole potential nine-room lot
@@ -8678,6 +8776,22 @@ const hRefuse = (r, why) => {   // a refused build hands the materials back and 
   P.task = null;
   return null;
 };
+/* Which way a new room should face: score each rotation by how many of its doors meet a neighbour's door, and how many
+   of its solid walls block one. Laying every room at rot 0 could seal it off the moment it was paid for. */
+function doorFit(ti, gx, gz) {
+  let best = 0, bs = -1e9;
+  for (let rot = 0; rot < 4; rot++) {
+    const mask = rotMask(ROOMS[ti][4], rot);
+    let sc = 0;
+    SIDE.forEach(([bit, dx, dz], i2) => {
+      const nb = roomAt(P.hs, gx + dx, gz + dz); if (!nb) return;
+      const open = rotMask(ROOMS[nb[0]][4], nb[3]) & SIDE[(i2 + 2) & 3][0];
+      sc += open ? ((mask & bit) ? 2 : -2) : ((mask & bit) ? -1 : 0);
+    });
+    if (sc > bs) { bs = sc; best = rot; }
+  }
+  return best;
+}
 function roomBuild(i, r) {
   const g = P.task && P.task.o;
   if (!g || g.gk !== 'room' || !P.hs || roomAt(P.hs, g.gx, g.gz) || P.hs.rm.length >= 9) return hRefuse(r);
@@ -8688,7 +8802,7 @@ function roomBuild(i, r) {
     if (blocked.has(k)) felled++;   // trees and stones give way to the room; the rebuild clears them
   }
   if (felled) say('The builders fell ' + felled + ' trees and stones to make room.');
-  P.hs.rm.push([i, g.gx, g.gz, 0, []]);
+  P.hs.rm.push([i, g.gx, g.gz, doorFit(i, g.gx, g.gz), []]);   // face the doorway it was built against
   hFinish();
   return [];
 }
@@ -8731,8 +8845,10 @@ const furnOptsFor = g => {   // fresh builds when empty, the chain's next step w
   return HOPT[g.hs[0]].map(id => HREC[id]).filter(r => { const pre = HF[r.id][7] && HF[r.id][7].pre; return pre ? cur === pre : !cur; });
 };
 OBJ_OPTS[19] = o => {
-  if (o.gk === 'room') return moveSel !== null
-    ? [{ t: 'Move room', o: 'here', f: act(o, o2 => { const rm = P.hs.rm[moveSel]; moveSel = null; const was = [rm[1], rm[2]]; rm[1] = o2.gx; rm[2] = o2.gz; if (!hConnected(P.hs.rm)) { rm[1] = was[0]; rm[2] = was[1]; return say('The rooms must stay joined.', 'bad'); } hFinish(); say('The room is moved.'); }) }]
+  if (moveSel && (!P.hs || !P.hs.rm.includes(moveSel))) moveSel = null;   // the armed room came down under us: an index would now name a different room
+  if (o.gk === 'room') return moveSel
+    ? [{ t: 'Move room', o: 'here', f: act(o, o2 => { const rm = moveSel; moveSel = null; const was = [rm[1], rm[2]]; rm[1] = o2.gx; rm[2] = o2.gz; if (!hConnected(P.hs.rm)) { rm[1] = was[0]; rm[2] = was[1]; return say('The rooms must stay joined.', 'bad'); } hFinish(); say('The room is moved.'); }) },
+       { t: 'Cancel move', o: 'room', f: () => { moveSel = null; say('The room stays where it is.'); } }]
     : [{ t: 'Build', o: 'New room', f: act(o, o2 => showMake('Build a room', ROOM_RECIPES, o2)) }];
   if (o.gk === 'furn') return [{ t: 'Build', o: o.n.slice(6), f: act(o, o2 => { const rows = furnOptsFor(o2); rows.length ? showMake(o2.n, rows, o2) : say('Nothing can be built there yet.'); }) }];
   if (o.gk === 'rem') {
@@ -8741,7 +8857,7 @@ OBJ_OPTS[19] = o => {
     return opts2.concat([{ t: 'Remove', o: o.n, f: act(o, o2 => { P.hs.rm[o2.ri][4][o2.hi] = null; hFinish(); say('You tear it out. The materials are past saving.'); }) }]);
   }
   const opts = [{ t: 'Rotate', o: o.n, f: act(o, o2 => { const rm = P.hs.rm[o2.ri]; rm[3] = (rm[3] + 1) & 3; hFinish(); say('The room turns a quarter to the ' + ['north', 'east', 'south', 'west'][rm[3]] + '.'); }) },
-    { t: 'Move', o: o.n, f: () => { moveSel = o.ri; say('Now click a room space to set it down.', 'lv'); } }];
+    { t: 'Move', o: o.n, f: () => { moveSel = P.hs.rm[o.ri] || null; say('Now click a room space to set it down.', 'lv'); } }];
   opts.push(P.hs.rm.length === 1
     ? { t: 'Demolish', o: 'house', f: () => askDemolish() }
     : { t: 'Remove', o: o.n + ' (room)', f: act(o, o2 => { const rms = P.hs.rm.slice(); rms.splice(o2.ri, 1); if (!hConnected(rms)) return say('That room holds the house together.', 'bad'); P.hs.rm.splice(o2.ri, 1); hFinish(); say('The room comes down; its furniture is lost.'); }) });
@@ -8782,13 +8898,18 @@ function hsYield() {
    The layout tries the land exactly as it stands on the map; only if that fails do the other three quarter-turns
    try in random order (doors and furniture turn with the walls) before giving up. */
 const hsSpin = rm => rm.map(r => [r[0], -r[2], r[1], (r[3] + 1) & 3, r[4]]);   // one quarter-turn CCW: the east wing walks to north
+/* The hint scan sweeps 529 candidate lots whose room rings overlap, so the same tiles are asked for again and again —
+   tens of thousands of heightAt calls in one blocking frame. A memo lives only for the length of a scan, so nothing
+   can go stale underneath it. */
+let _hfC = null;
+const hFy = (k, x, z) => { if (!_hfC) return heightAt(x, z); let y = _hfC.get(k); if (y === undefined) _hfC.set(k, y = heightAt(x, z)); return y; };
 function hsFit(rm, x0, z0, e, coarse) {   // a refusal string, or { y, felled }; coarse samples every third tile for the hint scan
   if (hBlocked({ x: x0, z: z0, rm }, hMe(), e)) return 'Another house stands too near.';
   if (wildLvAt(x0, z0)) return 'The Wilderness holds no ground for a home.';
   let lo = 1e9, hi = -1e9, felled = 0;
   const st = coarse ? 3 : 1;
   for (const r of rm) for (let a = -1; a <= RS; a += st) for (let b = -1; b <= RS; b += st) {   // each room and a doorstep ring
-    const x = x0 + r[1] * RS + a, z = z0 + r[2] * RS + b, y = heightAt(x, z), k = tk(x, z);
+    const x = x0 + r[1] * RS + a, z = z0 + r[2] * RS + b, k = tk(x, z), y = hFy(k, x, z);
     if (y < 1.2) return 'The lot runs into water.';
     if (floorMap.has(k) && floorMap.get(k).house !== hMe()) return 'Something else already stands on that ground.';
     if (blocked.has(k)) felled++;
@@ -8829,6 +8950,7 @@ function hsHintClear() { if (hintMesh) { scene.remove(hintMesh); hintMesh.geomet
 function hsHintShow(rm, e) {
   hsHintClear();
   const pads = [];
+  _hfC = new Map();   // one memo for the whole sweep
   for (let dx = -44; dx <= 44; dx += 4) for (let dz = -44; dz <= 44; dz += 4) {
     const cx = P.tx + dx, cz = P.tz + dz;
     if (inDunPlane(cz)) continue;
@@ -8838,6 +8960,7 @@ function hsHintShow(rm, e) {
     const f = hsFit(rm, cx - (RS >> 1), cz - (RS >> 1), e, 1);
     if (typeof f !== 'string') pads.push([cx, cz, f.y]);
   }
+  _hfC = null;   // the memo dies with the sweep
   if (!pads.length) return say('No open ground within sight takes the house; wander further and try again.', 'bad');
   hintMesh = new THREE.Mesh(merge(pads.map(([x, z, y]) => tint(box(3.2, 0.24, 3.2), [0.27, 0.85, 0.45]).translate(x, y + 0.4, z))),
     new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false, fog: false }));
@@ -8939,9 +9062,9 @@ function caveDun(c) {
   for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
     if (!a && !b) continue;
     const q = caveAt(c.gx + a, c.gz + b);
-    if (q) near2 = Math.min(near2, Math.hypot(q.x - c.x, q.z - c.z));
+    if (q) near2 = Math.min(near2, Math.max(Math.abs(q.x - c.x), Math.abs(q.z - c.z)));   // the halls are square, so the cap is measured square
   }
-  const E = Math.max(40, Math.min(Math.floor(near2 / 2) - 4, 52 + ((h >>> 8) & 3) * 8 + Math.round(Math.min(12, pw * 5))));
+  const E = Math.max(16, Math.min(Math.floor(near2 / 2) - 4, 52 + ((h >>> 8) & 3) * 8 + Math.round(Math.min(12, pw * 5))));   // the floor used to override the cap, so two neighbouring caves could overlap
   const pool = DUN_THEMES.filter(t => pw >= t.min), th0 = pool[(h >>> 13) % pool.length];
   return c.dun = { v: { x: c.x, z: c.z }, cave: c, ox: c.x, oz: c.z + DUN_Z, seed: h, E, pw,
     th: Object.assign({}, th0, { bs: WILD_BS }), name: 'The ' + wordOf(h, regionAt(c.x, c.z).a) + ' ' + th0.pl };
@@ -9358,7 +9481,7 @@ applyOpts = function (r) {
 
 /* ---- MAGIC: blasts, waves and curses are SPELLS rows; the utility spells below are armed as P.uspell (item spells) or fire at once (teleports) ---- */
 P.uspell = null; P.homeT = -1e9;
-defWear({ id: 'ring_of_dueling', name: 'Ring of dueling', g: 'ring', c: '#3aa05a', c2: '#9a7414', slot: 'ring', val: 1800, opt: ['Rub', villageTp] });
+defWear({ id: 'ring_of_dueling', name: 'Ring of dueling', g: 'ring', c: '#3aa05a', c2: '#9a7414', slot: 'ring', val: 1800, opt: ['Rub', () => villageTp(TP_CAP_ITEM)] });
 RING_NOTES.ring_of_dueling = ' Rub it to be carried to the nearest settlement.';
 ITEMS.amulet_of_glory.opt = ['Rub', () => cityTp(TP_CAP_ITEM)];   // the glory carries you to the nearest city, its 2007 role — and it is on the wiki's level-30 exempt list
 RING_NOTES.amulet_of_glory = ' Rub it to be carried to the nearest city.';
@@ -9370,18 +9493,19 @@ function tpTo(x, z, where, cap) {
 }
 const tpV = (v, what, cap) => { if (!v) return say('There is no ' + what + ' near enough to reach.', 'bad'); const s = safeSpotIn(v); return tpTo(s.x, s.z, 'to ' + villageName(v), cap); };
 const nearCity = R => nearestOf(SETTLE_CELL, R, (a, b) => { const v = villageAt(a, b); return v && v.rank >= 3 ? v : null; });   // nearest settlement of city rank, R cells out
-function villageTp() { const f = tpFrom(); return tpV(nearestVillageTo(f.x, f.z, 12), 'settlement'); }
+function villageTp(cap) { const f = tpFrom(); return tpV(nearestVillageTo(f.x, f.z, 12), 'settlement', cap); }
 function cityTp(cap) { return tpV(nearCity(6), 'city', cap); }
 function homeTp() {
   const left = 3000 - (tickN - P.homeT);   // half an hour between casts
   if (left > 0) return say('You need to wait another ' + Math.ceil(left / 100) + ' minutes to cast this spell.', 'bad');
-  P.homeT = tickN;
-  return tpTo(P.home.x, P.home.z, 'home');
+  const r = tpTo(P.home.x, P.home.z, 'home');
+  if (r) P.homeT = tickN;   // a teleport the Wilderness refused must not burn the half hour
+  return r;
 }
-function houseTp() {   // the wiki's Teleport to House, shared with the construction cape
+function houseTp(cap) {   // the wiki's Teleport to House, shared with the construction cape
   if (!P.hs) return say('You have no house to answer the call.', 'bad');
-  const r = tpTo(P.hs.x + P.hs.rm[0][1] * RS + (RS >> 1), P.hs.z + P.hs.rm[0][2] * RS + (RS >> 1), 'to your house');
-  if (!housesReg.has(hMe())) say('Only bare land answers: the house itself is folded away.', 'bad');
+  const r = tpTo(P.hs.x + P.hs.rm[0][1] * RS + (RS >> 1), P.hs.z + P.hs.rm[0][2] * RS + (RS >> 1), 'to your house', cap);
+  if (r && !housesReg.has(hMe())) say('Only bare land answers: the house itself is folded away.', 'bad');
   return r;
 }
 /* item spells take the pack slot and return 1 when the runes should burn; they say why when they do not */
@@ -9432,7 +9556,7 @@ const USPELLS = [
 /* skillcape perks with a live counterpart (wiki): ranged catches arrows like the accumulator, defence escapes like the ring of life,
    agility energises once a day, construction answers the house call; cooking, hitpoints, woodcutting, mining, thieving and prayer speak at their own sites */
 ITEMS.skillcape_ranged.save = 0.72;
-ITEMS.skillcape_construction.opt = ['Teleport', houseTp];
+ITEMS.skillcape_construction.opt = ['Teleport', () => houseTp(TP_CAP_ITEM)];   // itemOptions passes a pack index, which is not a cap
 ITEMS.skillcape_agility.opt = ['Energise', () => {
   if (tickN - (P.agiCapeT || -1e9) < 144000) return say('The cape has nothing more to give today.', 'bad');
   P.agiCapeT = tickN; P.energy = 100; P.stamT = tickN + 100; dirty.orb = 1;
@@ -9820,10 +9944,10 @@ on(modalBody, 'click', e => {
     petInsurance();
   } else if (pr) {
     if (coins() < RECLAIM_GP) return say('Reclaiming a pet costs ' + fmt(RECLAIM_GP) + ' gp.', 'bad');
-    if (!invFree()) return say(FULL, 'bad');
-    invRemove('coins', RECLAIM_GP); gpSunk += RECLAIM_GP;
+    if (!invSwap(pr.dataset.prec, 1, 'coins', RECLAIM_GP)) return say(FULL, 'bad');   // paying can free the coin slot the pet lands in
+    gpSunk += RECLAIM_GP;
     P.petLost = P.petLost.filter(x => x !== pr.dataset.prec);
-    invAdd(pr.dataset.prec, 1); markDirty(2); say('Your ' + ITEMS[pr.dataset.prec].name.toLowerCase() + ' leaps back to you!', 'lv');
+    markDirty(2); say('Your ' + ITEMS[pr.dataset.prec].name.toLowerCase() + ' leaps back to you!', 'lv');
     petInsurance();
   }
 });
@@ -9841,6 +9965,15 @@ for (const k in LOOT) {
 CLOG.set('treasure', ['rune_full_helm_t', 'rune_platebody_t', 'rune_platelegs_t', 'rune_plateskirt_t', 'rune_kiteshield_t',
   'rune_full_helm_g', 'rune_platebody_g', 'rune_platelegs_g', 'rune_plateskirt_g', 'rune_kiteshield_g']);
 for (const id of CLOG.get('treasure')) CLOG_ALL.add(id);
+/* The prestige sub-tables are reached through a divert token — LOOT holds 'barrows'/'raid'/'vault', not the pieces —
+   so ITEMS['barrows'] is undefined and the loop above skipped every one of them: the whole barrows set, the raid vault
+   and the third-age chest could never be logged. Appended AFTER the derived order, so no existing bit moves. */
+const CLOG_NAME = { treasure: 'Treasure Trails', barrows: 'Barrows chest', raid: 'Raid vault', vault: 'Shining casket' };
+for (const [k, ids] of [['barrows', BARROWS_SUB.map(d => d[0])], ['raid', RAID_SUB.map(d => d[0])],
+                        ['vault', VAULT_SUB.map(d => d[0]).concat('ranger_boots')]]) {
+  const fresh = ids.filter(id => ITEMS[id] && !CLOG_ALL.has(id));
+  if (fresh.length) { CLOG.set(k, fresh); for (const id of fresh) CLOG_ALL.add(id); }
+}
 
 /* CLOG_ORDER IS A SAVE FORMAT. The collection log rides the blob as one bit per
    entry, indexed by position here, so this order is wire — append, never insert,
@@ -9901,9 +10034,10 @@ function dyUnpack(d) {
   const out = {};
   if (Array.isArray(d)) for (const row of d) {
     if (!Array.isArray(row) || typeof row[0] !== 'string') continue;
-    out[row[0]] = { r: row[1] | 0, done: (row[2] | 0) & 7, c: row.slice(3).map(v => v | 0) };
+    out[row[0]] = { r: row[1] | 0, done: (row[2] | 0) & 7, c: row.slice(3).map(v => v | 0), t: tickN };
   } else if (d && typeof d === 'object') {   // v1: an object of {r, c, done}
-    for (const k in d) { const e = d[k]; if (e && typeof e === 'object') out[k] = { r: e.r | 0, done: (e.done | 0) & 7, c: Array.isArray(e.c) ? e.c.map(v => v | 0) : [] }; }
+    for (const k in d) { const e = d[k]; if (e && typeof e === 'object') out[k] = { r: e.r | 0, done: (e.done | 0) & 7, c: Array.isArray(e.c) ? e.c.map(v => v | 0) : [], t: tickN };
+    }
   }
   return out;
 }
@@ -9923,7 +10057,7 @@ function clogModal() {
   const rows = fams.map(k => {
     const ids = CLOG.get(k), have = ids.filter(id => P.cl.has(id)).length;
     if (!have && !(NPC_BY[k] && NPC_BY[k].boss) && k !== 'treasure') return '';   // quiet families stay folded until the first drop
-    const name = k === 'treasure' ? 'Treasure Trails' : (NPC_BY[k] ? NPC_BY[k].n : k);
+    const name = CLOG_NAME[k] || (NPC_BY[k] ? NPC_BY[k].n : k);
     return '<div class="mk"><span>' + name + '<u>' + have + ' / ' + ids.length + '</u></span></div><div style="display:flex;flex-wrap:wrap;gap:2px;margin:0 0 6px 4px">' +
       ids.map(id => '<span title="' + ITEMS[id].name + '" style="' + (P.cl.has(id) ? '' : 'opacity:.22;filter:grayscale(1)') + '">' + img(id) + '</span>').join('') + '</div>';
   });
@@ -10015,7 +10149,8 @@ function diaryBoard(o) {
   const e = P.dy[key], TIERN = ['Easy', 'Medium', 'Hard'];
   let html = '';
   for (let tier = 0; tier < 3; tier++) {
-    const rows = T.map((t2, i) => t2.tier === tier ? '<div class="mk' + (e.c[i] >= t2.n ? '' : ' no') + '"><span>' + t2.txt + '<u>' + e.c[i] + ' / ' + t2.n + '</u></span></div>' : '').join('');
+    const claimed = e.done & (1 << tier);   // a claimed tier saves without its counters, so read the tasks off the done bit rather than the zeros
+    const rows = T.map((t2, i) => t2.tier === tier ? '<div class="mk' + (claimed || e.c[i] >= t2.n ? '' : ' no') + '"><span>' + t2.txt + '<u>' + (claimed ? t2.n : e.c[i]) + ' / ' + t2.n + '</u></span></div>' : '').join('');
     const full = T.every((t2, i) => t2.tier !== tier || e.c[i] >= t2.n);
     html += '<div class="mk"><span><b>' + TIERN[tier] + '</b></span>' + (e.done & (1 << tier) ? '<b class="gp">✓ claimed</b>' : full ? '<b class="gp" data-dyc="' + key + ':' + tier + '">CLAIM</b>' : '') + '</div>' + rows;
   }
@@ -10046,7 +10181,7 @@ function cloakTp(tier) {
   }
   if (!best) return say('The cloak only knows towns whose diary you have finished.', 'bad');
   const v = nearestVillageTo(best.x, best.z, 2);
-  if (v) { const s = safeSpotIn(v); tpTo(s.x, s.z, 'home to ' + villageName(v)); }
+  if (v) { const s = safeSpotIn(v); tpTo(s.x, s.z, 'home to ' + villageName(v), TP_CAP_ITEM); }   // the cloak is a worn item, not a spell
 }
 
 /* the world's small surprises: honest work draws the genie; slaughter draws the Evil Chicken */
