@@ -766,13 +766,13 @@ const NPCS = [
   ['watchman', 'Watchman', 33, 22, 31, 31, 31, 0, 0.95, '243046', ['H', 0.76, 1.7, { skin: '786045', belt: '504220' }], { town: 1, human: 1, pick: { lv: 65, xp: 137.5, loot: [['coins', 9, 60], ['bread', 1]] } }],
   // the robed
   ['monk', 'Monk', 5, 15, 2, 2, 3, 0, 0.95, '483624', ['GH', 0.7, 1.65, '806246']],
-  ['wizard', 'Wizard', 9, 14, 8, 8, 5, 0, 0.95, '242856', ['GH', 0.7, 1.7, '806246', 1], { agg: 1, at: 'mg', rng: 5, bolt: 6970064, max: 4 }],
-  ['darkwizard', 'Dark wizard', 20, 24, 17, 17, 14, 0, 0.95, '141220', ['GH', 0.7, 1.7, '725642', 1], { agg: 1, at: 'mg', rng: 5, bolt: 6970064, max: 6 }],
+  ['wizard', 'Wizard', 9, 14, 8, 8, 5, 0, 0.95, '242856', ['GH', 0.7, 1.7, '806246', 1], { agg: 1, at: 'mg', rng: 5, bolt: 6970064, max: 4, stay: 1 }],
+  ['darkwizard', 'Dark wizard', 20, 24, 17, 17, 14, 0, 0.95, '141220', ['GH', 0.7, 1.7, '725642', 1], { agg: 1, at: 'mg', rng: 5, bolt: 6970064, max: 6, stay: 1 }],
   ['banshee', 'Banshee', 23, 22, 22, 15, 22, 0, 0.95, '727466', ['GH', 0.68, 1.72, '848678'], { agg: 1, db: 5, max: 6, mspd: 0.9 }],
-  ['druid', 'Druid', 33, 30, 28, 28, 32, 0, 0.95, '244024', ['GH', 0.72, 1.7, '786044'], { agg: 1, at: 'mg', rng: 5, bolt: 5951594 }],
+  ['druid', 'Druid', 33, 30, 28, 28, 32, 0, 0.95, '244024', ['GH', 0.72, 1.7, '786044'], { agg: 1, at: 'mg', rng: 5, bolt: 5951594, stay: 1 }],
   ['shade', 'Shade', 40, 38, 45, 30, 26, 0, 0.95, '161618', ['GH', 0.7, 1.7, '262628'], { agg: 1, mspd: 0.9 }],
-  ['zamorakmonk', 'Monk of Zamorak', 17, 10, 8, 8, 12, 0, 0.95, '361012', ['GH', 0.72, 1.7, '745642'], { agg: 1, at: 'mg', rng: 5, bolt: 13654618, max: 5 }],
-  ['spectre', 'Spectre', 96, 90, 1, 1, 90, 0, 1, '404852', ['GH', 0.74, 1.8, '566468'], { agg: 1, at: 'mg', rng: 5, bolt: 10145898, max: 8, mspd: 0.9 }],
+  ['zamorakmonk', 'Monk of Zamorak', 17, 10, 8, 8, 12, 0, 0.95, '361012', ['GH', 0.72, 1.7, '745642'], { agg: 1, at: 'mg', rng: 5, bolt: 13654618, max: 5, stay: 1 }],
+  ['spectre', 'Spectre', 96, 90, 1, 1, 90, 0, 1, '404852', ['GH', 0.74, 1.8, '566468'], { agg: 1, at: 'mg', rng: 5, bolt: 10145898, max: 8, mspd: 0.9, stay: 1 }],
   ['revenant', 'Revenant', 90, 80, 76, 80, 80, 38, 1.05, '284230', ['GH', 0.78, 1.9, '425842'], { agg: 1, at: 'mrg', rng: 6, bolt: 9097306, arrow: 12648384, sbon: 40, spd: 5, mspd: 1.1 }],
   // the hellhound rung leads the family
   ['skelwarrior', 'Skeleton warrior', 45, 59, 32, 35, 36, 15, 1, '828072', ['SKEL', 0.9, 2.1], { agg: 1, db: 5, sbon: 14 }],
@@ -807,13 +807,13 @@ const NPCS = [
   ['babygreendragon', 'Baby green dragon', 48, 50, 40, 40, 40, 0, 1.3, '244022', ['DR', 0.9, 1.5, '304826', '183217'], { agg: 1, db: 50, mspd: 0.9 }],
   ['babybluedragon', 'Baby blue dragon', 48, 50, 40, 40, 40, 0, 1.3, '203252', ['DR', 0.9, 1.5, '264060', '152440'], { agg: 1, db: 50, mspd: 0.9 }],
   ['bluedragon', 'Blue dragon', 111, 105, 95, 95, 95, 0, 2.6, '183054', ['DR', 1.6, 2.6, '243862', '132242'], { agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 4882384, db: 70, mspd: 0.7, big: 1 }],
-  ['bronzedragon', 'Bronze dragon', 131, 122, 112, 112, 112, 0, 2.7, '523618', ['DR', 1.8, 2.9, '604322', '382613'], { agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 13668426, db: 70, mspd: 0.7, big: 1 }],
+  ['bronzedragon', 'Bronze dragon', 131, 122, 112, 112, 112, 0, 2.7, '523618', ['DR', 1.8, 2.9, '604322', '382613'], { agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 13668426, db: 70, mspd: 0.7, big: 1, stay: 1 }],
   ['reddragon', 'Red dragon', 152, 140, 130, 130, 130, 0, 2.7, '521412', ['DR', 1.7, 2.8, '621915', '381009'], { agg: 1, fire: 1, at: 'mg', rng: 6, bolt: 13650474, db: 70, mspd: 0.7, big: 1 }],
-  ['irondragon', 'Iron dragon', 189, 165, 165, 165, 165, 0, 2.9, '343538', ['DR', 1.9, 3, '424346', '262729'], { agg: 1, fire: 1, at: 'mg', rng: 7, bolt: 10134704, db: 70, mspd: 0.6, big: 1 }],
-  ['steeldragon', 'Steel dragon', 246, 210, 215, 215, 215, 0, 3.1, '666974', ['DR', 2, 3.2, '747782', '505358'], { agg: 1, fire: 1, at: 'mg', rng: 7, bolt: 14213354, db: 70, mspd: 0.6, big: 1 }],
-  ['mithrildragon', 'Mithril dragon', 304, 254, 268, 268, 268, 0, 3.2, '363972', ['DR', 2.1, 3.3, '444780', '283058'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 9081576, arrow: 10133759, db: 100, mspd: 0.6, big: 1 }],
-  ['adamantdragon', 'Adamant dragon', 338, 295, 280, 280, 272, 0, 3.3, '314932', ['DR', 2.2, 3.4, '385840', '223824'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 7319664, arrow: 9097354, db: 110, mspd: 0.6, big: 1 }],
-  ['runedragon', 'Rune dragon', 380, 330, 284, 284, 276, 0, 3.4, '237177', ['DR', 2.3, 3.5, '308086', '165560'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 3847876, arrow: 8052970, db: 115, mspd: 0.6, big: 1 }],
+  ['irondragon', 'Iron dragon', 189, 165, 165, 165, 165, 0, 2.9, '343538', ['DR', 1.9, 3, '424346', '262729'], { agg: 1, fire: 1, at: 'mg', rng: 7, bolt: 10134704, db: 70, mspd: 0.6, big: 1, stay: 1 }],
+  ['steeldragon', 'Steel dragon', 246, 210, 215, 215, 215, 0, 3.1, '666974', ['DR', 2, 3.2, '747782', '505358'], { agg: 1, fire: 1, at: 'mg', rng: 7, bolt: 14213354, db: 70, mspd: 0.6, big: 1, stay: 1 }],
+  ['mithrildragon', 'Mithril dragon', 304, 254, 268, 268, 268, 0, 3.2, '363972', ['DR', 2.1, 3.3, '444780', '283058'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 9081576, arrow: 10133759, db: 100, mspd: 0.6, big: 1, stay: 1 }],
+  ['adamantdragon', 'Adamant dragon', 338, 295, 280, 280, 272, 0, 3.3, '314932', ['DR', 2.2, 3.4, '385840', '223824'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 7319664, arrow: 9097354, db: 110, mspd: 0.6, big: 1, stay: 1 }],
+  ['runedragon', 'Rune dragon', 380, 330, 284, 284, 276, 0, 3.4, '237177', ['DR', 2.3, 3.5, '308086', '165560'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 3847876, arrow: 8052970, db: 115, mspd: 0.6, big: 1, stay: 1 }],
 ];
 
 /* SPELLS_R rows: [k, lv, xp, max, tint, need [rune-sans-_rune, n]..., drain?, hold?, undead?].

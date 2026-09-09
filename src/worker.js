@@ -36,6 +36,24 @@ const HIT_MAX = 130;   // a single pvp hit: a claws cascade off a max-hit 59 rea
 const HIT_WIN = 6000, HIT_SUM = 150;   // and a sustained budget over six seconds, above any legitimate dps
 const TRADE_MAX = 2147483647;   // per-stack ceiling on a trade offer; the pack cannot carry more than an int
 const GE_MIN = 2000, GE_BURST = 6;   // exchange mutations: one every two seconds, six in hand
+/* Movement is the root budget. Every other gate in this file measures against me.x/me.z — near() for ops 11/14/15,
+   the pile's reach for 12, the leash for 21, the interest set in flush() — and nothing bounded how fast those two
+   fields could move, so a modified client could stand on any victim and swing. Credit accrues at MV_TILE per tick of
+   wall clock and banks to MV_CAP, which covers the catch-up burst a backgrounded tab sends on its way back. A jump
+   past the credit is a teleport, and teleports are real and announce nothing of their own (a ladder, a spell, a boat,
+   the respawn), so they are counted rather than refused. */
+const MV_TILE = 6;      // manhattan tiles one tick may cover: three steps of a sailed boat, each diagonal
+const MV_CAP = 64;      // the most credit a connection may bank
+const WARP_WIN = 30000, WARP_MAX = 8;   // teleports per half minute, over any honest run of ladders
+const WARP_LOCK = 3000; // and no blade lands for five ticks after arriving by one
+/* Only a fault the next attempt cannot survive may disarm a session. Everything else — a dropped connection, an
+   overloaded database — is a reason to come back in a moment, and used to cost the whole session's play: one blanket
+   catch sent op 7, and op 7 is terminal on the client. Unrecognised means transient on purpose: a wrong "permanent"
+   costs a session, a wrong "transient" costs a retry. */
+const SAVE_PERM = /no such table|no such column|syntax error|constraint|too large|not authorized/i;
+const DEAD_WIN = 5000;  // a death pile needs a corpse: op 13 reported this player at zero, this recently
+const PILE_GRACE = 100; // per row, for what was picked up since the last save; past that the save's own count is the ceiling
+const PILE_SUM = 1000000;   // and the whole pile, summed
 
 /* ===================== THE ARCHIVE (D1 is a cache) =======================
    D1 is capped at 10 GB and the cap cannot be raised, so `characters` cannot be
@@ -82,7 +100,7 @@ const cleanSeed = s => (String(s || '').trim().toLowerCase().slice(0, 32)) || 'l
    invisible from the browser: assets update instantly and the Worker does not,
    so the game looks new while the server is months old and silently dropping
    everything it does not understand. */
-const BUILD = 10;   // 7: wider house lane, op 24 refusal echo; 8: houses stand only while owner connected; 9: op 12 killer+tick elements, eq lane 14 (skull rider); 10: server-stamped op 12 clock, op 21 ownership from the sender, budgeted saves and world edits
+const BUILD = 11;   // 7: wider house lane, op 24 refusal echo; 8: houses stand only while owner connected; 9: op 12 killer+tick elements, eq lane 14 (skull rider); 10: server-stamped op 12 clock, op 21 ownership from the sender, budgeted saves and world edits; 11: op 16 pile claims, trade offer versions on 14/15
 
 /* The schema, in one place, so it is reproducible. /health runs exactly this
    list, which makes it the migration: every statement is IF NOT EXISTS and a
@@ -174,6 +192,20 @@ function summarise(save) {
   return { combat, totalLevel: total };
 }
 
+/* What the character was last saved CARRYING: worn gear, the quiver and the pack. The bank is deliberately absent —
+   banked items cannot fall on the ground. This is the ceiling a death pile is clamped to, so op 12 can no longer be
+   made to spawn items nobody ever owned. `inv` is flat (slot, id, n) triples; an older row-array save still reads. */
+function carried(save) {
+  const m = new Map();
+  const add = (id, n) => { if (typeof id === 'string' && id && n > 0) m.set(id, Math.min(TRADE_MAX, (m.get(id) || 0) + n)); };
+  const rows = Array.isArray(save && save.inv) ? save.inv : [];
+  if (Array.isArray(rows[0])) for (const r of rows) add(r[1], r[2] | 0);
+  else for (let i = 0; i + 2 < rows.length; i += 3) add(rows[i + 1], rows[i + 2] | 0);
+  const eq = Array.isArray(save && save.eq) ? save.eq : [];
+  for (let i = 0; i < eq.length; i++) add(eq[i], i === 5 ? Math.max(1, save.ammoN | 0) : 1);   // slot 5 is the quiver; its count rides ammoN
+  return m;
+}
+
 /* =========================== THE ROOM ==================================== */
 
 export class World extends DurableObject {
@@ -248,10 +280,15 @@ export class World extends DurableObject {
                   pos: (old && old.pos) ? 1 : 0, face: 0, flags: 0, eq: (old && old.eq) || [],
                   savedSeed: u.searchParams.get('last') || null };
     server.serializeAttachment(rec);
-    this.players.set(pid, { ws: server, ...rec, seen: new Set(), n: 0, t0: 0 });
+   /* The movement clock, the teleport bucket and the pile ceiling ride the record rather than the attachment, so a
+       reconnecting pid inherits them and dropping the socket is not a way to buy a fresh budget. */
+    this.players.set(pid, { ws: server, ...rec, seen: new Set(), n: 0, t0: 0,
+                            mvT: (old && old.mvT) || 0, mvB: (old && old.mvB) || 0,
+                            wT: (old && old.wT) || 0, wN: (old && old.wN) | 0, own: (old && old.own) || null });
 
    // extra fields appended, so older clients reading only [1] and [2] still work
-    server.send(JSON.stringify([[0, pid, Date.now(), name, seed, BUILD, SPAWN_REV]]));
+   // element 7 is the pvp ceiling: the client carried its own copy and the two drifted (60 against 130)
+    server.send(JSON.stringify([[0, pid, Date.now(), name, seed, BUILD, SPAWN_REV, HIT_MAX]]));
 
    /* A late arrival must see the stumps and absences everyone else does.
        Snapshots go only to the joiner; live traffic covers everyone else. */
@@ -329,6 +366,16 @@ export class World extends DurableObject {
         if (!Number.isInteger(x) || !Number.isInteger(z)) return;
         if (Math.abs(x) > 1e6 || Math.abs(z) > 1e6) return;
         const jump = Math.abs(x - me.x) + Math.abs(z - me.z);
+   /* Spend the credit, or spend a warp. Out of warps the claim is dropped and the room goes on holding the last
+           honest position — credit keeps banking and the bucket refills, so a client that overspends is ghosted for a
+           window, never for the session. */
+        me.mvB = me.mvT ? Math.min(MV_CAP, (me.mvB || 0) + (now - me.mvT) / 600 * MV_TILE) : MV_CAP;
+        me.mvT = now;
+        if (jump > me.mvB) {
+          if (now - (me.wT || 0) > WARP_WIN) { me.wT = now; me.wN = 0; }
+          if ((me.wN || 0) >= WARP_MAX) return;
+          me.wN = (me.wN || 0) + 1; me.wpT = now; me.mvB = 0;   // arriving by teleport also stays the blade (case 11)
+        } else me.mvB -= jump;
         const first = !me.pos;
         me.x = x; me.z = z; me.pos = 1;
         me.face = (face | 0) & 15;
@@ -387,8 +434,9 @@ export class World extends DurableObject {
            client already puts its own PID in element 6, so this substitution is
            invisible to it — and it ends the trick where one socket names itself
            the owner of every monster in the room and nobody else may fight.
-           act 255 is the release signal and carries no owner; it is passed through
-           because the client checks it before reading ownership. */
+           act 255 is the release signal and carries no owner; the client honours it
+           only when element 8 — the sender the relay stamps itself — is the pid it
+           already holds as owner, so a stranger cannot heal a monster mid-fight. */
         const act = (m[7] | 0) & 255, owner = act === 255 ? '' : me.pid;
         const mx = m[2] | 0, mz = m[3] | 0;
         if (Math.abs(mx - me.x) > VIEW * 2 || Math.abs(mz - me.z) > VIEW * 2) return;   // you may only drive a monster you could see
@@ -405,6 +453,7 @@ export class World extends DurableObject {
 
       case 13: {   // hitpoints, so onlookers can draw a bar
         const hp = m[1] | 0, mx = m[2] | 0;
+        if (hp <= 0) me.hp0 = now;   // hurtPlayer reports zero immediately before die() spills, in the same batch
         this.queue('13:' + me.pid, [13, me.pid, hp, mx]);
         break;
       }
@@ -415,8 +464,9 @@ export class World extends DurableObject {
         const other = this.players.get(String(m[1] || ''));
         const act = (m[2] | 0) & 7;
    // act 2 is "called off" and must always land, or the other party is stranded in an open trade window
+   // an accept quotes the two offer versions it was made against; the client refuses to settle on a mismatch
         if (other && (act === 2 || near(me, other))) {
-          try { other.ws.send(JSON.stringify([[14, me.pid, me.name, act]])); } catch {}
+          try { other.ws.send(JSON.stringify([[14, me.pid, me.name, act, m[3] | 0, m[4] | 0]])); } catch {}
         }
         return;
       }
@@ -428,7 +478,7 @@ export class World extends DurableObject {
           String((it && it[0]) || '').slice(0, 32), Math.min(TRADE_MAX, Math.max(0, (it && it[1] | 0) || 0))
         ]) : [];
         if (other && near(me, other)) {
-          try { other.ws.send(JSON.stringify([[15, me.pid, offer]])); } catch {}
+          try { other.ws.send(JSON.stringify([[15, me.pid, offer, m[3] | 0]])); } catch {}
         }
         return;
       }
@@ -442,8 +492,10 @@ export class World extends DurableObject {
            hardest real hit and the window is the one that actually holds the line —
            and a refusal is echoed, because a spec that vanishes without a word is how
            this went unnoticed for so long. */
-        const d = (m[2] | 0) & 255;
-        if (d > HIT_MAX) { try { ws.send(JSON.stringify([[7, 'hit of ' + d + ' refused (ceiling ' + HIT_MAX + ')']])); } catch {} return; }
+   // no masking before the test: & 255 wrapped 256 to a free pass at zero, and a negative would have healed
+        const d = m[2] | 0;
+        if (d < 0 || d > HIT_MAX) { try { ws.send(JSON.stringify([[7, 'hit of ' + d + ' refused (ceiling ' + HIT_MAX + ')']])); } catch {} return; }
+        if (now - (me.wpT || 0) < WARP_LOCK) return;   // arrived by teleport a moment ago: the blade waits five ticks
         if (now - (me.dmgT || 0) > HIT_WIN) { me.dmgT = now; me.dmgSum = 0; }
         if ((me.dmgSum = (me.dmgSum || 0) + d) > HIT_SUM) return;
         const target = this.players.get(String(m[1] || ''));
@@ -464,12 +516,39 @@ export class World extends DurableObject {
            comfortably inside the reach. */
         const dx = m[1] | 0, dz = m[2] | 0;
         if (Math.abs(dx - me.x) > 8 || Math.abs(dz - me.z) > 8) return;
+   /* And three more gates. A pile needs a corpse — op 13 put this player at zero moments ago — and the flag is
+           spent, so one death buys one pile. The rows may only carry what the last save says the character was holding,
+           with PILE_GRACE apiece for anything picked up since: every receiving client materialises this pile and
+           takeDrop -> invAdd persists it into an honest player's character, so at TRADE_MAX a row it was an item
+           printer. And the killer is a player standing here, not a name the corpse chose — their client is the one that
+           takes the instant-drop branch. */
+        if (now - (me.hp0 || 0) > DEAD_WIN) return;
+        me.hp0 = 0;
         if (now - (me.pileT || 0) < PILE_MIN) return;
         me.pileT = now;
-        const items = (Array.isArray(m[3]) ? m[3].slice(0, 40) : [])
+        const items = [];
+        let sum = 0;
+        for (const it of (Array.isArray(m[3]) ? m[3].slice(0, 40) : [])) {
+          const id = String((it && it[0]) || '').slice(0, 32);
+          const n = Math.min((me.own && me.own.get(id)) || PILE_GRACE, Math.max(0, (it && it[1] | 0) || 0), PILE_SUM - sum);
+          if (id && n > 0) { items.push([id, n]); sum += n; }
+        }
+        const kp = this.players.get(String(m[4] || ''));
+        this.queue('12:' + me.pid + ':' + now, [12, me.pid, dx, dz, items, kp && near(me, kp) ? kp.pid : '', wTick()]);
+        break;
+      }
+
+      case 16: {   // rows taken off a broadcast pile, so the other mirrors of it can retract
+   /* Same authority as ops 20/22 — it only ever deletes ground items, never creates them — so it spends the same
+           world-edit bucket, and it is delivered by where the pile lies, exactly as op 12 is. */
+        if ((me.eN || 0) >= EDIT_RATE) return;
+        me.eN = (me.eN || 0) + 1;
+        const px = m[1] | 0, pz = m[2] | 0;
+        if (Math.abs(px - me.x) > 12 || Math.abs(pz - me.z) > 12) return;   // you can only pick up what you can reach
+        const rows = (Array.isArray(m[3]) ? m[3].slice(0, 12) : [])
           .map(it => [String((it && it[0]) || '').slice(0, 32), Math.min(TRADE_MAX, Math.max(0, (it && it[1] | 0) || 0))])
           .filter(it => it[0] && it[1] > 0);
-        this.queue('12:' + me.pid + ':' + now, [12, me.pid, dx, dz, items, String(m[4] || '').slice(0, 40), wTick()]);
+        if (rows.length) this.queue('16:' + me.pid + ':' + now, [16, me.pid, px, pz, rows]);
         break;
       }
 
@@ -567,19 +646,29 @@ export class World extends DurableObject {
     me.saveT = now;
     try {
       const s = summarise(payload);
-      await this.env.DB.prepare(
+      me.own = carried(payload);   // the pile ceiling moves with the character, not with what a dying client asks for
+   // an upsert of one row by primary key, so a retry is free of consequence
+      const put = this.env.DB.prepare(
         'INSERT INTO characters (pid, seed, save, combat, total_level, created, updated) VALUES (?,?,?,?,?,?,?) ' +
         'ON CONFLICT(pid, seed) DO UPDATE SET save=excluded.save, combat=excluded.combat, ' +
         'total_level=excluded.total_level, updated=excluded.updated'
-      ).bind(me.pid, seed, blob, s.combat, s.totalLevel, now, now).run();
+      ).bind(me.pid, seed, blob, s.combat, s.totalLevel, now, now);
+      for (let a = 0; ; a++) {
+        try { await put.run(); break; }
+        catch (e) { if (a >= 2 || SAVE_PERM.test(String(e))) throw e; await new Promise(r => setTimeout(r, 150 * (a + 1))); }
+      }
    // Remember the last world played so login can preselect it — but only
    // when it actually changes. Writing it on every flush doubled the D1
    // cost of a save for a column that changes once a session.
+   /* Its own try, and after the character row is already safe: this is a preference column, and a failure here used
+         to disarm the session over which world to preselect at login. savedSeed moves first, so a broken column costs
+         one statement a session rather than one per save. */
       if (me.savedSeed !== seed) {
         me.savedSeed = seed;
-        await this.env.DB.prepare('UPDATE players SET seed=?, updated=? WHERE pid=?')
-          .bind(seed, now, me.pid).run();
-        this.saveAtt(ws, me);
+        try {
+          await this.env.DB.prepare('UPDATE players SET seed=?, updated=? WHERE pid=?').bind(seed, now, me.pid).run();
+          this.saveAtt(ws, me);
+        } catch (e) { console.log('seed note failed', me.pid, String(e).slice(0, 80)); }
       }
    // confirm the write, so a client can tell "saved" from "swallowed"
       try { ws.send(JSON.stringify([[10, seed, blob.length]])); } catch {}
@@ -588,8 +677,10 @@ export class World extends DurableObject {
       const msg = String(e);
       console.log('save failed', me.pid, msg);
       try {
-        ws.send(JSON.stringify([[7, /no such table/i.test(msg)
-          ? 'the characters table does not exist — run the schema in sql/schema.sql' : msg.slice(0, 120)]]));
+        ws.send(JSON.stringify(SAVE_PERM.test(msg)
+          ? [[7, /no such table/i.test(msg)
+              ? 'the characters table does not exist — run the schema in sql/schema.sql' : msg.slice(0, 120)]]
+          : [[25, msg.slice(0, 120)]]));   // op 25: keep the blob and come back — the session stays armed
       } catch {}
     }
   }
@@ -708,7 +799,7 @@ export class World extends DurableObject {
            Judging that message by whether the dead player is still visible
            loses it exactly when it matters, so ground items are delivered by
            where they fell rather than by who dropped them. */
-        if (m[0] === 12) {
+        if (m[0] === 12 || m[0] === 16) {   // op 16 retracts a pile the same way op 12 announced it
           const dx = m[2] | 0, dz = m[3] | 0;
           if (m[1] !== p.pid && Math.abs(dx - p.x) <= VIEW && Math.abs(dz - p.z) <= VIEW) out.push(m);
           continue;
@@ -832,6 +923,16 @@ export class Exchange extends DurableObject {
     return this.env.DB.prepare('SELECT * FROM ge_offers WHERE pid=? AND slot=?')
       .bind(pid, slot).first();
   }
+  /* A debit commits before the reply is built, so a dropped response is indistinguishable from a refusal — and the
+     retry meets a row that is already empty, or deleted. The reply is memoised against the client's token instead:
+     a repeat is answered, not re-run. Object memory, not D1, because the window this closes is one round trip. */
+  replay(k) { const h = this.recent && this.recent.get(k); return h ? h[1] : null; }
+  remember(k, r) {
+    if (!this.recent) this.recent = new Map();
+    this.recent.set(k, [Date.now(), r]);
+    if (this.recent.size > 512) { const cut = Date.now() - 300000; for (const [kk, v] of this.recent) if (v[0] < cut) this.recent.delete(kk); }
+    return r;
+  }
   async fetch(req) {
     const u = new URL(req.url);
     const pid = u.searchParams.get('pid') || '';
@@ -868,6 +969,8 @@ export class Exchange extends DurableObject {
     return { slots };
   }
   async place(pid, b) {
+    const tok = String(b.tok || '').slice(0, 48), key = tok && 'p:' + pid + ':' + tok;
+    if (key) { const was = this.replay(key); if (was) return was; }   // a lost reply must not look like "slot in use"
     const slot = b.slot | 0, kind = b.kind | 0;
     const item = String(b.item || '');
     const price = Math.floor(+b.price || 0), qty = Math.floor(+b.qty || 0);
@@ -929,7 +1032,8 @@ export class Exchange extends DurableObject {
    // one transaction over the whole sweep: every trade lands, or none of them does
       await this.env.DB.batch(stmts);
     }
-    return { offer: await this.row(pid, slot) };
+    const done = { offer: await this.row(pid, slot) };
+    return key ? this.remember(key, done) : done;
   }
   async abort(pid, b) {
     const o = await this.row(pid, b.slot | 0);
@@ -945,6 +1049,8 @@ export class Exchange extends DurableObject {
     return { offer };
   }
   async collect(pid, b) {
+    const tok = String(b.tok || '').slice(0, 48), key = tok && 'c:' + pid + ':' + tok;
+    if (key) { const was = this.replay(key); if (was) return was; }
     const o = await this.row(pid, b.slot | 0);
     if (!o) return { e: 'no offer' };
    /* The client asks for what its pack can hold; the box keeps the rest.
@@ -959,9 +1065,10 @@ export class Exchange extends DurableObject {
     ).bind(tc, ti, Date.now(), o.pid, o.slot).first();
     if (left && left.state === 1 && left.coins_box === 0 && left.items_box === 0) {
       await this.env.DB.prepare('DELETE FROM ge_offers WHERE pid=? AND slot=?').bind(o.pid, o.slot).run();
-      return { coins: tc, items: ti, item: o.item, offer: null };
+      return key ? this.remember(key, { coins: tc, items: ti, item: o.item, offer: null }) : { coins: tc, items: ti, item: o.item, offer: null };
     }
-    return { coins: tc, items: ti, item: o.item, offer: left };
+    const out = { coins: tc, items: ti, item: o.item, offer: left };
+    return key ? this.remember(key, out) : out;
   }
 }
 
