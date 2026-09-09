@@ -1196,7 +1196,7 @@ function shopStock(kind, tier) {
     push('bronze_arrow', 500); push('team_cape', 5);
     if (tier >= 1) push('ring_of_recoil', 3);
   }
-  if (s.k === 'craft' && tier === 2) for (const c of SKILLS) if (!c.locked) push('skillcape_' + c.k, 1);   // the city outfitter keeps every master's cape; req99 still gates the wearing
+  if (s.k === 'craft' && tier === 2) { for (const c of SKILLS) if (!c.locked) push('skillcape_' + c.k, 1); push('max_cape', 1); push('ardougne_max_cape', 1); }   // the city outfitter keeps every master's cape; req99 and reqMax still gate the wearing
   return list;
 }
 const buyPrice = it => Math.max(1, Math.round(it.val * 1.15));
@@ -3377,9 +3377,10 @@ function bonus(f) {
 function canEquip(it) {
   for (const k in it.req) if (it.req[k] && lvl[SK[k]] < it.req[k]) { say('You need ' + skName(SK[k]) + ' level ' + it.req[k] + ' to wear that.', 'bad'); return false; }
   if (it.req99 && lvl[SK[it.req99]] < 99) { say('Only a master of ' + skName(SK[it.req99]) + ' may wear that cape.', 'bad'); return false; }
+  if (it.reqMax && SKILLS.some((k, i) => !k.locked && lvl[i] < 99)) { say('Only a master of every skill may wear that cape.', 'bad'); return false; }
   return true;
 }
-const gearChanged = () => { P.specArm = 0; dirty.inv = dirty.eq = 1; dressAvatar(); drawStyles(); markDirty(1); };   // an arm belongs to the weapon it was made on
+const gearChanged = () => { P.specArm = 0; P.souls = 0; dirty.inv = dirty.eq = 1; dressAvatar(); drawStyles(); markDirty(1); };   // an arm belongs to the weapon it was made on
 function equip(slotIdx) {
   const s = inv[slotIdx]; if (!s) return;
   const it = ITEMS[s.id];
@@ -3443,7 +3444,7 @@ function placePlayer(x, z) {
   P.path.length = 0; P.goal = null; P.task = null;
   focus.set(x, P.ry, z);
 }
-const gearClass = it => !it ? '' : it.mag ? 'mage' : it.rat ? 'range' : 'melee';
+const gearClass = it => !it ? '' : it.mag > 0 ? 'mage' : it.rat > 0 ? 'range' : 'melee';   // torva reads -18 magic: a penalty dresses nobody
 const setCol = (hex, ...ms) => { for (const m of ms) m.material.color.set(hex); };
 /* one dresser for every articulated human: armour paints over the barber's work; each discipline wears its own silhouette */
 function dressRig(p, look, it) {
@@ -3504,12 +3505,20 @@ function spendArrow(o) {
   say('You have run out of ammunition!', 'bad');
   dirty.eq = 1; dressAvatar(); markDirty(1);
 }
-/* magic damage bonus (occult, kodai, ancestral): a percentage over the spell's flat max, as the wiki prices it */
-const mdmgMax = m => Math.floor(m * (1 + (bonus('mdmg') + prayAdd('mdmg')) / 100));
-/* a powered staff (the trident) casts its own spell: no runes, max = magic/3 - 5, at the weapon's own four-tick pace */
+/* magic damage bonus (occult, kodai, ancestral): a percentage over the spell's flat max, as the wiki prices it.
+   Tumeken's shadow trebles both the worn magic attack and the worn magic damage — its own bolt only, damage capped at 100%. */
+const m3On = () => { const w = weaponIt(); return !!(w && w.m3 && P.spell === null); };
+const magAtk = () => m3On() ? bonus('mag') * 3 : bonus('mag');
+const mdmgMax = m => Math.floor(m * (1 + (m3On() ? Math.min(100, (bonus('mdmg') + prayAdd('mdmg')) * 3) : bonus('mdmg') + prayAdd('mdmg')) / 100));
+const castTicks = sp => { const w = weaponIt(); return w && w.fastcast && !sp.bk ? 4 : 5; };   // the harmonised orb quickens a standard cast to four ticks; ancients and lunars keep five
+/* a powered staff casts its own spell: no runes, max = magic/3 + the staff's own offset (-5 seas, -2 swamp,
+   -1 sanguinesti, +1 shadow, the wiki's own ladder), at the weapon's own pace */
 const pstaffOn = () => { const w = weaponIt(); return !!(w && w.pstaff && P.spell === null && !bowRange()); };
-const pstaffMax = () => Math.max(1, Math.floor(eff('magic') / 3) - 5);
+const pstaffMax = () => { const w = weaponIt(); return Math.max(1, Math.floor(eff('magic') / 3) + ((w && w.pmax) !== undefined ? w.pmax : -5)); };
 const barrowsSet = b => [eq.head, eq.body, eq.legs, eq.weapon].every(id => id && id.startsWith(b + 's_'));   // helm to weapon, one brother entire
+const setOn = p => [eq.head, eq.body, eq.legs].every(id => id && id.startsWith(p));   // helm, body and legs: the three-piece sets
+const barkN = p => [eq.head, eq.body, eq.legs, eq.hands, eq.feet].reduce((n, id) => n + (id && id.startsWith(p) ? 1 : 0), 0);   // the barks pay by the piece
+const psnImmune = () => { const h = eq.head && ITEMS[eq.head]; return !!(h && h.psnImm); };   // the serpentine helm, while it is charged (and here it always is)
 const onTask = o => !!(P.slay && o && o.npc && (o.t.base || o.t).k === P.slay.k);
 const maxHit = () => bowRange() ? rangedMax()
   : Math.floor(maxFrom(Math.floor(eff('strength') * prayerMul('str')) + STYLES[P.style].str, bonus('str'))
@@ -4050,13 +4059,13 @@ function npcTick(n) {
    // a cast rolls the monster's Magic against 0.7 x your Magic + 0.3 x your Defence and your magic gear; all else rolls your Defence
       const cast = st === 'g' && !n.t.fire, mx = n.t.max !== null ? n.t.max : maxFrom(n.t.str * (n.strDr > tickN ? 0.95 : 1) + 1, n.t.sbon);
       const c = hitChance((cast && n.t.mag > 1 ? n.t.mag : n.t.atk) * (n.atkDr > tickN ? (n.atkDrM || 0.95) : 1) + 9, n.t.abon,
-        cast ? Math.floor(0.7 * Math.floor(eff('magic') * prayerMul('mag')) + 0.3 * defLevel()) + 8 : defLevel() + 8, cast ? bonus('mag') : bonus('def'));
+        cast ? Math.floor(0.7 * Math.floor(eff('magic') * prayerMul('mag')) + 0.3 * defLevel()) + 8 : defLevel() + 8, cast ? bonus('mag') + bonus('mdef') : bonus('def'));
    // dragonfire ignores armour: a shield or an antifire draught each count one (prayer a half); two is immunity, one leaves a max of 10.
    // unprotected it hits up to 50 as in 2007 (fmax overrides where the wiki differs, e.g. the KBD)
       const fire = st === 'g' && n.t.fire, pr = fire && (eq.shield === 'anti_dragon_shield' || eq.shield === 'dragonfire_shield') + (P.afire > tickN) + (prayHas('prot', 'g') ? 0.5 : 0);
       const dealt = fire ? roll(1, pr >= 2 ? 0 : pr ? 10 : (n.t.fmax || 50)) : prayHas('prot', st) ? 0 : roll(c, mx);
       if (fire && pr < 2) say(pr ? 'Your protection absorbs most of the dragonfire.' : 'You are horribly burnt by the dragonfire!', 'bad');
-      if (dealt > 0 && n.t.psn && !P.psn && tickN > P.psnImm && Math.random() < 0.25) { P.psn = n.t.psn; P.psnN = 0; P.psnT = tickN + 30; say('You have been poisoned!', 'bad'); }
+      if (dealt > 0 && n.t.psn && !P.psn && tickN > P.psnImm && !psnImmune() && Math.random() < 0.25) { P.psn = n.t.psn; P.psnN = 0; P.psnT = tickN + 30; say('You have been poisoned!', 'bad'); }
       if (dealt > 0) n.caHurt = 1;
       hurtPlayer(dealt);
       if (dealt > 0 && eq.ring === 'ring_of_recoil' && !n.dead && !P.dead) {   // a ring of recoil bites back a tenth
@@ -4147,7 +4156,17 @@ function killNpc(n) {
   if (P.task && P.task.o === n) P.task = null;
 }
 let pvpOn = 0;
+/* the two guards that eat a wound before it lands: the Justiciar set by the wiki's bonus/3000, the elysian by its
+   70% chance of a quarter off. Neither knows here that the wiki spares dragonfire and poison from the shield. */
+function softenBlow(dmg) {
+  if (dmg <= 0) return dmg;
+  if (setOn('justiciar_')) dmg -= Math.floor(dmg * Math.max(0, bonus('def')) / 3000);
+  const sh = eq.shield && ITEMS[eq.shield];
+  if (sh && sh.elys && Math.random() < 0.7) dmg -= Math.floor(dmg * 0.25);
+  return Math.max(0, dmg);
+}
 function hurtPlayer(dmg, byPlayer) {
+  dmg = softenBlow(dmg);
   if (P.veng && dmg > 0) {   // the wiki's 75%, spent on the first blow that actually lands
     P.veng = 0; drawSpells();
     const back = Math.max(1, Math.round(dmg * 0.75));
@@ -4277,7 +4296,7 @@ function die(byPlayer) {
     let sx = P.home.x, sz = P.home.z;
     if (v) { const s = safeSpotIn(v); sx = s.x; sz = s.z; }
     teleport(sx, sz, 200);
-    P.hp = P.maxhp = lvl[SK.hitpoints]; P.dead = 0; P.energy = 100; P.psn = 0; P.spec = 100; P.specArm = 0; pvpOn = 0; dirty.orb = 1;
+    P.hp = P.maxhp = lvl[SK.hitpoints]; P.dead = 0; P.energy = 100; P.psn = 0; P.spec = 100; P.specArm = 0; P.souls = 0; pvpOn = 0; dirty.orb = 1;
     P.prayers = 0; P.pray = 0; bst.fill(0); drawPrayers(); drawStyles(); drawSk();   // you do not get up with the overheads still lit, quietly burning prayer on the walk back
     const where = v ? villageName(v) : 'where you started';
     say('You wake up in ' + where + '.');
@@ -4347,13 +4366,14 @@ const voidSet = k => eq.head === 'void_' + k + '_helm' && eq.body === 'void_knig
    the damage even when the target could not take it; ice freezes, then leaves 5 ticks of immunity behind it. Burst and
    barrage repeat the whole roll against everything in the wiki's 3x3 around the primary target, each rolled its own. */
 function ancientHit(o, sp, dmg) {
-  const f = sp.fx;
-  if (f.lch && dmg > 0) { const h = Math.max(1, Math.round(dmg * f.lch)); P.hp = Math.min(P.maxhp + 0, P.hp + h); dirty.orb = 1; healthBar(P); }
+  const f = sp.fx, amp = eq.weapon === 'ancient_sceptre' ? 1.1 : 1;   // the sceptre deepens every ancient secondary by a tenth
+  if (f.lch && dmg > 0) { const h = Math.max(1, Math.round(dmg * (f.lch + barkN('bloodbark') * 0.02))); P.hp = Math.min(P.maxhp + 0, P.hp + h); dirty.orb = 1; healthBar(P); }   // bloodbark pays 2% a piece, 35% entire
   if (!o.npc || o.dead) return;
-  if (f.psn && dmg > 0 && (Math.random() * 8 | 0) === 0 && !o.psn) { o.psn = f.psn === 20 ? 4 : 2; o.psnN = 0; o.psnT = tickN + 30; }
-  if (f.atk && dmg > 0 && !(o.atkDr > tickN)) { o.atkDr = tickN + 100; o.atkDrM = 1 - f.atk; say('Your spell saps the ' + o.name + "'s attack."); }   // one drain at a time: the wiki says it will not apply to an already-drained target
+  if (f.psn && dmg > 0 && Math.random() < 0.125 * amp && !o.psn) { o.psn = f.psn === 20 ? 4 : 2; o.psnN = 0; o.psnT = tickN + 30; }
+  if (f.atk && dmg > 0 && !(o.atkDr > tickN)) { o.atkDr = tickN + 100; o.atkDrM = 1 - f.atk * amp; say('Your spell saps the ' + o.name + "'s attack."); }   // one drain at a time: the wiki says it will not apply to an already-drained target
   if (f.frz && dmg > 0 && !(o.heldT > tickN) && !(o.frzImm > tickN)) {
-    o.heldT = tickN + f.frz; o.frzImm = tickN + f.frz + 5;   // 5 ticks of immunity once it thaws
+    const t = Math.round(f.frz * amp) + barkN('swampbark') * 2;   // swampbark adds two ticks a piece, six for helm, body and legs
+    o.heldT = tickN + t; o.frzImm = tickN + t + 5;   // 5 ticks of immunity once it thaws
     o.dest = null; say('Your spell freezes the ' + o.name + ' in place!');
   }
 }
@@ -4371,11 +4391,28 @@ function ancientFx(o, sp, dmg) {
     if (q.hp <= 0) killNpc(q); else if (!q.target) { q.target = P; if (q.key && q.owner !== PID) { q.owner = PID; claimMon(q); } }
   }
 }
+/* the venator arrow does not stop at the first mark: it carries to a second and a third within five tiles,
+   each for two thirds of the wound before it, and never doubles back on one it has already struck */
+function venatorBounce(o, dmg) {
+  let d = dmg, prev = o;
+  const hit = new Set([o]);
+  for (let i = 0; i < 2; i++) {
+    d = Math.floor(d * 2 / 3); if (d <= 0) return;
+    const q = npcs.find(n => !hit.has(n) && !n.dead && chebDist(n.tx, n.tz, prev.tx, prev.tz) <= 5);
+    if (!q) return;
+    hit.add(q); shootArrow(prev, q, d, ammoTint());
+    q.hp -= d; hitsplat(q.rx, q.ry + 1.5, q.rz, d); healthBar(q);
+    if (q.hp <= 0) killNpc(q); else if (!q.target) { q.target = P; if (q.key && q.owner !== PID) { q.owner = PID; claimMon(q); } }
+    prev = q;
+  }
+}
 const meleeAmp = o => (slayMask() && onTask(o) ? 7 / 6 : eq.neck === 'salve_amulet' && o.npc && (o.t.base || o.t).undead ? 7 / 6 : 1) * (voidSet('melee') ? 1.1 : 1);
 /* one swing at o (a monster or another player): ranged, a readied spell, or melee; returns the damage dealt, or -1 when nothing was thrown */
 function swing(o) {
-  const sp = P.spell !== null ? SPELLS[P.spell] : null, ps = !sp && pstaffOn() ? { k: 'trident', xp: 0, max: pstaffMax(), tint: 0x35c8b8 } : null, rng = sp || ps ? 0 : bowRange();
-  P.acting = 1; P.actSpan = sp ? 5 : atkSpeed();
+  const sp = P.spell !== null ? SPELLS[P.spell] : null;
+  const ps = !sp && pstaffOn() ? { k: 'trident', xp: 0, max: pstaffMax(), tint: weaponIt().ptint || 0x35c8b8 } : null;
+  const rng = sp || ps ? 0 : bowRange();
+  P.acting = 1; P.actSpan = sp ? castTicks(sp) : atkSpeed();
   P.pose = sp || ps ? 2 : rng ? 1 : stabbing() ? 4 : 0;
   if (tickN < P.atkT) return -1;   // the clock runs whether or not you are swinging, so a fresh fight opens at once
   P.atkT = tickN + P.actSpan;
@@ -4384,7 +4421,7 @@ function swing(o) {
   let arm = null;
   if (P.specArm) {
     const sa = SPEC[eq.weapon];
-    if (sa && !sa.fx && P.spec >= sa.cost) arm = sa;
+    if (sa && !sa.fx && P.spec >= sa.cost && (!sa.souls || P.souls > 0)) arm = sa;   // the axe's Behead costs no energy, only souls
     else { P.specArm = 0; drawStyles(); }
   }
   P.swingPhase = 0;   // the blow starts the animation: the bolt or the spell leaves on its first frame
@@ -4396,6 +4433,8 @@ function swing(o) {
     let ta = 1, td = 1;   // the twisted bow reads the target's Magic; the dhcb bites dragonkind (wiki curves)
     if (o.npc && eq.weapon === 'twisted_bow') { const m = Math.min(250, o.t.mag); ta = Math.min(1.4, (140 + (3 * m - 10) / 100 - Math.pow(3 * m / 10 - 100, 2) / 100) / 100); td = Math.min(2.5, (250 + (3 * m - 14) / 100 - Math.pow(3 * m / 10 - 140, 2) / 100) / 100); }
     if (o.npc && eq.weapon === 'dragon_hunter_crossbow' && o.t.fire) { ta *= 1.3; td *= 1.25; }
+    const bw0 = bowItem();   // Craw's and the webweaver bite half again harder at anything met in the Wilderness
+    if (bw0 && bw0.wild && o.npc && wildLvAt(P.tx, P.tz) > 0) { ta *= bw0.wild; td *= bw0.wild; }
     const dr = spc && spc.ddmg && eq.ammo === 'dragon_arrow', mn = spc ? (dr ? spc.dmin : spc.min || 0) : 0;   // the dark bow's floors, deeper on dragon arrows
     const ch = hitChance((Math.floor(eff('ranged') * prayerMul('rng')) + st.acc + 8) * (spc && spc.acc || 1) * rv * ta, bonus('rat'), dl, db);
    // the msb snapshot takes the arrow's strength alone and no prayer, the wiki's own formula; the dark bow's dragon cap is 48 an arrow
@@ -4408,6 +4447,7 @@ function swing(o) {
     if (spc && spc.heal && dmg > 0) { P.hp = Math.min(P.maxhp, P.hp + Math.floor(dmg * spc.heal)); dirty.orb = 1; }   // the blowpipe drinks
     const bw = bowItem();   // an envenomed launcher bites one time in four, and its venom deepens
     if (dmg > 0 && o.npc && bw && bw.psn && !o.psn && Math.random() < 0.25) { o.psn = bw.psn; o.venomF = bw.venom || 0; o.psnN = 0; o.psnT = tickN + 30; say('Venom rides your dart into the ' + o.name + '.'); }
+    if (bw0 && bw0.bounce && dmg > 0 && o.npc) venatorBounce(o, dmg);   // the venator arrow carries on
     shootArrow(P, o, dmg, ammoTint());
     sfx(bowSnd());
     wsSend([19, o.tx, o.tz, ammoTint()]);
@@ -4424,9 +4464,9 @@ function swing(o) {
     if (sp && sp.drain) {   // a curse rolls magic accuracy like any spell, holds for a minute, then the staff comes down
       dmg = 0; castFx(o, sp, null); sfx(spellSnd(sp));
       const [cl, cb] = o.npc ? [o.t.mag * 1 + 9, o.t.mdb] : [dl, db];
-      if (Math.random() < hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, bonus('mag'), cl, cb)) {
+      if (Math.random() < hitChance(Math.floor(eff('magic') * prayerMul('mag')) + 8, magAtk(), cl, cb)) {
         sfx(sp.hold ? 203 : 221);
-        if (sp.hold) { o.heldT = tickN + sp.hold; say('Your spell roots the ' + o.name + ' to the ground!'); }
+        if (sp.hold) { o.heldT = tickN + sp.hold + barkN('swampbark') * 2; say('Your spell roots the ' + o.name + ' to the ground!'); }
         else { o[sp.drain + 'Dr'] = tickN + 100; say('Your spell weakens the ' + o.name + '.'); }
       }
       else { sfx(227); say('Your spell splashes off the ' + o.name + '.'); }
@@ -4434,9 +4474,15 @@ function swing(o) {
     }
     else {
    // gear buys accuracy, and mdmg gear a share of damage; a monster defends a spell with its Magic level and magic defence bonus
-      const spl = sp || ps;
-      const [ml, mb] = o.npc ? [o.t.mag * (o.defDr > tickN ? 0.95 : 1) + 9, o.t.mdb] : [dl, db];
-      dmg = devMul(roll(hitChance((Math.floor(eff('magic') * prayerMul('mag')) + 8) * (voidSet('mage') ? 1.45 : 1), bonus('mag'), ml, mb), mdmgMax(spl.max))); castFx(o, spl, dmg); sfx(spellSnd(spl));   // the wiki's 45% void magic accuracy
+      const spl = sp || ps, msp = arm && arm.mag ? arm : null;   // the Nightmare orbs spec through the spell you have armed
+      const rg = eq.ring && ITEMS[eq.ring];
+      const [ml, mb0] = o.npc ? [o.t.mag * (o.defDr > tickN ? 0.95 : 1) + 9, o.t.mdb] : [dl, db];
+      const mb = rg && rg.mpierce && Math.random() < 0.25 ? mb0 * 0.9 : mb0;   // the brimstone ring ignores a tenth of the guard, one cast in four
+      if (msp) { P.specArm = 0; P.spec = Math.max(0, P.spec - msp.cost); drawStyles(); }
+      dmg = devMul(roll(hitChance((Math.floor(eff('magic') * prayerMul('mag')) + 8) * (voidSet('mage') ? 1.45 : 1) * (msp && msp.acc || 1), magAtk(), ml, mb), mdmgMax(msp && msp.max || spl.max))); castFx(o, spl, dmg); sfx(spellSnd(spl));   // the wiki's 45% void magic accuracy
+      const wst = weaponIt();   // the sanguinesti drinks one hit in five; the eldritch pours the wound back into prayer
+      if (ps && wst && wst.sang && dmg > 0 && Math.random() < 0.2) { dmg += 8; P.hp = Math.min(P.maxhp, P.hp + (dmg >> 1)); dirty.orb = 1; say('The staff drinks deep.', 'lv'); }
+      if (msp && msp.pheal && dmg > 0) { P.pray = Math.min(P.maxpray, P.pray + Math.min(120, Math.floor(dmg * msp.pheal))); dirty.orb = 1; }
       if (dmg > 0 && o.npc && barrowsSet('ahrim') && Math.random() < 0.25) { o.strDr = tickN + 100; say("Ahrim's curse saps its strength."); }
       if (sp && sp.fx) ancientFx(o, sp, dmg);
       if (P.cstyle) { gainXp('magic', spl.xp + dmg * 4 / 3); if (dmg > 0) gainXp('defence', dmg); }   // defensive casting splits the 2007 way
@@ -4445,9 +4491,12 @@ function swing(o) {
     if (sp) { wsSend([18, sp.i, o.tx, o.tz]); drawSpells(); }   // observers cannot see a bolt they were never told about
     else wsSend([19, o.tx, o.tz, ps.tint]);   // a trident's bolt rides the arrow op, teal
   } else {
-    const st = STYLES[P.style], spc = arm && !arm.rng ? arm : null;
-    const bm = meleeAmp(o);   // the mask on assignment, the salve on the risen dead, the void as a set
-    const aEff = (Math.floor(eff('attack') * prayerMul('atk')) + st.acc + 8) * (spc && spc.acc || 1) * bm;
+    const st = STYLES[P.style], spc = arm && !arm.rng && !arm.mag ? arm : null, wp0 = weaponIt();
+    let bm = meleeAmp(o);   // the mask on assignment, the salve on the risen dead, the void as a set
+    if (setOn('inquisitors_')) bm *= 1.025;   // the wiki's full-set 2.5%; its crush-only clause has no counterpart in a one-scalar attack
+    if (wp0 && wp0.dbane && o.npc && o.t.fire) bm *= 1.2;   // the lance's dragonbane: the wiki's 20% on both axes
+    const soulN = spc && spc.souls ? P.souls : 0;   // Behead spends every soul at once: 12% accuracy and 6% damage each
+    const aEff = (Math.floor(eff('attack') * prayerMul('atk')) + st.acc + 8) * (spc && spc.acc || 1) * (1 + soulN * 0.12) * bm;
     if (spc) {
       P.specArm = 0; P.spec = Math.max(0, P.spec - spc.cost);
       const M = Math.floor(maxHit() * (spc.dmg !== undefined ? spc.dmg : 1) * bm), ch = hitChance(aEff, bonus('atk'), dl, db);
@@ -4458,13 +4507,24 @@ function swing(o) {
         else if (Math.random() < ch) { const h3 = randInt(Math.max(1, M >> 2), Math.max(1, Math.floor(M * 3 / 4))); dmg = h3 * 2 + 1; }
         else if (Math.random() < ch) { dmg = randInt(Math.max(1, M >> 2), Math.max(1, Math.floor(M * 5 / 4))); }
         else if (Math.random() < 2 / 3) dmg = 2;
-      } else for (let h = 0, hn = spc.n || 1; h < hn; h++) dmg += Math.random() < ch ? Math.max(spc.min || 0, randInt(0, M)) : 0;   // the floor rides a landed hit; a missed roll adds nothing
+      } else {
+        const lo = spc.minFrac ? Math.ceil(M * spc.minFrac) : 0;   // Disrupt keeps half the melee maximum as its floor
+        for (let h = 0, hn = spc.n || 1; h < hn; h++) {
+          const land = spc.sure || Math.random() < ch || (wp0 && wp0.fang && Math.random() < ch);   // the fang rolls twice on its special as well
+          dmg += land ? Math.max(spc.min || 0, randInt(lo, M)) : 0;   // the floor rides a landed hit; a missed roll adds nothing
+        }
+      }
       if (spc.big2 && o.npc && o.t.big) dmg += roll(hitChance(aEff * 0.75, bonus('atk'), dl, db), M);   // the halberd sweeps large prey a second time
       if (spc.drainDef && dmg > 0 && o.npc) o.specDr = (o.specDr || 1) * spc.drainDef;
       if (spc.drainFlat && dmg > 0 && o.npc) o.defCut = (o.defCut || 0) + dmg;   // the bgs caves in Defence by the wound it deals
       if (spc.stun && o.npc) { o.cd = Math.max(o.cd, spc.stun); say('You shove the ' + o.name + ' back!'); }
       if (spc.bonus && dmg > 0) { dmg += randInt(spc.bonus[0], spc.bonus[1]); say("Saradomin's lightning strikes!", 'lv'); }
       if (spc.quick) P.atkT = tickN + 1;   // the maul comes around again at once
+      if (spc.souls) {   // Behead: the floor rises to three tenths of a swollen maximum, and the axe empties
+        const M2 = Math.floor(M * (1 + soulN * 0.06));
+        dmg = Math.random() < hitChance(aEff, bonus('atk'), dl, db) ? randInt(Math.ceil(M2 * 0.3), Math.max(1, M2)) : 0;
+        P.souls = 0; say('The axe reaps ' + soulN + ' soul' + (soulN > 1 ? 's' : '') + '!', 'lv');
+      }
       if (spc.heal && dmg > 0) {   // the Healing Blade drinks for body and soul
         P.hp = Math.min(P.maxhp, P.hp + Math.max(10, Math.floor(dmg * spc.heal)));
         if (spc.pheal) P.pray = Math.min(P.maxpray, P.pray + Math.max(5, Math.floor(dmg * spc.pheal)));
@@ -4472,12 +4532,22 @@ function swing(o) {
       }
       drawStyles();
     } else if (barrowsSet('verac') && Math.random() < 0.25) dmg = randInt(1, Math.floor(maxHit() * bm) + 1);   // Verac strikes through guard and prayer alike
-    else dmg = roll(hitChance(aEff, bonus('atk'), dl, db), Math.floor(maxHit() * bm));
+    else {
+      const ch = hitChance(aEff, bonus('atk'), dl, db), M = Math.floor(maxHit() * bm);
+   // the fang rolls its accuracy twice and keeps to the middle of its range, 15% to 85%, exactly as the wiki describes
+      dmg = wp0 && wp0.fang ? (Math.random() < ch || Math.random() < ch ? randInt(Math.ceil(M * 0.15), Math.max(1, Math.floor(M * 0.85))) : 0) : roll(ch, M);
+      if (wp0 && wp0.big3 && o.npc && o.t.big) dmg += (roll(ch, M) >> 1) + (roll(ch, M) >> 2);   // the scythe passes through the big ones three times, at a half and a quarter
+    }
     dmg = devMul(dmg);
+    if (wp0 && wp0.souls && !spc && P.souls < 5 && P.hp > 8) { P.souls++; P.hp -= 8; dirty.orb = 1; healthBar(P); drawStyles(); }   // every swing feeds the axe a soul, and a little blood
+    const nk0 = eq.neck && ITEMS[eq.neck];
+    if (dmg > 0 && nk0 && nk0.bfury && Math.random() < 0.2) { P.hp = Math.min(P.maxhp, P.hp + Math.max(1, Math.round(dmg * 0.3))); dirty.orb = 1; healthBar(P); }   // the blood fury drinks a fifth of the time
     if (dmg > 0 && barrowsSet('guthan') && Math.random() < 0.25) { P.hp = Math.min(P.maxhp, P.hp + dmg); dirty.orb = 1; say("Guthan's spear drinks the wound."); }
     if (dmg > 0) { sfx(meleeSnd()); if (!o.npc) sfx(513, 0.9); } else parrySnd();
     const wp = ITEMS[eq.weapon];   // an envenomed blade bites one time in four; venom deepens instead of fading
     if (dmg > 0 && o.npc && wp && wp.psn && !o.psn && Math.random() < 0.25) { o.psn = wp.psn; o.venomF = wp.venom || 0; o.psnN = 0; o.psnT = tickN + 30; say('Your poison courses through the ' + o.name + '.'); }
+    const hm0 = eq.head && ITEMS[eq.head];   // the serpentine helm spits venom of its own: the wiki's 1/6, a half behind an already-poisoned edge
+    if (dmg > 0 && o.npc && hm0 && hm0.envenom && !o.psn && Math.random() < (wp && wp.psn ? 0.5 : 1 / 6)) { o.psn = 6; o.venomF = 1; o.psnN = 0; o.psnT = tickN + 30; say('The helm spits venom into the ' + o.name + '.'); }
     hitsplat(o.rx, o.ry + 1.5, o.rz, dmg);
     xps = st.xp;
   }
@@ -5028,7 +5098,10 @@ let statsOpen = 0;
 const stRow = (n, v) => '<div class="stRow"><i>' + n + '</i><b>' + v + '</b></div>';
 function showStats() {   // the full ledger: bonuses, worn pieces and the levels that come of it
   const h = ['<div class="stq"><div class="stqCol"><p class="blab">Bonuses</p>'];
-  for (const [n, f] of [['Attack bonus', 'atk'], ['Strength bonus', 'str'], ['Defence bonus', 'def'], ['Magic bonus', 'mag'], ['Ranged attack', 'rat'], ['Ranged strength', 'rst']]) h.push(stRow(n, '+' + bonus(f)));
+  const sgn = v => (v < 0 ? '' : '+') + v;   // a penalty is a real number now: torva reads -18 magic attack, and says so
+  for (const [n, f] of [['Attack bonus', 'atk'], ['Strength bonus', 'str'], ['Defence bonus', 'def'], ['Magic attack', 'mag'], ['Ranged attack', 'rat'], ['Ranged strength', 'rst']]) h.push(stRow(n, sgn(bonus(f))));
+   // magic defence is magic attack plus the gap the armoury's `mdef` carries; the other two had no row at all
+  h.push(stRow('Magic defence', sgn(bonus('mag') + bonus('mdef'))), stRow('Magic damage', sgn(bonus('mdmg')) + '%'), stRow('Prayer bonus', sgn(bonus('pb'))));
   h.push('<p class="blab">Levels</p>', stRow('Combat level', combatLevel()), stRow('Total level', totalLevel()), stRow('Hitpoints', P.hp + ' / ' + P.maxhp),
     stRow('Prayer', Math.floor(P.pray) + ' / ' + P.maxpray), stRow('Max melee hit', maxHit()), '</div><div class="stqCol"><p class="blab">Worn</p>');
   let worn = 0;
@@ -5200,11 +5273,12 @@ function drawStyles() {
   el('cbSpd').textContent = atkSpeed() + ' ticks'; el('cbMax').textContent = P.spell !== null ? mdmgMax(SPELLS[P.spell].max) : pstaffOn() ? mdmgMax(pstaffMax()) : maxHit(); el('cbLvl').textContent = combatLevel();
   const sw = SPEC[eq.weapon], b = el('cbSpec');
   b.style.display = sw ? '' : 'none';
-  if (sw) { b.textContent = (P.specArm ? 'Special armed — ' : 'Special attack (' + sw.cost + '%) — ') + Math.floor(P.spec) + '%'; b.classList.toggle('on', !!P.specArm); }
+  if (sw) { b.textContent = (P.specArm ? 'Special armed — ' : 'Special attack (' + sw.cost + '%) — ') + (sw.souls ? (P.souls || 0) + ' soul' + (P.souls === 1 ? '' : 's') : Math.floor(P.spec) + '%'); b.classList.toggle('on', !!P.specArm); }
 }
 on(el('cbSpec'), 'click', () => {
   const sw = SPEC[eq.weapon]; if (!sw) return;
   if (sw.fx) { if (P.spec >= sw.cost) { P.spec -= sw.cost; sw.fx(); drawStyles(); } return; }   // instant specs fire from the button
+  if (!P.specArm && sw.souls && !P.souls) return say('The axe holds no souls to spend.', 'bad');
   if (!P.specArm && P.spec < sw.cost) return say('Not enough special attack energy.', 'bad');
   P.specArm = P.specArm ? 0 : 1; drawStyles();
 });
@@ -6290,7 +6364,7 @@ function gameTick() {
     if (P.pray <= 0) { P.pray = 0; P.prayers = 0; sfx(2672); say('You have run out of prayer points.', 'bad'); drawPrayers(); }
     dirty.orb = 1;
   }
-  if (tickN - (P.specT || 0) >= 50) { P.specT = tickN; if (P.spec < 100) { P.spec = Math.min(100, P.spec + 10); if (SPEC[eq.weapon]) drawStyles(); } }   // a free-running 30-second cycle: stamping it only while draining refunded on the very next tick
+  if (tickN - (P.specT || 0) >= (eq.ring === 'lightbearer' ? 25 : 50)) { P.specT = tickN; if (P.spec < 100) { P.spec = Math.min(100, P.spec + 10); if (SPEC[eq.weapon]) drawStyles(); } }   // a free-running 30-second cycle: stamping it only while draining refunded on the very next tick
   if (P.psn > 0 && tickN >= P.psnT && !P.dead) {   // poison bites every 30 ticks; the wound shallows one point per five bites
     P.psnT = tickN + 30;
     hurtSnd = 2408; hurtPlayer(P.psn);   // the wound hisses instead of grunting
@@ -6791,7 +6865,7 @@ function freshCharacter() {
   P.energy = 100; P.run = 1; P.atkT = 0; P.specArm = 0; P.style = 0; P.cstyle = 0; P.prayers = 0; P.spell = null; P.slay = null; P.clue = null; P.farm = Object.create(null); bst.fill(0);
   P.hs = null;   // loadSeed already tore any standing house down
   P.cl = new Set(); P.pet = null; P.ins = []; P.petLost = []; P.dy = {}; P.ca = {}; P.dunRet = null; P.skull = 0; P.dpile = null;
-  P.spec = 100; P.specArm = 0; P.homeT = P.agiCapeT = -1e9; P.book = 0; P.books = 1; P.veng = 0; P.vengCd = 0; P.dreamT = 0; P.imbueT = 0;
+  P.spec = 100; P.specArm = 0; P.souls = 0; P.homeT = P.agiCapeT = -1e9; P.book = 0; P.books = 1; P.veng = 0; P.vengCd = 0; P.dreamT = 0; P.imbueT = 0;
   for (const [id, n] of [['bronze_hatchet', 1], ['bronze_pickaxe', 1], ['tinderbox', 1], ['hammer', 1], ['small_net', 1], ['coins', 120]]) invAdd(id, n);
   eq.weapon = 'bronze_sword';
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
@@ -8347,7 +8421,7 @@ for (const h of HERBS) { const r = recipe(h.k, 'herblore', h.lv, h.xp, [[h.grimy
 const potBoost = (k, b, f) => { const i = SK[k]; bst[i] = Math.max(bst[i], b + Math.floor(lvl[i] * f)); };
 const potDrain = (k, b, f) => { const i = SK[k]; bst[i] = Math.max(-lvl[i], bst[i] - b - Math.floor(Math.max(0, lvl[i] + bst[i]) * f)); dirty.sk = 1; };   // wiki drains bite the current level, and stack
 const potRestore = (f, b, all) => { for (let i = 0; i < NSK; i++) if (bst[i] < 0 && (all || i === SK.attack || i === SK.strength || i === SK.defence || i === SK.ranged || i === SK.magic)) bst[i] = Math.min(0, bst[i] + b + Math.floor(lvl[i] * f)); dirty.sk = 1; };   // b + f x base, never past base; plain restore touches the five combat stats only
-const potPray = (b, f) => { P.pray = Math.min(P.maxpray, P.pray + b + Math.floor(P.maxpray * ((f || 0.25) + (capeOn('prayer') ? 0.02 : 0)))); };   // the prayer cape is a holy wrench: two points more in the hundred
+const potPray = (b, f) => { P.pray = Math.min(P.maxpray, P.pray + b + Math.floor(P.maxpray * ((f || 0.25) + (capeOn('prayer') || eq.ring === 'ring_of_the_gods' ? 0.02 : 0)))); };   // the prayer cape and the imbued ring of the gods each work a holy wrench: two points more in the hundred
 function drink(i) {
   const it = ITEMS[inv[i].id], p = it.pot, d = it.dose;
   if (P.potT > tickN) return;   // a sip is a consumption like a bite: its own three-tick clock, and it delays the next swing
@@ -10075,6 +10149,103 @@ SHOP_KINDS.filter(s2 => s2.k === 'craft')[0].base.push('holy_mould');
 recipe('holy_symbol', 'crafting', 16, 50, [['silver_bar', 1], ['ball_of_wool', 1]], { at: 3, tool: 'holy_mould', msg: 'You cast and string a holy symbol.' });
 LOOT.monk.den = 128; LOOT.monk.main = [['monk_robe_top', 8], ['monk_robe_bottom', 8]];   // game-economy: the brothers surrender their habit
 
+/* ---- ARMOURY IV: the modern top tier, wiki-audited Sep 9 (every infobox fetched, every number exact). The engine
+   models one attack scalar and one defence scalar, so each row keeps `atk` = the wiki's best attack style and
+   `def` = the rounded mean of its stab/slash/crush, exactly as ARMOURY II and III do. Magic is the one axis where
+   the wiki's attack and defence part company badly (a Justiciar chestguard reads -40 attack and -16 defence), so
+   `mag` stays magic ATTACK and a new `mdef` carries only the difference; bonus('mag') + bonus('mdef') is the guard.
+   Rows live in data07.js seg7..seg10. Passives that had a home in this world are wired below; the rest are named
+   as unmodelled where they are. ---- */
+/* the pieces that upgrade a weapon or a boot into its famous form, each the wiki's own recipe */
+for (const [id, name, g, c, c2, val] of [
+  ['avernic_defender_hilt', 'Avernic defender hilt', 'sword', '#b8963a', '#4a3c14', 900000],
+  ['magic_fang', 'Magic fang', 'skull', '#3aa04a', '#164a20', 60000],
+  ['ancient_icon', 'Ancient icon', 'rune', '#8a1a24', '#3a0a10', 120000],
+  ['black_tourmaline_core', 'Black tourmaline core', 'rune', '#2a2a34', '#6a5ac8', 250000],
+  ['blood_shard', 'Blood shard', 'rune', '#c82030', '#6a1018', 200000],
+  ['crystal_weapon_seed', 'Crystal weapon seed', 'star', '#8ae8e0', '#2e7a76', 700000],
+  ['harmonised_orb', 'Harmonised orb', 'star', '#8ae8c8', '#2e7a5e', 500000],
+  ['volatile_orb', 'Volatile orb', 'star', '#e86a2a', '#7a2e0a', 500000],
+  ['eldritch_orb', 'Eldritch orb', 'star', '#8a4ac8', '#421e6a', 500000]
+]) defItem({ id, name, g, c, c2, val });
+
+armSeg('seg7');   // melee: the raid blades, Zarosian and Justiciar plate, the Inquisitor's crush kit, the granite quarry
+armSeg('seg8');   // ranged: the crystal and Zaryte launchers, Masori, the arrow-catching shields
+armSeg('seg9');   // magic: the powered staves, the Nightmare orbs, Virtus, the bark armours
+armSeg('seg10');  // worn by all three disciplines
+
+/* SPECIALS. Only what the spec engine already speaks: an accuracy multiplier, a damage multiplier, repeat hits, a
+   floor, a stun, a defence drain, a heal. `mag: 1` marks a spec that fires through the spell you have armed. */
+SPEC.osmumtens_fang = { cost: 25, acc: 1.5 };   // Eviscerate: half again the accuracy, and the roll opens to the fang's true maximum instead of its 15-85% band
+SPEC.elder_maul = { cost: 50, acc: 1.25, drainDef: 0.65 };   // Pulverize: a superior dragon warhammer, 35% off the current guard
+SPEC.voidwaker = { cost: 50, sure: 1, dmg: 1.5, minFrac: 1 / 3 };   // Disrupt: it never misses, and deals 50-150% of the melee maximum
+SPEC.saradomins_blessed_sword = { cost: 65, dmg: 1.25, bonus: [1, 12] };   // Saradomin's Lightning, the blessed edge: a quarter more steel and the god's own
+SPEC.barrelchest_anchor = { cost: 50, acc: 2, dmg: 1.1, drainDef: 0.9 };   // Sunder: double accuracy, a tenth more, and the guard caves
+SPEC.zamorakian_hasta = SPEC.dragon_spear;   // Shove, shared with the spear it is forged from
+SPEC.soulreaper_axe = { cost: 0, souls: 1 };   // Behead: no energy at all, only the souls the axe has drunk
+SPEC.zaryte_crossbow = { cost: 75, rng: 1, acc: 2 };   // Evoke: doubled accuracy (its guaranteed bolt effect is not modelled)
+SPEC.webweaver_bow = { cost: 50, rng: 1, n: 4, acc: 2, dmg: 0.4 };   // Swarm: four shafts at two fifths apiece
+SPEC.volatile_nightmare_staff = { cost: 55, mag: 1, acc: 1.5, max: 58 };   // Immolate (its rune-free clause is not modelled: the armed spell still pays)
+SPEC.eldritch_nightmare_staff = { cost: 55, mag: 1, max: 44, pheal: 0.5 };   // Invocate: half the wound back as prayer, to the wiki's cap of 120
+/* named and left unmodelled: the scythe's and crystal blade's charges, the wyvern shield's and dragonfire ward's
+   charged blasts, the Spectral's prayer-drain halving, the amulet of the damned's barrows upgrades, and the
+   leaf-bladed battleaxe's turoth/kurask bite (neither creature walks in this world). */
+
+/* RECIPES: the wiki's own joins, and the two barks the runecrafter presses out of magic logs */
+recipe('avernic_defender', 'smithing', 70, 0, [['dragon_defender', 1], ['avernic_defender_hilt', 1]], { at: 4, tool: 'hammer', msg: 'You seat the hilt: the defender answers with a black edge.' });
+recipe('trident_of_the_swamp', 'crafting', 59, 0, [['trident_of_the_seas', 1], ['magic_fang', 1]], { tk: 2, msg: 'The fang bites into the fork; the water in it turns green.' });
+recipe('ancient_sceptre', 'magic', 70, 0, [['ancient_staff', 1], ['ancient_icon', 1]], { tk: 2, msg: 'The icon settles into the staff-head and the old words come easier.' });
+recipe('guardian_boots', 'smithing', 60, 0, [['granite_boots', 1], ['black_tourmaline_core', 1]], { at: 4, tool: 'hammer', msg: 'The core sinks into the granite; the boots grow heavier and kinder.' });
+recipe('amulet_of_blood_fury', 'crafting', 80, 0, [['amulet_of_fury', 1], ['blood_shard', 1]], { tk: 2, msg: 'The shard drinks its way into the onyx. The fury has a thirst now.' });
+recipe('bow_of_faerdhinen', 'smithing', 82, 0, [['crystal_weapon_seed', 1]], { at: 4, tool: 'hammer', msg: 'The seed unfolds along your arm into a bow of singing crystal.' });
+recipe('zamorakian_hasta', 'smithing', 1, 0, [['zamorakian_spear', 1], ['coins', 300000]], { at: 4, tool: 'hammer', msg: 'The smith shortens the haft and rebalances the head.' });   // the wiki's 300,000 to Otto Godblessed
+for (const [orb, staff, what] of [['harmonised_orb', 'harmonised_nightmare_staff', 'quickens'], ['volatile_orb', 'volatile_nightmare_staff', 'smoulders'], ['eldritch_orb', 'eldritch_nightmare_staff', 'hollows']])
+  recipe(staff, 'magic', 82, 0, [['nightmare_staff', 1], [orb, 1]], { tk: 2, msg: 'The orb seats itself in the staff, and the wood ' + what + '.' });
+/* bark armour: the wiki presses splitbark into it at the blood and nature altars. No splitbark walks here, so the
+   magic logs go straight to the altar instead, at the wiki's own runecrafting levels. */
+for (const [pre, sk2, rune, lv, n, xp] of [['swampbark', 'nature', 'nature_rune', 46, 15, 60], ['bloodbark', 'blood', 'blood_rune', 60, 40, 90]])
+  for (const [p2, cost] of [['helm', 1], ['body', 3], ['legs', 2], ['gauntlets', 1], ['boots', 1]])
+    recipe(pre + '_' + p2, 'runecraft', lv, xp * cost, [['magic_logs', cost], [rune, n * cost]], { at: 11, msg: 'The altar presses the ' + sk2 + ' into the wood.' });
+
+/* SOURCES: every piece above has a home. The three later vaults roll like the raid chest already does; where the
+   wiki's owner never walked in this world the nearest kin stands in, each named. */
+const ARM4_LOG = new Set(['elder_maul', 'twisted_buckler', 'crystal_weapon_seed']
+  .concat(TOB_SUB.map(d => d[0]), TOA_SUB.map(d => d[0]), NM_SUB.map(d => d[0])));   // CLOG_ORDER is a save format: see the collection log
+SUBTABLES.tob = () => rollTable(TOB_SUB);
+SUBTABLES.toa = () => rollTable(TOA_SUB);
+SUBTABLES.nm = () => rollTable(NM_SUB);
+MEGA_DROPS.push(['crystal_weapon_seed', 1]);   // the seed joins the crystal bow on the mega table
+for (const [k, ...rows] of [
+  ['sarachnis', ['tob', 20], ['amulet_of_rancour', 512]],   // the spider matriarch stands in for Verzik Vitur, and her brood for Araxxor
+  ['kalphitequeen', ['toa', 25]],   // the desert's own queen stands in for the Tombs of Amascut
+  ['vetion', ['nm', 24], ['bellator_ring', 400], ['ring_of_the_gods', 400], ['soulreaper_axe', 900], ['voidwaker', 700]],   // the wiki's own ring of the gods; the undead terror stands in for the Nightmare
+  ['callisto', ['ultor_ring', 400], ['tyrannical_ring', 400], ['voidwaker', 700]],   // the wiki's own tyrannical ring
+  ['venenatis', ['treasonous_ring', 400], ['voidwaker', 700], ['serpentine_helm', 512], ['magic_fang', 512]],   // the wiki's own treasonous ring; her venom keeps Zulrah's helm and fang
+  ['scorpia', ['magus_ring', 400], ['ring_of_suffering', 300]],
+  ['kril', ['torva_full_helm', 381], ['torva_platebody', 381], ['torva_platelegs', 381], ['virtus_mask', 381], ['virtus_robe_top', 381],
+    ['virtus_robe_bottom', 381], ['zaryte_crossbow', 508], ['zaryte_vambraces', 400]],   // Zamorak's general keeps Nex's chamber
+  ['jungledemon', ['ferocious_gloves', 400], ['brimstone_ring', 512], ['boots_of_brimstone', 256], ['tormented_bracelet', 512], ['dragon_hunter_lance', 1000]],   // the demonic kin stand in for the hydras
+  ['skotizo', ['elysian_spirit_shield', 512], ['arcane_spirit_shield', 512], ['spectral_spirit_shield', 512]],   // the dark warden stands in for the Corporeal Beast
+  ['vorkath', ['ancient_wyvern_shield', 512], ['dragonfire_ward', 512]],   // the undead dragon stands in for the skeletal wyverns
+  ['revenant', ['craws_bow', 700], ['webweaver_bow', 700], ['ancient_icon', 500]],   // the restless dead keep the ether weapons, as the wiki has them
+  ['kbd', ['venator_bow', 700], ['venator_ring', 400]],   // the black king stands in for the Phantom Muspah and the Leviathan both
+  ['icetroll', ['helm_of_neitiznot', 128], ['neitiznot_faceguard', 512]],   // the Fremennik ice stands in for Neitiznot
+  ['trollgeneral', ['granite_helm', 128], ['granite_boots', 128], ['granite_gloves', 128], ['granite_ring', 128], ['black_tourmaline_core', 400]],   // the quarry's kin, beside the maul he already keeps
+  ['branda', ['infernal_cape', 500]],   // no Inferno here: the fire queen pays the cape beyond her own
+  ['elvarg', ['mythical_cape', 128]],   // the Myths' Guild cape, from the myth herself
+  ['paladin', ['imbued_saradomin_cape', 512], ['saradomins_blessed_sword', 700]],
+  ['darkwizard', ['imbued_zamorak_cape', 512], ['book_of_darkness', 200]],
+  ['druid', ['imbued_guthix_cape', 512]],
+  ['shade', ['amulet_of_the_damned', 256], ['blood_shard', 512]],   // the crypt-dead keep the trekker's amulet and the vampyre's shard
+  ['hero', ['barrows_gloves', 300]],   // no Recipe for Disaster here: the culinaromancer's champions wear them out
+  ['eldric', ['infinity_gloves', 350]],
+  ['kalphitesoldier', ['leaf_bladed_battleaxe', 128]],   // the slayer shelf has no counterpart: its own chitinous kin pay the blade
+  ['pirate', ['barrelchest_anchor', 512]],
+  ['bandit', ['spiked_manacles', 128]],
+  ['monk', ['holy_sandals', 128]],
+  ['zamorakmonk', ['devout_boots', 200]]
+]) { bossTert(k, ...rows); for (const r of rows) if (ITEMS[r[0]]) ARM4_LOG.add(r[0]); }
+
 /* ---- THE LONG GAME: boss pets, the collection log, combat feats, town diaries, and the world's small surprises ---- */
 GLYPH.paw = (g, c, d) => { for (const [x, y2, r] of [[10, 10, 3], [16, 8, 3], [22, 10, 3], [7, 16, 2.6], [25, 16, 2.6]]) { g.fillStyle = c; g.strokeStyle = d; g.beginPath(); g.arc(x, y2, r, 0, TAU); g.fill(); g.stroke(); } g.fillStyle = c; g.strokeStyle = d; g.beginPath(); g.ellipse(16, 21, 7, 6, 0, 0, TAU); g.fill(); g.stroke(); };
 let devRandMul = 1;
@@ -10196,6 +10367,7 @@ for (const k in LOOT) {
   const T = LOOT[k], ids = new Set();
   for (const d of (T.alw || []).concat(T.main || [], T.tert || [], T.taskTert || [])) {
     const id = d[0];
+    if (ARM4_LOG.has(id)) continue;   // held back below: logging it here would shift every bit after it
     if (ITEMS[id] && id !== 'coins' && (ITEMS[id].equip || ITEMS[id].val >= 100 || id.startsWith('pet_'))) ids.add(id);
   }
   if (ids.size) { CLOG.set(k, [...ids]); for (const id of ids) CLOG_ALL.add(id); }
@@ -10206,11 +10378,18 @@ for (const id of CLOG.get('treasure')) CLOG_ALL.add(id);
 /* The prestige sub-tables are reached through a divert token — LOOT holds 'barrows'/'raid'/'vault', not the pieces —
    so ITEMS['barrows'] is undefined and the loop above skipped every one of them: the whole barrows set, the raid vault
    and the third-age chest could never be logged. Appended AFTER the derived order, so no existing bit moves. */
-const CLOG_NAME = { treasure: 'Treasure Trails', barrows: 'Barrows chest', raid: 'Raid vault', vault: 'Shining casket' };
+const CLOG_NAME = { treasure: 'Treasure Trails', barrows: 'Barrows chest', raid: 'Raid vault', vault: 'Shining casket', armoury4: 'The modern armoury' };
 for (const [k, ids] of [['barrows', BARROWS_SUB.map(d => d[0])], ['raid', RAID_SUB.map(d => d[0])],
                         ['vault', VAULT_SUB.map(d => d[0]).concat('ranger_boots')]]) {
-  const fresh = ids.filter(id => ITEMS[id] && !CLOG_ALL.has(id));
+  const fresh = ids.filter(id => ITEMS[id] && !CLOG_ALL.has(id) && !ARM4_LOG.has(id));
   if (fresh.length) { CLOG.set(k, fresh); for (const id of fresh) CLOG_ALL.add(id); }
+}
+/* ARMOURY IV last of all. Its drops were pushed onto families that already had entries, and every bit after an
+   insertion belongs to a different item than it did — so the whole armoury is held back and appended here instead,
+   exactly as the sub-table families above are, and no log written by an older build is rewritten. */
+{
+  const fresh = [...ARM4_LOG].filter(id => ITEMS[id] && !CLOG_ALL.has(id) && (ITEMS[id].equip || ITEMS[id].val >= 100));
+  if (fresh.length) { CLOG.set('armoury4', fresh); for (const id of fresh) CLOG_ALL.add(id); }
 }
 
 /* CLOG_ORDER IS A SAVE FORMAT. The collection log rides the blob as one bit per

@@ -156,13 +156,13 @@ function qpts(x0, y0, cx, cy, x1, y1, k) {
 }
 const WOOD = [0.42, 0.29, 0.15], STRING = [0.94, 0.90, 0.78];
 const WGRIP = { sword: [16, 26], dagger: [16, 25], scim: [8, 28], axe: [11.5, 26], pick: [16, 26], staff: [16, 26], bow: [20, 16], lsword: [16, 27], sword2h: [16, 27],
-  mace: [16, 26], baxe: [10, 28], wham: [16, 26], claws: [16, 28], halberd: [16, 24], spear: [16, 24], cbow: [16, 17], wand: [10.5, 26.5], whip: [16, 26] };
+  mace: [16, 26], baxe: [10, 28], wham: [16, 26], claws: [16, 28], halberd: [16, 24], spear: [16, 24], cbow: [16, 17], wand: [10.5, 26.5], whip: [16, 26], scythe: [16, 24] };
 /* hangs point-down at half scale, edge-on to the chest */
 const WHANG = new Set(['sword', 'dagger', 'scim', 'axe', 'pick', 'rod', 'lsword', 'sword2h', 'mace', 'baxe', 'wham', 'claws', 'wand', 'whip']);
-const WUP = new Set(['staff', 'halberd', 'spear']);   // held tip-up: a thrust lowers them first
+const WUP = new Set(['staff', 'halberd', 'spear', 'scythe']);   // held tip-up: a thrust lowers them first
 const WFLIP = new Set(['scim', 'rod', 'wand']);   // tips that lean right in the icon are turned to lean forward in the hand
 const TWO_A = -1.0, TWO_Z = 0.9;   // the two-hand hold: both arms swung forward and in, hands met at the waist
-const WFWD = { staff: 0.19, bow: 0.03, halberd: 0.19, spear: 0.19, cbow: 0.08 }, WOUT = { staff: -0.10, halberd: -0.10, spear: -0.10 };
+const WFWD = { staff: 0.19, bow: 0.03, halberd: 0.19, spear: 0.19, cbow: 0.08, scythe: 0.19 }, WOUT = { staff: -0.10, halberd: -0.10, spear: -0.10, scythe: -0.10 };
 const WEAPON = {
   sword: (c, d, x, y) => [xtr([16, 2, 19.5, 9, 19.5, 20, 12.5, 20, 12.5, 9], c, x, y), xrect(9, 20, 14, 3, d, x, y), xrect(14.5, 23, 3, 6, WOOD, x, y), xrect(13, 28.5, 6, 2, d, x, y)],
   dagger: (c, d, x, y) => [xtr([16, 5, 19, 11, 19, 19, 13, 19, 13, 11], c, x, y), xrect(10, 19, 12, 3, d, x, y), xrect(14.5, 22, 3, 6, WOOD, x, y)],
@@ -194,7 +194,13 @@ const WEAPON = {
   pipe: (c, d, x, y) => [xtr([14, 2, 18, 2, 17.2, 27, 14.8, 27], c, x, y), xrect(13.2, 1, 5.6, 2.6, d, x, y), xrect(13.8, 10, 4.4, 2.6, d, x, y), xrect(14.4, 27, 3.2, 3, d, x, y)],
   trident: (c, d, x, y) => [xrect(14.8, 9, 2.4, 21, WOOD, x, y), xrect(11, 8.6, 10, 2, c, x, y),
     xtr([16, 0.5, 17.6, 4.5, 16, 9, 14.4, 4.5], c, x, y), xrect(11.2, 2.5, 1.8, 7, c, x, y), xrect(19, 2.5, 1.8, 7, c, x, y),
-    xrect(11.2, 2.5, 1.8, 2, d, x, y), xrect(19, 2.5, 1.8, 2, d, x, y)]
+    xrect(11.2, 2.5, 1.8, 2, d, x, y), xrect(19, 2.5, 1.8, 2, d, x, y)],
+  /* the scythe: a long haft, a collar, and a crescent that sweeps out and back over the head — the one silhouette
+     in this armoury no existing shape could honestly stand in for */
+  scythe: (c, d, x, y) => [xrect(14.9, 6, 2.2, 24, WOOD, x, y), xrect(12.4, 5.2, 7.2, 2.4, d, x, y),
+    xtr(qpts(16, 5.2, 28, 1.6, 30.4, 15.5, 10).concat(qpts(30.4, 15.5, 23.5, 7.4, 16, 9.6, 10)), c, x, y),
+    xtr(qpts(16, 5.8, 26.4, 3.2, 28.2, 14, 8).concat(qpts(28.2, 14, 22.6, 7.6, 16, 9, 8)), d, x, y),
+    xrect(14.4, 26.4, 3.2, 2.2, d, x, y)]
 };
 /* Magic level and magic defence bonus per the wiki, for the rows where they are not 1/0: casters attack with mag, and
    every monster defends spells with it (a Magic-1 brute is easy to splash-proof hit; a +700 titan shrugs casts off). */
@@ -583,7 +589,14 @@ const BARROWS_SUB = [['dharoks_helm', 1], ['dharoks_platebody', 1], ['dharoks_pl
   ['veracs_helm', 1], ['veracs_brassard', 1], ['veracs_plateskirt', 1], ['veracs_flail', 1],
   ['karils_coif', 1], ['karils_leathertop', 1], ['karils_leatherskirt', 1], ['karils_crossbow', 1],
   ['ahrims_hood', 1], ['ahrims_robetop', 1], ['ahrims_robeskirt', 1], ['ahrims_staff', 1]];
-const RAID_SUB = [['dragon_hunter_crossbow', 4], ['ancestral_hat', 3], ['ancestral_robe_top', 3], ['ancestral_robe_bottom', 3], ['kodai_wand', 2], ['twisted_bow', 2]];   // the raid vault's own weights
+const RAID_SUB = [['dragon_hunter_crossbow', 4], ['ancestral_hat', 3], ['ancestral_robe_top', 3], ['ancestral_robe_bottom', 3], ['kodai_wand', 2], ['twisted_bow', 2],
+  ['elder_maul', 2], ['twisted_buckler', 3]];   // the raid vault's own weights
+/* the three later vaults, each on the wiki's own relative rarity within its chest */
+const TOB_SUB = [['avernic_defender_hilt', 6], ['justiciar_faceguard', 4], ['justiciar_chestguard', 3], ['justiciar_legguards', 3],
+  ['ghrazi_rapier', 4], ['sanguinesti_staff', 3], ['blade_of_saeldor', 3], ['scythe_of_vitur', 1]];
+const TOA_SUB = [['osmumtens_fang', 4], ['lightbearer', 4], ['masori_mask', 3], ['elidinis_ward', 3], ['masori_body', 2], ['masori_chaps', 2], ['tumekens_shadow', 1]];
+const NM_SUB = [['nightmare_staff', 6], ['inquisitors_great_helm', 4], ['inquisitors_plateskirt', 4], ['inquisitors_hauberk', 3], ['inquisitors_mace', 3],
+  ['harmonised_orb', 2], ['eldritch_orb', 2], ['volatile_orb', 2]];
 /* every boss walks again in miniature; wiki rates where the pet exists, 1/3000 where 2007 never granted one — TODO: verify */
 /* the visage, at each dragon's own wiki odds; bronze/red/green/blue are excluded there and stay so here */
 const VISAGE_RATE = { irondragon: 10000, steeldragon: 10000, mithrildragon: 10000, blackdragon: 10000, adamantdragon: 9000, runedragon: 8000 };
@@ -702,7 +715,119 @@ const ARM = {
     ['third_age_robe_top', '3rd age robe top', 'robe', 0, 'body', 900000, { magic: 65 }, { def: 0, mag: 24, mdmg: 1 }],
     ['third_age_robe', '3rd age robe', 'skirt', 0, 'legs', 800000, { magic: 65 }, { def: 0, mag: 19, mdmg: 1 }],
   ],
-};
+  /* seg7 — MELEE, the far shore: the raid blades, the Zarosian and Justiciar plate, the Inquisitor's crush kit.
+     atk is the wiki's best attack style, def the rounded mean of its stab/slash/crush, mdef the amount by which its
+     magic DEFENCE parts from its magic attack (the engine folds the two into `mag`, so only the gap needs a key). */
+  seg7: [
+    ['elder_maul', 0, 'wham', '#7a6a58.#3c342a', 'weapon', 1449000, { attack: 75, strength: 75 }, { two: 1, atk: 135, str: 147, spd: 6 }],
+    ['soulreaper_axe', 0, 'baxe', '#3a2a4a.#c82a4a', 'weapon', 1500000, { attack: 80, strength: 80 }, { two: 1, atk: 134, str: 125, spd: 5, souls: 1 }],
+    ['osmumtens_fang', "Osmumten's fang", 'dagger', '#e8c86a.#8a6a18', 'weapon', 1268000, { attack: 82 }, { stab: 1, atk: 105, str: 103, spd: 5, fang: 1 }],
+    ['scythe_of_vitur', 'Scythe of vitur', 'scythe', '#8a2a3a.#3a1018', 'weapon', 1500000, { attack: 80, strength: 90 }, { two: 1, atk: 125, str: 75, def: 5, mag: -6, mdef: 6, spd: 5, reach: 2, big3: 1 }],
+    ['inquisitors_mace', "Inquisitor's mace", 'mace', '#5a4a86.#332a52', 'weapon', 1500000, { attack: 80 }, { atk: 102, str: 96, pb: 2, spd: 4 }],
+    ['ghrazi_rapier', 0, 'sword', '#c8c8d0.#6a2a2a', 'weapon', 1301000, { attack: 80 }, { stab: 1, atk: 100, str: 93, spd: 4 }],
+    ['blade_of_saeldor', 0, 'lsword', '#e84a6a.#7a1c30', 'weapon', 1465000, { attack: 80 }, { atk: 100, str: 93, spd: 4 }],
+    ['barrelchest_anchor', 0, 'wham', '#8a7a58.#463c28', 'weapon', 230000, { attack: 60, strength: 40 }, { two: 1, atk: 92, str: 100, spd: 6 }],
+    ['saradomins_blessed_sword', "Saradomin's blessed sword", 'lsword', '#e8e4d0.#3a5ac8', 'weapon', 290000, { attack: 75 }, { two: 1, atk: 100, str: 88, pb: 2, spd: 4 }],
+    ['zamorakian_hasta', 0, 'spear', '#c82a2a.#5a1010', 'weapon', 1451000, { attack: 70 }, { stab: 1, atk: 85, str: 75, def: 13, pb: 2, spd: 4, reach: 2 }],
+    ['voidwaker', 0, 'sword', '#6a3ac8.#2e1470', 'weapon', 1351000, { attack: 75 }, { atk: 80, str: 80, mag: 5, spd: 4 }],
+    ['leaf_bladed_battleaxe', 'Leaf-bladed battleaxe', 'baxe', '#8ac84a.#3a6a18', 'weapon', 72000, { attack: 65, slayer: 55 }, { atk: 72, str: 92, spd: 5 }],
+    ['dragon_hunter_lance', 0, 'spear', '#3a8ac8.#164a6a', 'weapon', 1376000, { attack: 78 }, { stab: 1, atk: 85, str: 70, spd: 4, reach: 2, dbane: 1 }],
+    ['torva_full_helm', 0, 'fhelm', '#4a1c18.#2a0f0d', 'head', 200000, { defence: 80 }, { str: 8, def: 60, rat: -5, mag: -5, pb: 1 }],
+    ['justiciar_faceguard', 0, 'fhelm', '#8e97a8.#565d6b', 'head', 1031000, { defence: 75 }, { def: 61, rat: -2, mag: -6, pb: 2 }],
+    ['serpentine_helm', 0, 'helm', '#3a7a4a.#1e4228', 'head', 110000, { defence: 75 }, { str: 5, def: 55, rat: -5, mag: -5, mdef: 5, psnImm: 1, envenom: 1 }],
+    ['neitiznot_faceguard', 0, 'fhelm', '#d8c8a0.#8a7448', 'head', 550000, { defence: 70 }, { str: 6, def: 36, pb: 3 }],
+    ['helm_of_neitiznot', 0, 'helm', '#d8c8a0.#8a7448', 'head', 50000, { defence: 55 }, { str: 3, def: 31, pb: 3 }],
+    ['inquisitors_great_helm', "Inquisitor's great helm", 'fhelm', '#5a4a86.#332a52', 'head', 500000, { strength: 70, defence: 30 }, { atk: 10, str: 6, def: 17, rat: -5, mag: -5, pb: 1, mdef: 5 }],
+    ['granite_helm', 0, 'fhelm', '#6a6a72.#3c3c42', 'head', 46000, { defence: 50, strength: 50 }, { def: 31, rat: -7, mag: -9, mdef: 8 }],
+    ['torva_platebody', 0, 'body', '#4a1c18.#2a0f0d', 'body', 600000, { defence: 80 }, { str: 6, def: 115, rat: -14, mag: -18, pb: 1, mdef: 7 }],
+    ['justiciar_chestguard', 0, 'body', '#8e97a8.#565d6b', 'body', 1151000, { defence: 75 }, { def: 126, rat: -20, mag: -40, pb: 4, mdef: 24 }],
+    ['inquisitors_hauberk', "Inquisitor's hauberk", 'body', '#5a4a86.#332a52', 'body', 1000000, { strength: 70, defence: 30 }, { atk: 16, str: 4, def: 64, rat: -10, mag: -11, pb: 2, mdef: 11 }],
+    ['torva_platelegs', 0, 'legs', '#4a1c18.#2a0f0d', 'legs', 400000, { defence: 80 }, { str: 4, def: 81, rat: -11, mag: -24, pb: 1, mdef: 15 }],
+    ['justiciar_legguards', 0, 'legs', '#8e97a8.#565d6b', 'legs', 1119000, { defence: 75 }, { def: 93, rat: -17, mag: -31, pb: 4, mdef: 17 }],
+    ['inquisitors_plateskirt', "Inquisitor's plateskirt", 'skirt', '#5a4a86.#332a52', 'legs', 750000, { strength: 70, defence: 30 }, { atk: 12, str: 2, def: 40, rat: -5, mag: -9, pb: 2, mdef: 9 }],
+    ['granite_gloves', 0, 'glove', '#6a6a72.#3c3c42', 'hands', 34000, { defence: 50, strength: 50 }, { atk: 9, str: 7, def: 8, rat: -1, mag: -3 }],
+    ['spiked_manacles', 0, 'glove', '#8a8a92.#4a4a50', 'hands', 3000, 0, { str: 4, rat: -1, mag: -3 }],
+    ['ferocious_gloves', 0, 'glove', '#c83a2a.#701c14', 'hands', 100000, { attack: 80, defence: 80 }, { atk: 16, str: 14, rat: -16, mag: -16, mdef: 16 }],
+    ['guardian_boots', 0, 'boot', '#7a7a84.#3e3e46', 'feet', 305000, { defence: 75 }, { str: 3, def: 32, rat: -1, mag: -3, pb: 2 }],
+    ['granite_boots', 0, 'boot', '#6a6a72.#3c3c42', 'feet', 13000, { defence: 50, strength: 50 }, { str: 3, def: 16, rat: -1, mag: -3 }],
+    ['elysian_spirit_shield', 0, 'shield', '#8ac8e8.#3a6a8a', 'shield', 1031000, { defence: 75, prayer: 75 }, { def: 68, pb: 3, elys: 1 }],
+    ['avernic_defender', 0, 'defender', '#b8963a.#4a3c14', 'shield', 1055000, { attack: 70, defence: 70 }, { atk: 30, str: 8, def: 29, rat: -4, mag: -5 }],
+    ['infernal_cape', 0, 'cape', '#e85a1a.#7a1c06', 'cape', 80000, 0, { atk: 4, str: 8, def: 12, rat: 1, mag: 1, pb: 2, mdef: 11 }],
+    ['mythical_cape', 0, 'cape', '#c8c0b0.#6a2a2a', 'cape', 10000, 0, { atk: 6, str: 1, def: 8, pb: 1, mdef: 8 }],
+    ['amulet_of_blood_fury', 0, 'amulet', '#c8203a.#6a1020', 'neck', 402000, 0, { atk: 10, str: 8, def: 15, rat: 10, mag: 10, pb: 5, mdef: 5, bfury: 1 }],
+    ['amulet_of_rancour', 0, 'amulet', '#c82a5a.#6a1030', 'neck', 400000, { hitpoints: 90 }, { atk: 25, str: 12, rat: -8, mag: -6, pb: 2, mdef: 6 }],
+    ['bellator_ring', 0, 'ring', '#e8c84a.#8a6a18', 'ring', 140000, 0, { atk: 20, str: 6 }],
+    ['ultor_ring', 0, 'ring', '#c82a2a.#6a1010', 'ring', 140000, 0, { str: 12 }],
+    ['tyrannical_ring', 0, 'ring', '#c8c8d0.#6a6a72', 'ring', 50000, 0, { atk: 8, def: 3 }],
+    ['treasonous_ring', 0, 'ring', '#c8c8d0.#6a6a72', 'ring', 50000, 0, { atk: 8, def: 3 }],
+  ],
+  /* seg8 — RANGED: the crystal and Zaryte launchers (all four of the bows carry their own ammunition), Masori,
+     and the shields that trade melee guard for arrows. */
+  seg8: [
+    ['bow_of_faerdhinen', 'Bow of faerdhinen', 'bow', '#8ae8e0.#2e7a76', 'weapon', 1131000, { ranged: 80 }, { two: 1, rat: 128, rst: 106, spd: 5, bow: 1, selfAmmo: 1, rng: 10 }],
+    ['zaryte_crossbow', 0, 'cbow', '#c8b04a.#6a5a18', 'weapon', 990000, { ranged: 80 }, { def: 13, rat: 110, pb: 1, mdef: 15, spd: 6, bow: 1, ammoT: 'bolt', rng: 8 }],
+    ['venator_bow', 0, 'bow', '#4a3a6a.#241c34', 'weapon', 750000, { ranged: 80 }, { two: 1, rat: 90, rst: 25, spd: 5, bow: 1, selfAmmo: 1, rng: 6, bounce: 1 }],
+    ['webweaver_bow', 0, 'bow', '#8a4ac8.#421e6a', 'weapon', 175000, { ranged: 70 }, { two: 1, rat: 85, rst: 65, spd: 4, bow: 1, selfAmmo: 1, rng: 9, wild: 1.5 }],
+    ['craws_bow', "Craw's bow", 'bow', '#3a8a5a.#164228', 'weapon', 120000, { ranged: 60 }, { two: 1, rat: 75, rst: 60, spd: 4, bow: 1, selfAmmo: 1, rng: 9, wild: 1.5 }],
+    ['masori_mask', 0, 'hat', '#e8e0d0.#b08a3a', 'head', 800000, { ranged: 80, defence: 30 }, { def: 3, rat: 12, rst: 2, mag: -1, mdef: 7 }],
+    ['masori_body', 0, 'robe', '#e8e0d0.#b08a3a', 'body', 1200000, { ranged: 80, defence: 30 }, { def: 37, rat: 43, rst: 4, mag: -4, mdef: 29 }],
+    ['masori_chaps', 0, 'legs', '#e8e0d0.#b08a3a', 'legs', 1000000, { ranged: 80, defence: 30 }, { def: 26, rat: 27, rst: 2, mag: -2, mdef: 21 }],
+    ['zaryte_vambraces', 0, 'glove', '#4a4a58.#26262e', 'hands', 200000, { ranged: 80, defence: 45 }, { atk: -8, def: 8, rat: 18, rst: 2, pb: 1, mdef: 5 }],
+    ['twisted_buckler', 0, 'shield', '#8a6a4a.#4a3424', 'shield', 90000, { ranged: 75, defence: 75 }, { atk: -7, def: 23, rat: 18, rst: 10, mag: -10, mdef: 36 }],
+    ['dragonfire_ward', 0, 'shield', '#c8a03a.#6a5014', 'shield', 1031000, { ranged: 70, defence: 75 }, { atk: -10, str: -2, def: 28, rat: 15, rst: 8, mag: -10, mdef: 38 }],
+    ['venator_ring', 0, 'ring', '#3aa0c8.#164a6a', 'ring', 140000, 0, { rat: 10, rst: 2 }],
+  ],
+  /* seg9 — MAGIC: the powered staves (pmax is their own max-hit offset off magic/3), the Nightmare orbs,
+     Virtus, and the bark armours the runecrafter presses out of magic logs. */
+  seg9: [
+    ['ancient_sceptre', 0, 'staff', '#8a1a24.#3a0a10', 'weapon', 211000, { magic: 70, strength: 60, attack: 50 }, { two: 1, atk: 50, str: 60, def: 2, mag: 20, mdmg: 10, pb: -1, mdef: -5, spd: 4 }],
+    ['tumekens_shadow', "Tumeken's shadow", 'staff', '#e8c86a.#6a4a18', 'weapon', 1167000, { magic: 85 }, { two: 1, mag: 35, pb: 1, mdef: -15, spd: 5, pstaff: 1, pmax: 1, ptint: 0xe8c86a, m3: 1 }],
+    ['trident_of_the_swamp', 0, 'trident', '#6ac84a.#2e6a18', 'weapon', 79000, { magic: 78 }, { def: 2, mag: 25, mdef: -10, spd: 4, pstaff: 1, pmax: -2, ptint: 0x6ac84a, psn: 6, venom: 1 }],
+    ['sanguinesti_staff', 0, 'trident', '#c8203a.#6a1020', 'weapon', 1131000, { magic: 82 }, { def: 2, rat: -4, mag: 25, mdef: -10, spd: 4, pstaff: 1, pmax: -1, ptint: 0xc8203a, sang: 1 }],
+    ['harmonised_nightmare_staff', 0, 'staff', '#8ae8c8.#2e7a5e', 'weapon', 1122000, { magic: 82, hitpoints: 50 }, { two: 1, mag: 16, mdmg: 15, spd: 5, fastcast: 1 }],
+    ['volatile_nightmare_staff', 0, 'staff', '#e86a2a.#7a2e0a', 'weapon', 1122000, { magic: 82, hitpoints: 50 }, { two: 1, mag: 16, mdmg: 15, spd: 5 }],
+    ['eldritch_nightmare_staff', 0, 'staff', '#8a4ac8.#421e6a', 'weapon', 1122000, { magic: 82, hitpoints: 50 }, { two: 1, mag: 16, mdmg: 15, spd: 5 }],
+    ['nightmare_staff', 0, 'staff', '#4a4a5a.#24242e', 'weapon', 600000, { magic: 72, hitpoints: 50 }, { two: 1, mag: 16, mdmg: 15, spd: 5 }],
+    ['bloodbark_helm', 0, 'helm', '#8a2a2a.#4a1414', 'head', 15000, { magic: 60, defence: 60 }, { def: 16, mag: 5, mdmg: 1 }],
+    ['virtus_mask', 0, 'hat', '#6a3a8a.#3a1c4e', 'head', 200000, { magic: 78, defence: 75 }, { def: 15, rat: -3, mag: 8, mdmg: 2, pb: 1 }],
+    ['swampbark_helm', 0, 'helm', '#4a6a2a.#26380f', 'head', 15000, { magic: 50, defence: 50 }, { def: 13, mag: 4 }],
+    ['bloodbark_body', 0, 'robe', '#8a2a2a.#4a1414', 'body', 120000, { magic: 60, defence: 60 }, { def: 52, mag: 21, mdmg: 1 }],
+    ['virtus_robe_top', 0, 'robe', '#6a3a8a.#3a1c4e', 'body', 600000, { magic: 78, defence: 75 }, { def: 46, rat: -11, mag: 35, mdmg: 2, pb: 2 }],
+    ['swampbark_body', 0, 'robe', '#4a6a2a.#26380f', 'body', 120000, { magic: 50, defence: 50 }, { def: 43, mag: 15, mdef: 6 }],
+    ['bloodbark_legs', 0, 'legs', '#8a2a2a.#4a1414', 'legs', 80000, { magic: 60, defence: 60 }, { def: 34, mag: 16, mdmg: 1 }],
+    ['virtus_robe_bottom', 0, 'skirt', '#6a3a8a.#3a1c4e', 'legs', 400000, { magic: 78, defence: 75 }, { def: 31, rat: -9, mag: 26, mdmg: 2, pb: 1 }],
+    ['swampbark_legs', 0, 'legs', '#4a6a2a.#26380f', 'legs', 80000, { magic: 50, defence: 50 }, { def: 22, mag: 10, mdef: 5 }],
+    ['tormented_bracelet', 0, 'glove', '#c82a4a.#6a1024', 'hands', 201000, { hitpoints: 75 }, { mag: 10, mdmg: 5, pb: 2, mdef: -10 }],
+    ['bloodbark_gauntlets', 0, 'glove', '#8a2a2a.#4a1414', 'hands', 10000, { magic: 60, defence: 60 }, { def: 5, mag: 4 }],
+    ['swampbark_gauntlets', 0, 'glove', '#4a6a2a.#26380f', 'hands', 10000, { magic: 50, defence: 50 }, { def: 4, mag: 3 }],
+    ['infinity_gloves', 0, 'glove', '#e8e4f0.#6a5aa8', 'hands', 12000, { magic: 50, defence: 25 }, { mag: 5 }],
+    ['bloodbark_boots', 0, 'boot', '#8a2a2a.#4a1414', 'feet', 10000, { magic: 60, defence: 60 }, { def: 5, mag: 4 }],
+    ['swampbark_boots', 0, 'boot', '#4a6a2a.#26380f', 'feet', 10000, { magic: 50, defence: 50 }, { def: 4, mag: 3 }],
+    ['arcane_spirit_shield', 0, 'shield', '#6a5ad8.#2e2470', 'shield', 1031000, { defence: 75, prayer: 70, magic: 65 }, { def: 60, mag: 20, mdmg: 3, pb: 3, mdef: -18 }],
+    ['ancient_wyvern_shield', 0, 'shield', '#a8c0d8.#546a80', 'shield', 1031000, { defence: 75, magic: 70 }, { atk: -10, str: -2, def: 76, rat: -10, mag: 15, mdmg: 2 }],
+    ['elidinis_ward', "Elidinis' ward", 'shield', '#e8d8a0.#9a7a3a', 'shield', 1131000, { magic: 80, defence: 80, prayer: 80 }, { def: 6, mag: 5, mdmg: 3, pb: 1, mdef: -5 }],
+    ['book_of_darkness', 0, 'shield', '#2a2432.#6a5a86', 'shield', 30000, 0, { mag: 10, pb: 5, mdef: -10 }],
+    ['imbued_saradomin_cape', 0, 'cape', '#e8e4d0.#3a5ac8', 'cape', 80000, { magic: 75 }, { def: 3, mag: 15, mdmg: 2 }],
+    ['imbued_zamorak_cape', 0, 'cape', '#c82a2a.#2a1010', 'cape', 80000, { magic: 75 }, { def: 3, mag: 15, mdmg: 2 }],
+    ['imbued_guthix_cape', 0, 'cape', '#4aa04a.#1e5024', 'cape', 80000, { magic: 75 }, { def: 3, mag: 15, mdmg: 2 }],
+    ['magus_ring', 0, 'ring', '#8a4ac8.#421e6a', 'ring', 140000, 0, { mag: 15, mdmg: 2, mdef: -15 }],
+  ],
+  /* seg10 — WORN BY ALL THREE: the gloves, the prayer boots, the rings that ask nothing and give much. */
+  seg10: [
+    ['barrows_gloves', 0, 'glove', '#6a4a2a.#3a2614', 'hands', 100000, 0, { atk: 12, str: 12, def: 12, rat: 12, mag: 6 }],
+    ['boots_of_brimstone', 0, 'boot', '#c86a2a.#6a3010', 'feet', 20000, { slayer: 44, defence: 70, magic: 70, ranged: 70 }, { atk: 3, def: 10, rat: 5, mag: 3 }],
+    ['devout_boots', 0, 'boot', '#e0d8c0.#a08a4a', 'feet', 20000, { prayer: 60 }, { pb: 5 }],
+    ['holy_sandals', 0, 'boot', '#d8c8a0.#8a7448', 'feet', 2000, { prayer: 31 }, { pb: 3 }],
+    ['spectral_spirit_shield', 0, 'shield', '#8ae8c8.#2e7a5e', 'shield', 1031000, { defence: 75, prayer: 70, magic: 65 }, { def: 60, pb: 3, mdef: 30 }],
+    ['ardougne_max_cape', 0, 'cape', '#4a6ac8.#22315e', 'cape', 99000, 0, { atk: 6, def: 2, mag: 6, pb: 6, reqMax: 1 }],
+    ['max_cape', 0, 'cape', '#3a3a4a.#c8a83a', 'cape', 99000, 0, { def: 9, pb: 4, mdef: 9, reqMax: 1 }],
+    ['amulet_of_the_damned', 0, 'amulet', '#8a8a70.#4a4a38', 'neck', 58000, 0, { atk: 10, str: 6, def: 3, rat: 10, mag: 10, pb: 3, mdef: -7 }],
+    ['brimstone_ring', 0, 'ring', '#c86a2a.#6a3010', 'ring', 10000, 0, { atk: 4, str: 4, def: 4, rat: 4, mag: 6, mpierce: 1 }],
+    ['ring_of_suffering', 0, 'ring', '#4a4a5a.#24242e', 'ring', 201000, 0, { def: 20, pb: 4, mdef: 20 }],
+    ['granite_ring', 0, 'ring', '#6a6a72.#3c3c42', 'ring', 15000, { defence: 50, strength: 50 }, { def: 2 }],
+    ['ring_of_the_gods', 0, 'ring', '#e8d44a.#8a7a18', 'ring', 50000, 0, { def: 1, pb: 8, wrench: 1 }],
+    ['lightbearer', 0, 'ring', '#e8e4c8.#a09a6a', 'ring', 1000000, 0, { fastspec: 1 }],
+  ],};
 
 /* NPCS: bestiary rows consumed in index.html — [k, n, lv, hp, atk, str, def, abon, sz, body, build, rest?].
    Colours are 6-digit strings, two digits a channel, /100 ("929086" -> [0.92, 0.90, 0.86]) — decoded exactly in C3().
