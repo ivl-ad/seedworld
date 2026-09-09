@@ -101,7 +101,7 @@ const cleanSeed = s => (String(s || '').trim().toLowerCase().slice(0, 32)) || 'l
    invisible from the browser: assets update instantly and the Worker does not,
    so the game looks new while the server is months old and silently dropping
    everything it does not understand. */
-const BUILD = 11;   // 7: wider house lane, op 24 refusal echo; 8: houses stand only while owner connected; 9: op 12 killer+tick elements, eq lane 14 (skull rider); 10: server-stamped op 12 clock, op 21 ownership from the sender, budgeted saves and world edits; 11: op 16 pile claims, trade offer versions on 14/15
+const BUILD = 12;   // 7: wider house lane, op 24 refusal echo; 8: houses stand only while owner connected; 9: op 12 killer+tick elements, eq lane 14 (skull rider); 10: server-stamped op 12 clock, op 21 ownership from the sender, budgeted saves and world edits; 11: op 16 pile claims, trade offer versions on 14/15; 12: op 18 spell index widened to 63 for the ancient book
 
 /* The schema, in one place, so it is reproducible. /health runs exactly this
    list, which makes it the migration: every statement is IF NOT EXISTS and a
@@ -458,8 +458,9 @@ export class World extends DurableObject {
       }
 
       case 18: {   // a spell was cast, and at what
+   // 63, not 31: the ancient book took SPELLS past 32 rows, and this index only picks the bolt art an onlooker draws
         this.queue('18:' + me.pid + ':' + now,
-          [18, me.pid, (m[1] | 0) & 31, m[2] | 0, m[3] | 0]);
+          [18, me.pid, (m[1] | 0) & 63, m[2] | 0, m[3] | 0]);
         break;
       }
 

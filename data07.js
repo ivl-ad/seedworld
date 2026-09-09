@@ -539,7 +539,8 @@ const MK_ART = { bank: ['coins', '#ffd94a', '#9a7414', 'Bank'], ge: ['coins', '#
   11: ['rune', '#e8e8ff', '#6a6a9a', 'Rune altar'], 12: ['skull', '#e8e0c8', '#5a5348', 'Slayer master'], 13: ['log', '#d8b070', '#6a4a26', 'Sawmill'], 14: ['coins', '#d8b04a', '#7a5a1a', 'Market stall'],
   15: ['leaf', '#7ad04a', '#2f6a28', 'Farming patch'], 16: ['boot', '#9ad0e8', '#3a6a8a', 'Agility obstacle'],
   mine: ['pick', '#e8c86a', '#6b5436', 'Mine'], grove: ['log', '#8ad04a', '#2f6a28', 'Grove'], 28: ['lock', '#d8b04a', '#6b4e22', 'Guild'],
-  house: ['house', '#e8d9b0', '#6b4e22', 'Your house'], skull: ['skull', '#f4ead0', '#1a1a1a', 'Where you fell'] };
+  house: ['house', '#e8d9b0', '#6b4e22', 'Your house'], skull: ['skull', '#f4ead0', '#1a1a1a', 'Where you fell'],
+  pvp: ['skull', '#ff5a3a', '#ffd9c9', 'Wilderness'] };   // the wilderness tag's badge, not a map marker
 const KEEP_TINT = { 7: 0x9fb4e8, 9: 0xf2b8d8, 10: 0xf2cf6a, 5: 0xffffff, 12: 0xd8c8a0 };
 const COMPASS = ['N ↑', 'NE ↗', 'E →', 'SE ↘', 'S ↓', 'SW ↙', 'W ←', 'NW ↖'];
 /* voices: the weapon in hand picks the wav */
@@ -816,8 +817,9 @@ const NPCS = [
   ['runedragon', 'Rune dragon', 380, 330, 284, 284, 276, 0, 3.4, '237177', ['DR', 2.3, 3.5, '308086', '165560'], { agg: 1, fire: 1, at: 'mrg', rng: 7, bolt: 3847876, arrow: 8052970, db: 115, mspd: 0.6, big: 1 }],
 ];
 
-/* SPELLS_R rows: [k, lv, xp, max, tint, need [rune-sans-_rune, n]..., drain?, hold?, undead?].
-   Display name derives from k (underscores to spaces, words capitalised); decoder restores the _rune suffix. */
+/* SPELLS_R rows: [k, lv, xp, max, tint, need [rune-sans-_rune, n]..., drain?, hold?, undead?, bk?, fx?].
+   Display name derives from k (underscores to spaces, words capitalised); decoder restores the _rune suffix.
+   bk is the spellbook: 0 standard (default), 1 ancient. fx carries the ancient element's rider — see the block below. */
 const SPELLS_R = [
   ['wind_strike', 1, 5.5, 2, 0xd8e4ee, [['air', 1], ['mind', 1]]],
   ['water_strike', 5, 7.5, 4, 0x4f8fd0, [['water', 1], ['air', 1], ['mind', 1]]],
@@ -843,7 +845,31 @@ const SPELLS_R = [
   ['snare', 50, 60, 0, 0x2a8a3a, [['nature', 3], ['earth', 4], ['water', 4]], "hold", 16],
   ['entangle', 79, 89, 0, 0x1e7a2e, [['nature', 4], ['earth', 5], ['water', 5]], "hold", 24],
   ['wind_surge', 81, 44.5, 21, 0xcfd8e0, [['air', 7], ['wrath', 1]]], ['water_surge', 85, 46.5, 22, 0x4f8fd0, [['water', 10], ['air', 7], ['wrath', 1]]],
-  ['earth_surge', 90, 48.5, 23, 0x8a6a3a, [['earth', 10], ['air', 7], ['wrath', 1]]], ['fire_surge', 95, 50.5, 24, 0xd05a2a, [['fire', 10], ['air', 7], ['wrath', 1]]]
+  ['earth_surge', 90, 48.5, 23, 0x8a6a3a, [['earth', 10], ['air', 7], ['wrath', 1]]], ['fire_surge', 95, 50.5, 24, 0xd05a2a, [['fire', 10], ['air', 7], ['wrath', 1]]],
+/* ANCIENT MAGICKS (bk 1), wiki-exact. Four elements x four tiers: Rush single, Burst 3x3, Blitz single, Barrage 3x3.
+   Every ancient cast is speed 5, the same as the standard book. The element rides in fx, and unlike a curse these deal
+   damage AND apply their effect, so `drain` stays null and the damage branch reads fx:
+     psn  poison severity applied on a 1/8 hit (10 = 15 total damage, 20 = 50)
+     atk  fraction of the target's Attack drained, once — it does not stack down to nothing
+     lch  fraction of damage dealt returned to the caster as hitpoints
+     frz  freeze in ticks (8 / 16 / 24 / 32), then 5 ticks of immunity before it can be frozen again
+     aoe  radius in tiles: 1 is the wiki's 3x3 around the primary target, rolled separately per victim */
+  ['smoke_rush', 50, 30, 13, 0x8a8f98, [['death', 2], ['chaos', 2], ['air', 1], ['fire', 1]], null, 0, 0, 1, { psn: 10 }],
+  ['shadow_rush', 52, 31, 14, 0x5a4a7a, [['death', 2], ['chaos', 2], ['air', 1], ['soul', 1]], null, 0, 0, 1, { atk: 0.10 }],
+  ['blood_rush', 56, 33, 15, 0x8a1a24, [['death', 2], ['chaos', 2], ['blood', 1]], null, 0, 0, 1, { lch: 0.25 }],
+  ['ice_rush', 58, 34, 16, 0x9fd8ee, [['death', 2], ['chaos', 2], ['water', 2]], null, 0, 0, 1, { frz: 8 }],
+  ['smoke_burst', 62, 36, 17, 0x8a8f98, [['death', 2], ['chaos', 4], ['air', 2], ['fire', 2]], null, 0, 0, 1, { psn: 10, aoe: 1 }],
+  ['shadow_burst', 64, 37, 18, 0x5a4a7a, [['death', 2], ['chaos', 4], ['air', 1], ['soul', 2]], null, 0, 0, 1, { atk: 0.10, aoe: 1 }],
+  ['blood_burst', 68, 39, 21, 0x8a1a24, [['death', 2], ['chaos', 4], ['blood', 2]], null, 0, 0, 1, { lch: 0.25, aoe: 1 }],
+  ['ice_burst', 70, 40, 22, 0x9fd8ee, [['death', 2], ['chaos', 4], ['water', 4]], null, 0, 0, 1, { frz: 16, aoe: 1 }],
+  ['smoke_blitz', 74, 42, 23, 0x8a8f98, [['death', 2], ['blood', 2], ['air', 2], ['fire', 2]], null, 0, 0, 1, { psn: 20 }],
+  ['shadow_blitz', 76, 43, 24, 0x5a4a7a, [['death', 2], ['blood', 2], ['air', 2], ['soul', 2]], null, 0, 0, 1, { atk: 0.15 }],
+  ['blood_blitz', 80, 45, 25, 0x8a1a24, [['death', 2], ['blood', 4]], null, 0, 0, 1, { lch: 0.25 }],
+  ['ice_blitz', 82, 46, 26, 0x9fd8ee, [['death', 2], ['blood', 2], ['water', 3]], null, 0, 0, 1, { frz: 24 }],
+  ['smoke_barrage', 86, 48, 27, 0x8a8f98, [['death', 4], ['blood', 2], ['air', 4], ['fire', 4]], null, 0, 0, 1, { psn: 20, aoe: 1 }],
+  ['shadow_barrage', 88, 49, 28, 0x5a4a7a, [['death', 4], ['blood', 2], ['air', 4], ['soul', 3]], null, 0, 0, 1, { atk: 0.15, aoe: 1 }],
+  ['blood_barrage', 92, 51, 29, 0x8a1a24, [['death', 4], ['blood', 4], ['soul', 1]], null, 0, 0, 1, { lch: 0.25, aoe: 1 }],
+  ['ice_barrage', 94, 52, 30, 0x9fd8ee, [['death', 4], ['blood', 2], ['water', 6]], null, 0, 0, 1, { frz: 32, aoe: 1 }]
 ];
 
 const PRAYERS_R = [

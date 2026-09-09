@@ -13,3 +13,7 @@ tools/
 *.mjs
 *.csv
 sql/
+
+# temporary icon staging folders - 20k sprites that must never be published
+c07-full2/
+i07-full2/

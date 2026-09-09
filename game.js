@@ -1067,7 +1067,8 @@ const RC = [['air', 1, 5, 11, '#cfd8e0', '#8f9aa6', 5, 1], ['mind', 2, 5.5, 14, 
   ['earth', 9, 6.5, 26, '#8a6a3a', '#5b4524', 5, 1], ['fire', 14, 7, 35, '#d05a2a', '#8f3a16', 5, 1], ['body', 20, 7.5, 46, '#d8cfc4', '#8a8078', 5, 1],
   ['cosmic', 27, 8, 59, '#e8d86a', '#9a8a2a', 120], ['chaos', 35, 8.5, 74, '#c04a4a', '#802e2e', 90, 1], ['nature', 44, 9, 91, '#5aa04a', '#2f6a28', 180],
   ['law', 54, 9.5, 95, '#6a8ad8', '#3a4f8a', 200], ['death', 65, 10, 99, '#e8e8f0', '#6a6a74', 220, 1], ['blood', 77, 23.8, 0, '#8a1a24', '#4a0a10', 400],
-  ['soul', 90, 29.7, 0, '#f0e8f8', '#8a7a9a', 600], ['wrath', 95, 8, 0, '#3a1e2e', '#1a0c16', 500]]   // appended, never inserted: RC index is wire format
+  ['soul', 90, 29.7, 0, '#f0e8f8', '#8a7a9a', 600], ['wrath', 95, 8, 0, '#3a1e2e', '#1a0c16', 500],
+  ['astral', 40, 8.7, 82, '#a8c8e8', '#5a7a9a', 150, 1]]   // appended, never inserted: RC index is wire format
   .map(([k, lv, xp, step, c, c2, val, shop], i) => ({ k, lv, xp, step, c, c2, val, shop: shop || 0, id: k + '_rune', i }));
 const RUNES = RC.map(r => defStack(r.id, cap(r.k) + ' rune', 'rune', r.c, r.c2, r.val, { rune: 1 }));
 const runesPer = r => r.step ? 1 + Math.floor(lvl[SK.runecraft] / r.step) : 1;   // air x2 at 11, x3 at 22...
@@ -1240,7 +1241,8 @@ for (const co of COMBOS) {
 for (const [id, n, mag, lv, val, c, c2] of [['beginner_wand', 'Beginner wand', 5, 45, 60, '#8a6438', '#b9aee0'], ['apprentice_wand', 'Apprentice wand', 10, 50, 240, '#75767a', '#7ab9e0'],
   ['teacher_wand', 'Teacher wand', 15, 55, 700, '#5c63b8', '#e0d47a'], ['master_wand', 'Master wand', 20, 60, 1600, '#3ab6c4', '#e07ad4']])
   defStaff(id, n, c, c2, 0, 0, mag, lv, val, undefined, 'wand');
-const staffRune = () => { const g = eq.weapon && ITEMS[eq.weapon].gives; return g ? (Array.isArray(g) ? g : [g]) : []; };
+const staffRune = () => { if (P.imbueT > tickN) return ['air_rune', 'water_rune', 'earth_rune', 'fire_rune'];   // Magic Imbue: the staff answers for every element while it lasts
+  const g = eq.weapon && ITEMS[eq.weapon].gives; return g ? (Array.isArray(g) ? g : [g]) : []; };
 function spellReady(sp) {
   const free = staffRune();
   for (const [id, k] of sp.need) if (!free.includes(id) && invCount(id) < k) return false;
@@ -1268,7 +1270,7 @@ const SPEC = {
   dragon_crossbow: { cost: 60, rng: 1, dmg: 1.2 },
   magic_shortbow: { cost: 55, rng: 1, n: 2, acc: 1.43, msb: 1 }   // snapshot: two arrows, its own prayerless max off the arrow alone
 };
-const SPELLS = SPELLS_R.map(([k, lv, xp, max, tint, need, drain, hold, undead], i) => ({ k, n: k.split('_').map(cap).join(' '), lv, xp, max, tint, need: need.map(([r, c]) => [r + '_rune', c]), drain, hold, undead, i }));
+const SPELLS = SPELLS_R.map(([k, lv, xp, max, tint, need, drain, hold, undead, bk, fx], i) => ({ k, n: k.split('_').map(cap).join(' '), lv, xp, max, tint, need: need.map(([r, c]) => [r + '_rune', c]), drain, hold, undead, bk: bk || 0, fx: fx || null, i }));
 /* prayers drain points per tick while lit, at the 2007 rates: 0.6 / (seconds per point) — the 36s/18s/12s/6s/3s/2s/1.5s ladder */
 const PRAYERS = PRAYERS_R.map(([k, n, lv, drain, fx, g, dl], i) => Object.assign({ k, n, lv, drain, g, dl: dl || 0, fx: Object.keys(fx), bit: 1 << i }, fx));
 if (PRAYERS.length > 32) throw new Error('prayer bitfield full: P.prayers holds 32 bits');   // bit 31 (the sign) still works through & masks; bit 32 wraps to 1
@@ -4047,7 +4049,7 @@ function npcTick(n) {
    // monster effective level is level + 9; max hit comes from the shared 2007 formula off its strength and strength bonus.
    // a cast rolls the monster's Magic against 0.7 x your Magic + 0.3 x your Defence and your magic gear; all else rolls your Defence
       const cast = st === 'g' && !n.t.fire, mx = n.t.max !== null ? n.t.max : maxFrom(n.t.str * (n.strDr > tickN ? 0.95 : 1) + 1, n.t.sbon);
-      const c = hitChance((cast && n.t.mag > 1 ? n.t.mag : n.t.atk) * (n.atkDr > tickN ? 0.95 : 1) + 9, n.t.abon,
+      const c = hitChance((cast && n.t.mag > 1 ? n.t.mag : n.t.atk) * (n.atkDr > tickN ? (n.atkDrM || 0.95) : 1) + 9, n.t.abon,
         cast ? Math.floor(0.7 * Math.floor(eff('magic') * prayerMul('mag')) + 0.3 * defLevel()) + 8 : defLevel() + 8, cast ? bonus('mag') : bonus('def'));
    // dragonfire ignores armour: a shield or an antifire draught each count one (prayer a half); two is immunity, one leaves a max of 10.
    // unprotected it hits up to 50 as in 2007 (fmax overrides where the wiki differs, e.g. the KBD)
@@ -4146,6 +4148,15 @@ function killNpc(n) {
 }
 let pvpOn = 0;
 function hurtPlayer(dmg, byPlayer) {
+  if (P.veng && dmg > 0) {   // the wiki's 75%, spent on the first blow that actually lands
+    P.veng = 0; drawSpells();
+    const back = Math.max(1, Math.round(dmg * 0.75));
+    const t = P.task && P.task.o;
+    say('Taste vengeance!', 'lv');
+    if (t && t.npc && !t.dead) { t.hp -= back; hitsplat(t.rx, t.ry + 1.2, t.rz, back); healthBar(t); if (t.hp <= 0) killNpc(t); }
+    else if (byPlayer) wsSend([11, byPlayer, Math.min(back, HIT_MAX), 0, 'm']);
+  }
+  P.dreamT = 0;   // a blow ends the dream
   P.hp = Math.max(0, P.hp - dmg);
   dirty.orb = 1;
   hitsplat(P.rx, P.ry + 1.6, P.rz, dmg);
@@ -4331,6 +4342,35 @@ const needLv = (sk, lv) => { if (lvl[SK[sk]] < lv) { fail('You need ' + skName(S
 /* the mask, the salve and the void: flat amplifiers the 2007 way — the best mask effect (never stacked), times the set */
 const slayMask = () => eq.head === 'black_mask' || eq.head === 'slayer_helmet';
 const voidSet = k => eq.head === 'void_' + k + '_helm' && eq.body === 'void_knight_top' && eq.legs === 'void_knight_robe' && eq.hands === 'void_knight_gloves';
+/* ---- ANCIENT MAGICKS: the element's rider, applied AFTER the damage roll — unlike a curse these do both.
+   Smoke poisons on a 1/8 hit; shadow drains Attack once and never stacks down to nothing; blood leeches a quarter of
+   the damage even when the target could not take it; ice freezes, then leaves 5 ticks of immunity behind it. Burst and
+   barrage repeat the whole roll against everything in the wiki's 3x3 around the primary target, each rolled its own. */
+function ancientHit(o, sp, dmg) {
+  const f = sp.fx;
+  if (f.lch && dmg > 0) { const h = Math.max(1, Math.round(dmg * f.lch)); P.hp = Math.min(P.maxhp + 0, P.hp + h); dirty.orb = 1; healthBar(P); }
+  if (!o.npc || o.dead) return;
+  if (f.psn && dmg > 0 && (Math.random() * 8 | 0) === 0 && !o.psn) { o.psn = f.psn === 20 ? 4 : 2; o.psnN = 0; o.psnT = tickN + 30; }
+  if (f.atk && dmg > 0 && !(o.atkDr > tickN)) { o.atkDr = tickN + 100; o.atkDrM = 1 - f.atk; say('Your spell saps the ' + o.name + "'s attack."); }   // one drain at a time: the wiki says it will not apply to an already-drained target
+  if (f.frz && dmg > 0 && !(o.heldT > tickN) && !(o.frzImm > tickN)) {
+    o.heldT = tickN + f.frz; o.frzImm = tickN + f.frz + 5;   // 5 ticks of immunity once it thaws
+    o.dest = null; say('Your spell freezes the ' + o.name + ' in place!');
+  }
+}
+function ancientFx(o, sp, dmg) {
+  ancientHit(o, sp, dmg);
+  if (!sp.fx.aoe) return;
+   // the 3x3 around the primary target, each victim rolled on its own accuracy exactly as the wiki describes
+  const r = sp.fx.aoe, ml0 = Math.floor(eff('magic') * prayerMul('mag')) + 8;
+  for (const q of npcs) {
+    if (q === o || q.dead || chebDist(q.tx, q.tz, o.tx, o.tz) > r) continue;
+    const d2 = devMul(roll(hitChance(ml0 * (voidSet('mage') ? 1.45 : 1), bonus('mag'), q.t.mag + 9, q.t.mdb), mdmgMax(sp.max)));
+    castFx(q, sp, d2);
+    q.hp -= d2; healthBar(q);
+    ancientHit(q, sp, d2);
+    if (q.hp <= 0) killNpc(q); else if (!q.target) { q.target = P; if (q.key && q.owner !== PID) { q.owner = PID; claimMon(q); } }
+  }
+}
 const meleeAmp = o => (slayMask() && onTask(o) ? 7 / 6 : eq.neck === 'salve_amulet' && o.npc && (o.t.base || o.t).undead ? 7 / 6 : 1) * (voidSet('melee') ? 1.1 : 1);
 /* one swing at o (a monster or another player): ranged, a readied spell, or melee; returns the damage dealt, or -1 when nothing was thrown */
 function swing(o) {
@@ -4398,6 +4438,7 @@ function swing(o) {
       const [ml, mb] = o.npc ? [o.t.mag * (o.defDr > tickN ? 0.95 : 1) + 9, o.t.mdb] : [dl, db];
       dmg = devMul(roll(hitChance((Math.floor(eff('magic') * prayerMul('mag')) + 8) * (voidSet('mage') ? 1.45 : 1), bonus('mag'), ml, mb), mdmgMax(spl.max))); castFx(o, spl, dmg); sfx(spellSnd(spl));   // the wiki's 45% void magic accuracy
       if (dmg > 0 && o.npc && barrowsSet('ahrim') && Math.random() < 0.25) { o.strDr = tickN + 100; say("Ahrim's curse saps its strength."); }
+      if (sp && sp.fx) ancientFx(o, sp, dmg);
       if (P.cstyle) { gainXp('magic', spl.xp + dmg * 4 / 3); if (dmg > 0) gainXp('defence', dmg); }   // defensive casting splits the 2007 way
       else gainXp('magic', spl.xp + dmg * 2);
     }
@@ -5179,18 +5220,47 @@ on(styleList, 'click', e => {
   else { P.style = i; say('Combat style: ' + STYLES[i].n + '. ' + STYLES[i].d + '.'); }
   drawStyles();
 });
-const spellGrid = el('spellGrid');
+const spellGrid = el('spellGrid'), bookTabs = el('bookTabs'), spellFilters = el('spellFilters');
+/* The tab is one book at a time, sectioned the way OSRS groups them — Combat, Utility, Teleport — with chips that hide
+   a whole section or the spells you cannot yet cast. Under-levelled spells are GREYED and kept in place by default,
+   as the wiki describes; the "Castable" chip is the opt-in that hides them outright. */
+const SPF = ['combat', 'utility', 'teleport'];
+let spFilter = { combat: 1, utility: 1, teleport: 1, castable: 0 };
+const usKind = s => s.grp === 4 ? 'teleport' : 'utility';
 function drawSpells() {
-  const bk = s => s.max > 0 ? (s.undead ? 1 : 0) : 2;   // the elements by level, Crumble Undead closing the damage page, curses and holds after; data-sp keeps the wire index
-  const book = [...SPELLS].sort((a, b) => (bk(a) - bk(b)) || (a.lv - b.lv));
-  spellGrid.innerHTML = book.map(s => {
+  bookTabs.innerHTML = BOOKS.map((b, i) =>
+    '<b data-book="' + i + '" class="' + (P.book === i ? 'on' : bookHas(i) ? '' : 'no') + '">' + b.n + '</b>').join('');
+  spellFilters.innerHTML = SPF.map(k => '<b data-spf="' + k + '" class="' + (spFilter[k] ? 'on' : '') + '">' + cap(k) + '</b>').join('')
+    + '<b data-spf="castable" class="' + (spFilter.castable ? 'on' : '') + '">Castable</b>';
+
+  const shown = s => !spFilter.castable || (lvl[SK.magic] >= s.lv && spellReady(s));
+  const rank = s => s.max > 0 ? (s.undead ? 1 : 0) : 2;   // elements by level, Crumble Undead after them, curses and holds last
+  const combat = SPELLS.filter(s => (s.bk || 0) === P.book && shown(s)).sort((a, b) => (rank(a) - rank(b)) || (a.lv - b.lv));
+  const util = USPELLS.filter(s => (s.bk || 0) === P.book && shown(s)).sort((a, b) => (a.grp - b.grp) || (a.lv - b.lv));
+  const sec = t => '<div class="li sec">' + t + '</div>';
+  let h = '';
+  if (spFilter.combat && combat.length) h += sec('Combat') + combat.map(s => {
     const ok = lvl[SK.magic] >= s.lv;
-    return liRow('data-sp="' + s.i + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).join(', ') + '"', P.spell === s.i, !ok,
-      SP07[s.k] ? c07p(SP07[s.k]) : drawIcon('rune', '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (ok ? (spellReady(s) ? 'ready' : 'no runes') : 'level ' + s.lv) + '</u>');
+    return liRow('data-sp="' + s.i + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).join(', ') + (s.fx ? ' — ' + fxNote(s.fx) : '') + '"', P.spell === s.i, !ok,
+      SP07[s.k] ? c07p(SP07[s.k]) : drawIcon('rune', '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n,
+      '<u>' + (ok ? (spellReady(s) ? 'ready' : 'no runes') : 'level ' + s.lv) + '</u>');
   }).join('');
-  el('mgHint').textContent = P.spell === null ? 'Select a spell, then click a target.' : 'Casting ' + SPELLS[P.spell].n + '. Click a target, or pick it again to stop.';
-  spellGrid.innerHTML += USPELLS.map(usRow).join(''); if (P.uspell) el('mgHint').textContent = 'Casting ' + P.uspell.n + '. Choose an item in your pack, or pick it again to stop.';
+  for (const kind of ['utility', 'teleport']) {
+    if (!spFilter[kind]) continue;
+    const rows = util.filter(s => usKind(s) === kind);
+    if (rows.length) h += sec(kind === 'utility' ? 'Utility' : 'Teleports') + rows.map(usRow).join('');
+  }
+  spellGrid.innerHTML = h || sec('Nothing here at that filter');
+  el('mgHint').textContent = P.uspell ? 'Casting ' + P.uspell.n + '. Choose an item in your pack, or pick it again to stop.'
+    : P.spell === null ? 'Select a spell, then click a target.'
+    : 'Autocasting ' + SPELLS[P.spell].n + '. It stays ready until you pick it again.';
 }
+/* what the element does, for the row's tooltip */
+const fxNote = f => f.psn ? 'poisons on a 1/8 hit' : f.atk ? 'drains ' + Math.round(f.atk * 100) + '% attack'
+  : f.lch ? 'heals you a quarter of the damage' : f.frz ? 'freezes for ' + (f.frz * TICK / 1000).toFixed(1) + 's' : '';
+on(bookTabs, 'click', e => { const b = e.target.closest('[data-book]'); if (b) setBook(+b.dataset.book); });
+on(spellFilters, 'click', e => { const b = e.target.closest('[data-spf]'); if (!b) return; const k = b.dataset.spf; spFilter[k] = spFilter[k] ? 0 : 1; drawSpells(); });
+on(modalBody, 'click', e => { const b = e.target.closest('[data-bkswap]'); if (b) { setBook(+b.dataset.bkswap); closeOverlays(); } });
 on(spellGrid, 'click', e => {
   const d = e.target.closest('[data-sp]'); if (!d) return;
   const s = SPELLS[+d.dataset.sp];
@@ -5501,7 +5571,7 @@ const act = (o, k, hostile) => () => { flashTarget(o, hostile || 0); if (typeof 
 /* object type -> [verb, noun (null = its own name), task kind or ui fn] */
 const OBJ_OPTS = { 0: ['Chop down', null, 'chop'], 1: ['Mine', null, 'mine'], 3: ['Smelt at', 'Furnace', o => openMake(3, o)], 4: ['Smith at', 'Anvil', o => openMake(4, o)],
   5: ['Trade with', null, startShop], 6: o => [{ t: 'Cook at', o: o.n || 'Range', f: act(o, 'cook') }, { t: 'Bake at', o: o.n || 'Range', f: act(o, o2 => openMake(6, o2)) }],
-  7: ['Bank at', null, () => openBank()], 8: ['Pray at', 'Altar', 'pray'],
+  7: ['Bank at', null, () => openBank()], 8: o => [{ t: 'Pray at', o: 'Altar', f: act(o, 'pray') }, { t: 'Study', o: 'Altar', f: act(o, () => altarStudy()) }],
   9: ['Groom at', null, () => openBarber()], 10: ['Exchange at', null, () => openGE()], 11: ['Craft at', 'Altar', o => rcAltar(o)], 12: ['Talk to', null, o => slayerTalk(o)],
   13: ['Saw at', 'Sawmill', o => openMake(13, o)], 14: ['Steal from', null, 'steal'], 15: o => farmOpts(o), 16: o => agilOpts(o) };
 /* what an armed item does to o: [noun, kind or fn]; the skills register USE_ON[type], and any fixture recipe using the item opens the make list */
@@ -5920,6 +5990,7 @@ function discIcon(g, glyph, c, d, x, y, R, tx, ty, sc) {
   g.restore();
 }
 for (const s of SHOP_KINDS) MK_ART['shop_' + s.k] = [s.g, s.c, '#f0e6c8', s.n];   // shop doors carry their 07 shop sprites; the glyph stays the fallback
+for (const g of GUILDS) MK_ART['guild_' + g.k] = ['lock', '#d8b04a', '#6b4e22', g.n];   // each skill guild wears its own skill's 07 icon; WM_KEY below reads these at load
 const wmImgs = new Map();
 function wmPng(n) {   // the 07 map sprites, fetched once; a late arrival repaints the map
   let i = wmImgs.get(n);
@@ -5942,7 +6013,7 @@ function drawYou(g, x, y, face, R, al) {   // al: arrow reach — the legend sho
   g.lineTo(x + Math.sin(face - 2.5) * R * 1.05, y + Math.cos(face - 2.5) * R * 1.05);
   g.closePath(); g.fillStyle = '#fff'; g.fill(); g.stroke();
 }
-const WM_KEY = ['bank', 'ge', 'barber', 3, 4, 6, 'altar', 11, 12, 13, 15, 'mine', 'grove', 28].map(k => [k, MK_ART[k], MK_ART[k][3]])
+const WM_KEY = ['bank', 'ge', 'barber', 3, 4, 6, 'altar', 11, 12, 13, 15, 'mine', 'grove', 'guild_mining', 'guild_wood', 'guild_cook'].map(k => [k, MK_ART[k], MK_ART[k][3]])
   .concat(SHOP_KINDS.map(s => ['shop_' + s.k, MK_ART['shop_' + s.k], s.n]), [['house', MK_ART.house, 'Your house'], ['skull', MK_ART.skull, 'Where you fell']]);
 (function buildKey() {   // every row 20px: the 07 sprites a shade smaller than before, drawn fallbacks matched to them
   const key = el('wmKey'), S = 20;
@@ -6018,7 +6089,7 @@ function wmDraw() {
         if (v.lm && v.lm.t === 0) ico('altar', v.lm.x, v.lm.z);
         if (v.shrine) ico('altar', v.shrine.x, v.shrine.z);
         if (v.booth) ico('bank', v.booth.x, v.booth.z);
-        if (v.guild) ico(28, v.guild.x, v.guild.z, 9);
+        if (v.guild) ico('guild_' + v.guild.g.k, v.guild.x, v.guild.z, 9);   // each skill guild wears its own skill's icon
         if (v.ge) ico('ge', v.ge.x, v.ge.z, 10);
       }
       const nm = villageName(v);
@@ -6194,7 +6265,7 @@ function updateZoneTags() {
   t.style.display = wl ? 'flex' : 'none';
   if (wl && t._lv !== wl) { t._lv = wl; t.querySelector('span').textContent = 'Wilderness · level ' + wl; }
 }
-el('pvpTag').querySelector('img').src = drawIcon('skull', '#ff5a3a', '#ffd9c9');
+el('pvpTag').querySelector('img').src = MK07.pvp ? mk07p(MK07.pvp) : drawIcon('skull', '#ff5a3a', '#ffd9c9');
 
 /* ---- 33. THE GAME TICK: everything with consequences, ten times per six seconds; frames only interpolate ---- */
 function gameTick() {
@@ -6210,7 +6281,7 @@ function gameTick() {
     for (let i = 0; i < NSK; i++) if (bst[i] < 0 ? up : bst[i] > 0 && down) { bst[i] -= Math.sign(bst[i]); dirty.sk = 1; }
   }
   if ((!P.moved || !P.run) && P.energy < 100) { P.energy = Math.min(100, P.energy + (15 + Math.floor(lvl[SK.agility] / 10)) / 100); dirty.orb = 1; }   // restore: (15 + agility/10) units a tick, the wiki's own rate
-  if (tickN % (prayHas('heal') || capeOn('hitpoints') ? 50 : 100) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }   // one point a minute, twice as fast under Rapid Heal or the hitpoints cape (they never stack)
+  if (tickN % (P.dreamT > tickN ? 33 : prayHas('heal') || capeOn('hitpoints') ? 50 : 100) === 0 && P.hp < P.maxhp) { P.hp++; dirty.orb = 1; }   // one point a minute, twice as fast under Rapid Heal or the hitpoints cape (they never stack); three times inside a Moonclan dream
   if (tickN % 100 === 0 && P.hp > P.maxhp) { P.hp--; dirty.orb = 1; }   // an overfed brew or anglerfish settles back a point a minute
   if (P.prayers) {
     let drain = 0;
@@ -6631,7 +6702,7 @@ function packSave() {
     hs: P.hs || 0,
     clb: clogPack(), cln: CLOG_ORDER.length, pet: P.pet || 0, ins: P.ins, pl: P.petLost, dy: dyPack(), ca: P.ca,
     dr: P.dunRet || 0, cs: P.cstyle, bs: Array.from(bst), sku: P.skull || 0,   // sku: the skull's expiry on the shared clock — one entry, refreshed per initiated attack
-    sp: Math.round(P.spec), ht: Math.max(0, P.homeT), ac: Math.max(0, P.agiCapeT || 0),   // a relog used to hand back a full spec bar and an off-cooldown home teleport
+    sp: Math.round(P.spec), ht: Math.max(0, P.homeT), ac: Math.max(0, P.agiCapeT || 0), bk: P.book | 0, bks: P.books | 1,   // a relog used to hand back a full spec bar and an off-cooldown home teleport
     dp: P.dpile || 0 };   // dp: the unclaimed death pile, so a relog cannot cost you your right to it
 }
 /* What the blob would weigh right now. The bank used to advertise three hundred
@@ -6696,6 +6767,7 @@ function applySave(b) {
   for (let i = 0; i < NSK; i++) bst[i] = clamp(bs[i] | 0, -99, 99);
   P.skull = Math.min(b.sku | 0, tickN + SKULL_T);   // the skull serves out its saved sentence; a doctored future tick is clipped
   P.spec = clamp(b.sp === undefined ? 100 : +b.sp || 0, 0, 100);
+  P.books = (b.bks | 0) | 1; P.book = bookHas(b.bk | 0) ? b.bk | 0 : 0;   // standard is always open, and a book you no longer hold falls back to it
   P.homeT = Math.min(b.ht | 0, tickN) || -1e9; P.agiCapeT = Math.min(b.ac | 0, tickN) || -1e9;
   P.dpile = null;
   const dp = b.dp;
@@ -6719,7 +6791,7 @@ function freshCharacter() {
   P.energy = 100; P.run = 1; P.atkT = 0; P.specArm = 0; P.style = 0; P.cstyle = 0; P.prayers = 0; P.spell = null; P.slay = null; P.clue = null; P.farm = Object.create(null); bst.fill(0);
   P.hs = null;   // loadSeed already tore any standing house down
   P.cl = new Set(); P.pet = null; P.ins = []; P.petLost = []; P.dy = {}; P.ca = {}; P.dunRet = null; P.skull = 0; P.dpile = null;
-  P.spec = 100; P.specArm = 0; P.homeT = P.agiCapeT = -1e9;
+  P.spec = 100; P.specArm = 0; P.homeT = P.agiCapeT = -1e9; P.book = 0; P.books = 1; P.veng = 0; P.vengCd = 0; P.dreamT = 0; P.imbueT = 0;
   for (const [id, n] of [['bronze_hatchet', 1], ['bronze_pickaxe', 1], ['tinderbox', 1], ['hammer', 1], ['small_net', 1], ['coins', 120]]) invAdd(id, n);
   eq.weapon = 'bronze_sword';
   dirty.inv = dirty.eq = dirty.sk = dirty.orb = 1;
@@ -7207,11 +7279,14 @@ function labelAt(owner, key, x, y, z, text, cls, html) {
 const DEATH_HTML = '<img src="' + _dmc.toDataURL() + '" alt=""> Your death';
 const _markCache = new Map();
 function markHtml(o) {
-  const key = o.t === 5 ? 't5.' + o.k : 't' + o.t;
+  const key = o.t === 5 ? 't5.' + o.k : o.t === 28 && o.gd ? 't28.' + o.gd.g.k : 't' + o.t;
   let h = _markCache.get(key);
   if (h) return h;
-  const mk = o.t === 5 ? null : MK_ART[o.t] ? o.t : o.t === 7 ? 'bank' : o.t === 9 ? 'barber' : o.t === 10 ? 'ge' : 'altar';
-  const a = o.t === 5 ? [SHOP_KINDS[o.k].g, SHOP_KINDS[o.k].c, '#f0e6c8'] : MK_ART[mk];
+   /* A shop's key is its kind, exactly as the world map asks for it at 6003. This read `null` for o.t === 5, so the
+       sprite branch below could never fire and every shop in every town drew a glyph — the one place the 07 sprites
+       were wired up and then never reached. */
+  const mk = o.t === 5 ? 'shop_' + SHOP_KINDS[o.k].k : o.t === 28 && o.gd ? 'guild_' + o.gd.g.k : MK_ART[o.t] ? o.t : o.t === 7 ? 'bank' : o.t === 9 ? 'barber' : o.t === 10 ? 'ge' : 'altar';
+  const a = o.t === 5 ? [SHOP_KINDS[o.k].g, SHOP_KINDS[o.k].c, '#f0e6c8'] : MK_ART[mk] || MK_ART[o.t];
   _markCache.set(key, h = '<img src="' + (mk !== null && MK07[mk] ? mk07p(MK07[mk]) : drawIcon(a[0], a[1], a[2])) + '" alt="">');
   return h;
 }
@@ -9481,6 +9556,65 @@ applyOpts = function (r) {
 
 /* ---- MAGIC: blasts, waves and curses are SPELLS rows; the utility spells below are armed as P.uspell (item spells) or fire at once (teleports) ---- */
 P.uspell = null; P.homeT = -1e9;
+/* THE THREE SPELLBOOKS. A book is a filter over SPELLS and USPELLS, not a separate table: P.spell keeps indexing
+   SPELLS so the wire and the armed autocast are untouched by a switch. P.books is the unlocked set (bit per book,
+   standard always lit); P.book is the one in hand. Both ride the save. */
+const BOOKS = [{ k: 'standard', n: 'Standard', ico: 'spellbookStandard', tint: 0x6a8ad8 },
+  { k: 'ancient', n: 'Ancient', ico: 'spellbookAncient', tint: 0x8a1a24 },
+  { k: 'lunar', n: 'Lunar', ico: 'spellbookLunar', tint: 0xa8c8e8 }];
+P.book = 0; P.books = 1;
+const bookHas = b => (P.books >> b) & 1;
+function setBook(b, quiet) {
+  if (!bookHas(b)) return say('That spellbook is closed to you.', 'bad');
+  if (P.book === b) return 1;
+  P.book = b; P.spell = null; P.uspell = null;   // the armed spell belonged to the book you just closed
+  drawSpells(); drawStyles(); markDirty(1);
+  if (!quiet) say('You open the ' + BOOKS[b].n + ' spellbook.', 'lv');
+  return 1;
+}
+/* OSRS gates the two books behind Desert Treasure and Lunar Diplomacy and switches them at an altar. This world has no
+   quests, so the altar is the whole ceremony: study it and it teaches whichever book your Magic can already carry —
+   the level of that book's lowest spell, 50 for Ancients and 65 for Lunars. Switching afterwards is free, as it is there. */
+const BOOK_LV = [1, 50, 65];
+function altarStudy() {
+  const rows = BOOKS.map((b, i) => {
+    const known = bookHas(i), can = lvl[SK.magic] >= BOOK_LV[i];
+    const note = P.book === i ? 'in hand' : known ? 'open it' : can ? 'learn it' : 'Magic ' + BOOK_LV[i];
+    return '<div class="mk' + (known || can ? '' : ' no') + '"' + (known || can ? ' data-bkalt="' + i + '"' : '') + '>'
+      + '<img src="' + (MK07['book_' + b.k] ? mk07p(MK07['book_' + b.k]) : c07p('altarIcon')) + '" alt="">'
+      + '<span>' + b.n + '</span><b class="gp">' + note + '</b></div>';
+  }).join('');
+  showModal('The altar', rows, 'An altar remembers every book you have learned at one.');
+}
+on(modalBody, 'click', e => {
+  const b = e.target.closest('[data-bkalt]'); if (!b) return;
+  const i = +b.dataset.bkalt;
+  if (lvl[SK.magic] < BOOK_LV[i]) return say('You need Magic level ' + BOOK_LV[i] + ' to hold that book.', 'bad');
+  unlockBook(i); closeOverlays();
+});
+function unlockBook(b) {
+  if (bookHas(b)) return setBook(b);
+  P.books |= 1 << b; markDirty(2);
+  say('The ' + BOOKS[b].n + ' spellbook is yours to open.', 'good');
+  return setBook(b, 1);
+}
+/* a landing tile at about the wilderness level asked for: the ancient teleports are the wiki's own deep destinations,
+   so they carry you IN rather than out — the TP_CAP gate above still refuses to carry you back. */
+function wildLanding(lv) {
+  for (let i = 0; i < 600; i++) {
+    const h = hash2(lv * 977 + i, 31, S + 808);
+    const a = (h % 65536) / 65536 * TAU, r = lv * 26 + ((h >>> 16) % 40) - 20;
+    const x = Math.round(ORIGIN.x + Math.cos(a) * r), z = Math.round(ORIGIN.z + Math.sin(a) * r);
+    if (Math.abs(wildLvAt(x, z) - lv) > 2) continue;
+    const y = heightAt(x, z);
+    if (y < 1.6 || y > 60 || nearTown(x, z)) continue;
+    return { x, z };
+  }
+  return null;
+}
+const tpAt = (q, what, cap) => q ? tpTo(q.x, q.z, what, cap) : say('Nothing like that lies within the scan.', 'bad');
+const tpWild = (lv, what) => tpAt(wildLanding(lv), what);
+
 defWear({ id: 'ring_of_dueling', name: 'Ring of dueling', g: 'ring', c: '#3aa05a', c2: '#9a7414', slot: 'ring', val: 1800, opt: ['Rub', () => villageTp(TP_CAP_ITEM)] });
 RING_NOTES.ring_of_dueling = ' Rub it to be carried to the nearest settlement.';
 ITEMS.amulet_of_glory.opt = ['Rub', () => cityTp(TP_CAP_ITEM)];   // the glory carries you to the nearest city, its 2007 role — and it is on the wiki's level-30 exempt list
@@ -9551,8 +9685,37 @@ const USPELLS = [
   ['Bones to Bananas', 15, 25, [['nature_rune', 1], ['water_rune', 2], ['earth_rune', 2]], 0xe8d44a, 'banana', 'every bone in the pack becomes a banana', () => b2fruit('banana'), 0, 3],
   ['Telekinetic Grab', 33, 43, [['law_rune', 1], ['air_rune', 1]], 0x9a7ad0, 'coins', 'take a ground item from up to ten tiles away', teleArm, 0, 2],
   ['Bones to Peaches', 60, 35.5, [['nature_rune', 2], ['water_rune', 4], ['earth_rune', 4]], 0xe8a05a, 'peach', 'every bone in the pack becomes a peach', () => b2fruit('peach'), 0, 3],
-  ...ENCH.map((e, t) => ['Lvl-' + (t + 1) + ' Enchant', e.lv, e.xp, e.need, parseInt(GEMS[t].c.slice(1), 16), e.ring ? 'ring' : 'amulet', e.g + ' jewellery or bolts', i => enchant(i, t), 1, 0])
-].map(([n, lv, xp, need, tint, g, d, f, item, grp]) => ({ n, lv, xp, need, tint, g, d, f, item, grp })).sort((a, b) => (a.grp - b.grp) || (a.lv - b.lv));
+  ...ENCH.map((e, t) => ['Lvl-' + (t + 1) + ' Enchant', e.lv, e.xp, e.need, parseInt(GEMS[t].c.slice(1), 16), e.ring ? 'ring' : 'amulet', e.g + ' jewellery or bolts', i => enchant(i, t), 1, 0]),
+/* ANCIENT TELEPORTS (bk 1), wiki levels/xp/runes. Their OSRS destinations are the deep places — four of the eight are
+   Wilderness — so here they carry you IN at the wiki's own depths rather than out; tpTo still refuses to carry you back. */
+  ['Paddewwa Teleport', 54, 64, [['law_rune', 2], ['air_rune', 1], ['fire_rune', 1]], 0x8a1a24, 'lock', 'the nearest dungeon door', () => tpAt(nearestOf(SETTLE_CELL, 24, vFind(v => v.castle && v.castle.dun)), 'dungeon'), 0, 4, 1],
+  ['Senntisten Teleport', 60, 70, [['law_rune', 2], ['soul_rune', 1]], 0x8a1a24, 'rune', 'the nearest rune altar', () => tpAt(nearestOf(RUIN_CELL, 30, ruinAt), 'rune altar'), 0, 4, 1],
+  ['Kharyrll Teleport', 66, 76, [['law_rune', 2], ['blood_rune', 1]], 0x8a1a24, 'star', 'the nearest settlement', () => villageTp(), 0, 4, 1],
+  ['Lassar Teleport', 72, 82, [['law_rune', 2], ['water_rune', 4]], 0x8a1a24, 'star', 'the nearest city', () => cityTp(), 0, 4, 1],
+  ['Dareeyak Teleport', 78, 88, [['law_rune', 2], ['air_rune', 2], ['fire_rune', 3]], 0x8a1a24, 'skull', 'the Wilderness, about level 13', () => tpWild(13, 'into the Wilderness'), 0, 4, 1],
+  ['Carrallanger Teleport', 84, 94, [['law_rune', 2], ['soul_rune', 2]], 0x8a1a24, 'skull', 'the Wilderness, about level 18', () => tpWild(18, 'into the Wilderness'), 0, 4, 1],
+  ['Annakarl Teleport', 90, 100, [['law_rune', 2], ['blood_rune', 2]], 0x8a1a24, 'skull', 'the Wilderness, about level 29', () => tpWild(29, 'into the Wilderness'), 0, 4, 1],
+  ['Ghorrock Teleport', 96, 106, [['law_rune', 2], ['water_rune', 8]], 0x8a1a24, 'skull', 'the Wilderness, about level 50', () => tpWild(50, 'deep into the Wilderness'), 0, 4, 1],
+/* LUNAR (bk 2), wiki levels/xp/runes. Every one costs astral runes, which is what gates the book. */
+  ['Monster Examine', 66, 61, [['astral_rune', 1], ['cosmic_rune', 1], ['mind_rune', 1]], 0xa8c8e8, 'skull', "read a nearby creature's stat block", monsterExamine, 0, 3, 2],
+  ['Cure Me', 71, 69, [['astral_rune', 2], ['cosmic_rune', 2], ['law_rune', 1]], 0x5aa04a, 'leaf', 'cures your own poison, with no immunity after', () => { if (!P.psn) return say('You are not poisoned.', 'bad'); P.psn = 0; P.psnN = 0; say('The poison leaves you.', 'good'); return 1; }, 0, 3, 2],
+  ['Hunter Kit', 71, 70, [['astral_rune', 2], ['earth_rune', 2]], 0x8a6a3a, 'box', 'a bird snare and a box trap', hunterKit, 0, 3, 2],
+  ['Spin Flax', 76, 75, [['astral_rune', 1], ['nature_rune', 2], ['air_rune', 5]], 0xe8d44a, 'rope', 'five flax become five bow strings', spinFlax, 0, 3, 2],
+  ['Dream', 79, 82, [['astral_rune', 2], ['cosmic_rune', 1], ['body_rune', 5]], 0xa8c8e8, 'star', 'sleep: wounds close three times as fast', dreamSleep, 0, 3, 2],
+  ['Magic Imbue', 82, 86, [['astral_rune', 2], ['fire_rune', 7], ['water_rune', 7]], 0xd05a2a, 'rune', 'twenty-one ticks with no opposing rune', magicImbue, 0, 3, 2],
+  ['Fertile Soil', 83, 87, [['astral_rune', 3], ['earth_rune', 15], ['nature_rune', 2]], 0x5aa04a, 'leaf', 'three more harvests from the patch you stand at', fertileSoil, 0, 3, 2],
+  ['Plank Make', 86, 90, [['astral_rune', 2], ['nature_rune', 1], ['earth_rune', 15]], 0xd8b070, 'log', 'one log becomes its plank, for the sawmill fee', plankMake, 0, 3, 2],
+  ['Vengeance', 94, 112, [['astral_rune', 4], ['earth_rune', 10], ['death_rune', 2]], 0x8a1a24, 'shield', 'the next blow rebounds 75% of itself', vengeance, 0, 3, 2],
+  ['Spellbook Swap', 96, 130, [['astral_rune', 3], ['cosmic_rune', 2], ['law_rune', 1]], 0xa8c8e8, 'star', 'open another book you know', bookSwap, 0, 3, 2],
+  ['Moonclan Teleport', 69, 66, [['astral_rune', 2], ['law_rune', 1], ['earth_rune', 2]], 0xa8c8e8, 'rune', 'the nearest rune altar', () => tpAt(nearestOf(RUIN_CELL, 30, ruinAt), 'rune altar'), 0, 4, 2],
+  ['Ourania Teleport', 71, 69, [['astral_rune', 2], ['law_rune', 1], ['earth_rune', 6]], 0xa8c8e8, 'rune', 'the nearest rune essence mine', () => tpAt(nearestOf(SETTLE_CELL, 30, vFind(v => v.lm && v.lm.t === 1 && v.lm)), 'essence mine'), 0, 4, 2],
+  ['Waterbirth Teleport', 72, 71, [['astral_rune', 2], ['law_rune', 1], ['water_rune', 1]], 0xa8c8e8, 'star', 'the nearest fishing water', () => tpAt(nearestOf(SETTLE_CELL, 30, vFind(v => v.f && v.f.find(f2 => f2.t === 2))), 'fishing spot'), 0, 4, 2],
+  ['Barbarian Teleport', 75, 76, [['astral_rune', 2], ['law_rune', 2], ['fire_rune', 3]], 0xa8c8e8, 'star', 'the nearest settlement', () => villageTp(), 0, 4, 2],
+  ['Khazard Teleport', 78, 80, [['astral_rune', 2], ['law_rune', 2], ['water_rune', 4]], 0xa8c8e8, 'star', 'the nearest city', () => cityTp(), 0, 4, 2],
+  ['Fishing Guild Teleport', 85, 89, [['astral_rune', 3], ['law_rune', 3], ['water_rune', 10]], 0xa8c8e8, 'cfish', 'the nearest fishing guild waters', () => tpAt(nearestOf(SETTLE_CELL, 40, vFind(v => v.guild && v.guild.g.k === 'cook' && v.guild)), 'guild'), 0, 4, 2],
+  ['Catherby Teleport', 87, 92, [['astral_rune', 3], ['law_rune', 3], ['water_rune', 10]], 0xa8c8e8, 'star', 'your house', () => houseTp(), 0, 4, 2],
+  ['Ice Plateau Teleport', 89, 96, [['astral_rune', 3], ['law_rune', 3], ['water_rune', 8]], 0xa8c8e8, 'skull', 'the Wilderness, about level 53', () => tpWild(53, 'onto the Ice Plateau'), 0, 4, 2]
+].map(([n, lv, xp, need, tint, g, d, f, item, grp, bk]) => ({ n, lv, xp, need, tint, g, d, f, item, grp, bk: bk || 0 })).sort((a, b) => (a.grp - b.grp) || (a.lv - b.lv));
 /* skillcape perks with a live counterpart (wiki): ranged catches arrows like the accumulator, defence escapes like the ring of life,
    agility energises once a day, construction answers the house call; cooking, hitpoints, woodcutting, mining, thieving and prayer speak at their own sites */
 ITEMS.skillcape_ranged.save = 0.72;
@@ -9562,6 +9725,79 @@ ITEMS.skillcape_agility.opt = ['Energise', () => {
   P.agiCapeT = tickN; P.energy = 100; P.stamT = tickN + 100; dirty.orb = 1;
   say('The cape restores your run energy and lightens your step.', 'lv');
 }];
+/* ---- LUNAR: the spells whose OSRS effect has a counterpart in this world. Levels, xp and runes are the wiki's own.
+   Omitted deliberately, with no system to land on: Superglass Make and Humidify (no sand, no empty vials), Tan Leather
+   (no raw hides), Bake Pie (no uncooked pies), and every group/other-player spell (Cure Other/Group, Heal Other/Group,
+   Stat Spy, Energy Transfer, Vengeance Other, the Tele Group family) — this client has no wire lane to target a peer. */
+function monsterExamine() {
+  const o = P.task && P.task.o;
+  const n = (o && o.npc) ? o : npcs.filter(q => !q.dead).sort((a, b) => chebDist(a.tx, a.tz, P.tx, P.tz) - chebDist(b.tx, b.tz, P.tx, P.tz))[0];
+  if (!n || chebDist(n.tx, n.tz, P.tx, P.tz) > 10) return say('No creature close enough to read.', 'bad');
+  const t = n.t.base || n.t;
+  say(n.name + ' — combat ' + (t.lv || '?') + ', hitpoints ' + n.hp + '/' + n.maxhp + ', attack ' + t.atk + ', strength ' + t.str + ', defence ' + t.def + ', magic ' + t.mag + '.', 'lv');
+  say('  max hit ' + (t.max !== null && t.max !== undefined ? t.max : maxFrom(t.str + 1, t.sbon)) + ', styles ' + (t.at || 'm') + (t.slayLv ? ', slayer ' + t.slayLv : '') + '.', 'lv');
+  return 1;
+}
+function hunterKit() {
+  if (invFree() < 2) return say(FULL, 'bad');
+  invAdd('bird_snare', 1); invAdd('box_trap', 1);
+  say('A hunter kit falls into your pack.');
+  return 1;
+}
+function spinFlax() {
+  const n = Math.min(5, invCount('flax'));
+  if (!n) return say('You have no flax to spin.', 'bad');
+  if (!invSwap('bow_string', n, 'flax', n)) return say(FULL, 'bad');
+  gainXp('crafting', 15 * n);
+  say('You spin ' + n + ' flax into bow string.');
+  return 1;
+}
+function plankMake() {
+  const rows = [['logs', 'plank', 70], ['oak_logs', 'oak_plank', 175], ['mahogany_logs', 'mahogany_plank', 1050]];
+  for (const [log, plank, fee] of rows) {
+    if (!invCount(log)) continue;
+    if (coins() < fee) return say('Plank Make asks ' + fee + ' coins for that log.', 'bad');
+    invRemove('coins', fee);
+    if (!invSwap(plank, 1, log, 1)) { invAdd('coins', fee); return say(FULL, 'bad'); }
+    gpSunk += fee;
+    say('The log knits itself into a ' + ITEMS[plank].name.toLowerCase() + '.');
+    return 1;
+  }
+  return say('You have no logs Plank Make knows.', 'bad');
+}
+function fertileSoil() {
+  let key = null, bd = 9;
+  for (const k in P.farm) { const [px, pz] = [k >> 16, (k << 16) >> 16]; const d = chebDist(px, pz, P.tx, P.tz); if (d < bd) { bd = d; key = k; } }
+  const o = P.task && P.task.o;
+  if (o && o.key !== undefined && P.farm[o.key]) key = o.key;
+  const s2 = key !== null && P.farm[key];
+  if (!s2) return say('Stand at a patch you have sown, then cast it.', 'bad');
+  if (s2.length < 3) s2[2] = 3 + Math.floor(lvl[SK.farming] / 20) + randInt(0, 2);
+  s2[2] += 3; markDirty(1);
+  gainXp('farming', 18);
+  say('The soil darkens and richens: three more harvests in it.');
+  return 1;
+}
+function dreamSleep() {
+  if (P.hp >= P.maxhp) return say('You have no wounds to sleep off.', 'bad');
+  P.dreamT = tickN + 100;   // a minute of triple regeneration, and it ends the moment anything strikes you
+  say('You drift into a Moonclan dream. Your wounds close three times as fast.', 'lv');
+  return 1;
+}
+function magicImbue() { P.imbueT = tickN + 21; say('Your staff hums: for twenty-one ticks it supplies every element.', 'lv'); return 1; }
+function vengeance() {
+  if (tickN < (P.vengCd || 0)) return say('You must wait ' + Math.ceil((P.vengCd - tickN) * TICK / 1000) + ' more seconds to cast that.', 'bad');
+  P.veng = 1; P.vengCd = tickN + 500;   // the wiki's thirty seconds between casts
+  say('You brace: the next blow rebounds three quarters of itself.', 'lv');
+  return 1;
+}
+function bookSwap() {
+  const open = BOOKS.map((b, i) => i).filter(i => i !== P.book && bookHas(i));
+  if (!open.length) return say('You know no other spellbook.', 'bad');
+  showModal('Spellbook Swap', open.map(i => '<div class="mk" data-bkswap="' + i + '"><span>' + BOOKS[i].n + '</span><b class="gp">open</b></div>').join(''),
+    'The swap lasts until you change it again.');
+  return 1;
+}
 const usRow = s => liRow('data-us="' + USPELLS.indexOf(s) + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).concat(s.d).join(', ') + '"', P.uspell === s, lvl[SK.magic] < s.lv,
   US07[s.n] ? c07p(US07[s.n]) : drawIcon(s.g, '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (lvl[SK.magic] < s.lv ? 'level ' + s.lv : spellReady(s) ? 'ready' : 'no runes') + '</u>');
 function cast(s, i) {   // runes first; the effect burns them only when it lands
@@ -9574,14 +9810,16 @@ function cast(s, i) {   // runes first; the effect burns them only when it lands
   spellBurst(P.rx, P.ry + 1.1, P.rz, s.tint); P.acting = 1; P.pose = 2;
 }
 function castItem(i) { const s = P.uspell; P.uspell = null; cast(s, i); showTab('mg'); }
-on(spellGrid, 'click', e => {   // runs after the combat handler: arming either kind of spell puts the other away
+/* The two armed states are independent and must stay that way. A combat spell is spent on a TARGET, an item spell on a
+   PACK SLOT, and a teleport is spent the moment it is clicked — none of them is a mode the others share. Clearing
+   P.spell here is what made a single teleport put your autocast away and send you back to the book to re-arm it. */
+on(spellGrid, 'click', e => {   // runs after the combat handler, which owns [data-sp]
   const d = e.target.closest('[data-us]');
-  if (!d) { if (P.uspell && P.spell !== null) { P.uspell = null; drawSpells(); } return; }
+  if (!d) return;
   const s = USPELLS[+d.dataset.us];
   if (eff('magic') < s.lv) return say('You need Magic level ' + s.lv + ' to cast that.', 'bad');
-  P.spell = null;
-  if (!s.item) { P.uspell = null; cast(s); }
-  else if (P.uspell === s) { P.uspell = null; say('You put your staff away.'); }
+  if (!s.item) cast(s);   // a teleport or a pack-wide spell fires at once and arms nothing
+  else if (P.uspell === s) { P.uspell = null; say('You put ' + s.n + ' away.'); }
   else { P.uspell = s; clearUse(); say('You ready ' + s.n + '. Choose an item in your pack.'); showTab('inv'); }
   drawSpells();
 });
@@ -10215,7 +10453,7 @@ onKill.push(n => {   // the Evil Chicken has always taken slaughter personally
 });
 tickHooks.push(() => { for (let i = npcs.length - 1; i >= 0; i--) if (npcs[i].despawn && npcs[i].despawn <= tickN && !npcs[i].dead) removeNpc(npcs[i]); });
 function lampRub(i) {
-  const rows = SKILLS.map((s, si) => s.locked ? '' : liRow('data-lamp="' + si + '"', 0, 0, drawIcon(s.g || 'star', '#e8c34a', '#f0e6c8'), s.n, '<u>+' + lvl[si] * 10 + ' xp</u>')).join('');
+  const rows = SKILLS.map((s, si) => s.locked ? '' : liRow('data-lamp="' + si + '"', 0, 0, skIcon(si), s.n, '<u>+' + lvl[si] * 10 + ' xp</u>')).join('');
   showModal('The lamp glows...', rows, 'Choose a skill: it grants ten times its level in experience.');
 }
 on(modalBody, 'click', e => {

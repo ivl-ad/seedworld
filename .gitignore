@@ -18,3 +18,7 @@ MAP.md
 mapgen.mjs
 icons07-*.mjs
 icons07-*.csv
+
+# temporary icon staging folders: the full wiki sprite dumps we pick from, deleted once the picking is done
+c07-full2/
+i07-full2/
