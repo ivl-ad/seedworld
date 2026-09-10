@@ -2383,7 +2383,12 @@ function layoutCity(v) {
       const [cx2, cz2] = side ? polar(kdir + (i % 4 - 1.5) * 0.09, R * (0.52 + Math.floor(i / 4) * 0.07)) : polar(ring(h, i % 8, 1, i * 0.7), R * (cit && !lax ? wr - KR / R * 0.55 : 0.16 + (i % 5) * 0.09));
       let free = 0;
       const sp = spanHeights(cx2, cz2, KR, 3, (x, z, y) => { const c = get(x, z); if (c === 255 || y < 1.8 || (!lax && (onSq(x, z) || (!cit && vd(x, z) > R * 0.96)))) return 0; if (c === G_EMPTY) free++; return 1; });
-      if (!sp) continue;
+   /* The courtyard is a single flat slab thirty or forty tiles across, so a sloping site is not merely a worse
+      site — the stone stands at the high corner and everything walks along the ground underneath it, out of sight.
+      A town's plateau is level only to 0.80 of its radius (0.62 below rank 3), and a big castle placed on the
+      square's flank reaches past that shoulder, which is why this bit only ever showed on cities. Reject the slope
+      outright instead of scoring it: the table's middle always has room, so the search finds a site every time. */
+      if (!sp || sp.hi - sp.lo > (i >= 60 ? 1e9 : lax ? 1.6 : 0.6)) continue;
       const score = free - (sp.hi - sp.lo) * 12;
       if (score > bestScore) { bestScore = score; best = { x: cx2, z: cz2, y: sp.hi, R: KR }; }
     }
@@ -2699,11 +2704,31 @@ function layoutCity(v) {
       if (onGate && Math.abs(horiz ? a : b2) <= 1) continue;
       blk.push(tk(c.x + a, c.z + b2));
     }
+   /* The ring above claims one tile per wall segment, which is all the curtain needs at 1.6 thick. The towers are
+      another matter: the corner drums are 4.6 across and the wall and gatehouse towers 3.4, so each one covers
+      ground two tiles beyond the line it sits on — and every one of those tiles was walkable, from the field as
+      readily as from the courtyard. Claim what the stone actually stands on. */
+    const drum = (tx, tz, r) => {
+      const q = Math.ceil(r);
+      for (let a = -q; a <= q; a++) for (let b2 = -q; b2 <= q; b2++) if (a * a + b2 * b2 <= r * r) blk.push(tk(tx + a, tz + b2));
+    };
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) drum(c.x + sx * c.R, c.z + sz * c.R, 2.4);
+    for (let s2 = 0; s2 < 4; s2++) {
+      const hz = !(s2 & 1), wx = c.x + DDX[s2] * c.R, wz = c.z + DDZ[s2] * c.R;
+      if (s2 !== c.gate) drum(wx, wz, 1.8);
+      else for (const sg of [-1, 1]) drum(hz ? c.x + sg * 3 : wx, hz ? wz : c.z + sg * 3, 1.8);   // the twin gate drums stand clear of the three-tile opening
+    }
     const k = c.hall;
     for (let a = -k.hw; a <= k.hw; a++) for (let b2 = -k.hd; b2 <= k.hd; b2++) blk.push(tk(k.x + a, k.z + b2));
     for (const o of c.out) { const ow = o.w >> 1, od = o.d >> 1; for (let a = -ow; a <= ow; a++) for (let b2 = -od; b2 <= od; b2++) blk.push(tk(o.x + a, o.z + b2)); }
     blk.push(tk(c.well.x, c.well.z));
     c.blk = blk;
+   /* The slab is a floor like a deck is: walkY rides its top (the stone is 0.9 thick, centred 0.4 under c.y, so
+      the surface is c.y + 0.05) instead of the ground it was poured over. `deck` keeps the HUD honest — an open
+      courtyard is not a room — and `sill` gives the gateway a doorstep's budget rather than a stride's, so a
+      castle on the one site the last lap had to take is still one you can walk into. */
+    const flr = { y: c.y - FLOOR_TOP + 0.05, deck: 1, sill: 1 };
+    for (let a = -c.R; a <= c.R; a++) for (let b2 = -c.R; b2 <= c.R; b2++) floorMap.set(tk(c.x + a, c.z + b2), flr);
   }
   if (v.lm) { const L = v.lm, b2 = []; for (let a = -L.R; a <= L.R; a++) for (let c2 = -L.R; c2 <= L.R; c2++) b2.push(tk(L.x + a, L.z + c2)); L.blk = b2; }
   if (v.ge) {   // ring wall with four gates; the counter island is solid
@@ -3085,7 +3110,8 @@ function canStep(fx, fz, tx, tz, own) {
   if (aw !== bw) return Math.abs(a - b) < 8;
   if (bw) return true;
   const ra = floorMap.get(tk(fx, fz)), rb = floorMap.get(tk(tx, tz));
-  if (!ra !== !rb && (ra || rb).house !== undefined) return Math.abs(a - b) <= Math.max(DOORSTEP, OPT.stuck ? STUCK_CLIMB : CLIMB);
+  const fl = ra || rb;   // a house door, or a castle gateway onto its slab
+  if (!ra !== !rb && (fl.house !== undefined || fl.sill)) return Math.abs(a - b) <= Math.max(DOORSTEP, OPT.stuck ? STUCK_CLIMB : CLIMB);
   return Math.abs(a - b) <= (OPT.stuck ? STUCK_CLIMB : CLIMB);
 }
 const dry = (x, z) => !isWater(walkY(x, z)) && !blocked.has(tk(x, z));
@@ -6878,7 +6904,7 @@ function freshCharacter() {
 let saveDirty = 0, lastSave = 0, saveTimer = 0, saveArmed = 0, savedOnce = 0, ackPending = 0, ackWarned = 0;
 let saveFatal = 0, leftOnce = 0, saveDefer = 0, pendingForce = 0;   // the server refused a blob outright; and: the page is going away, once
 const NEED_BUILD = 10;   // the wire contract this client speaks. 10 is a floor, not a preference: this client relies on the room to stamp op 12's clock and to set op 21's owner from the sender, and an older room does neither
-const SPAWN_REV = 9;   // 9: town outlines, plans and charters (Lumbridge/Varrock) moved the belts and the spawns. Bumped with any change to powerAt / spawnTable / pickMonster / regions / sites / TOWNFOLK / LADDERS / bossAt / TREES / ruinAt / the dungeon band
+const SPAWN_REV = 10;   // 10: castles refuse a sloping site, which moved some cities' keeps and the garrisons with them. 9: town outlines, plans and charters (Lumbridge/Varrock) moved the belts and the spawns. Bumped with any change to powerAt / spawnTable / pickMonster / regions / sites / TOWNFOLK / LADDERS / bossAt / TREES / ruinAt / the dungeon band
 let worldSync = 0, srvBuild = 0;   // build >= 4: rooms relay 20/21/22; build >= 5 accepts batched sends
 /* every routine message a tick produces rides one socket send (one billable request), flushed at tick's end.
    Saves go alone (their own size lane), and clock pings and trade signals go straight out (latency-sensitive). */
