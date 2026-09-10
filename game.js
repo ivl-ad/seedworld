@@ -1281,7 +1281,7 @@ const prayHas = (f, v) => PRAYERS.some(p => (P.prayers & p.bit) && (v === undefi
 /* registration points for the skill sections at the foot of the file: extra task kinds, kill/tick/pool/structure hooks, item-on-object handlers */
 const TASKS = Object.create(null), USE_ON = Object.create(null), onKill = [], tickHooks = [], poolHooks = [], structHooks = [];
 /* settings, shared by the options tab and the dev console */
-const OPT = { camSpeed: 2.0, viewRadius: 7, fog: 1, timers: 1, xpDrops: 1, roofs: 1, hideRoofs: 0, brightness: 1, runMul: 1, retaliate: 1, stuck: 0, pvpWarn: 1, budget: 0 };
+const OPT = { camSpeed: 2.0, viewRadius: 7, fog: 1, timers: 1, xpDrops: 1, roofs: 1, hideRoofs: 0, brightness: 1, runMul: 1, retaliate: 1, stuck: 0, pvpWarn: 1, budget: 0, osrs: 0 };
 
 /* ---- 6c. ICONS: drawn, not loaded; one 32x32 canvas per (glyph, colours), cached as a data URL ---- */
 const _iconCache = new Map();
@@ -3390,6 +3390,7 @@ function updateHeldTool() {
   const want = heldToolFor(P.task);
   if (want === shownTool) return;
   shownTool = want;
+  if (osrsOn) return OSRSK.dress(osrsAvatar.parts, wornIt);   // the tool is part of the mesh there, so the mesh is rebuilt
   holdWeapon(avatar.parts.wep, want ? ITEMS[want] : (eq.weapon ? ITEMS[eq.weapon] : null));
 }
 const capeOn = k => eq.cape === 'skillcape_' + k;   // the worn master's cape; each perk speaks at its own site
@@ -3449,6 +3450,26 @@ boat.add(hull, oarL, oarR); boat.visible = false;
 const avatar = buildAvatar();
 player.add(avatar, boat);
 scene.add(player);
+/* ---- 20b. 2007 PLAYER MODELS: the cache's own kit in place of the box rig, for you and for every other real
+   player; nothing else in the world changes. Both rigs exist at once and the toggle picks which one is visible,
+   so switching costs a dress, not a rebuild. The two megabytes of models are fetched the first time the setting
+   is switched on and never before, so leaving it off costs nothing at all. osrs.js holds the whole of it. ---- */
+let osrsOn = 0, osrsAvatar = null;
+const myParts = () => (osrsOn ? osrsAvatar : avatar).parts;
+function osrsApply() {
+  if (OPT.osrs && !OSRSK.ready()) {   // the assets arrive once a session; the setting reasserts itself when they land
+    OSRSK.load().then(osrsApply, e => { OPT.osrs = 0; drawOpts(); say('The 2007 player models could not load: ' + e.message, 'bad'); });
+    return;
+  }
+  const want = OPT.osrs ? 1 : 0;
+  if (want === osrsOn) return;
+  osrsOn = want;
+  if (want && !osrsAvatar) player.add(osrsAvatar = OSRSK.rig());
+  if (osrsAvatar) osrsAvatar.visible = !!want;
+  avatar.visible = !want;
+  P.rig = want ? osrsAvatar : avatar;   // 34. ANIMATION bobs and scales whichever rig is on
+  dressAvatar();
+}
 const P = {
   tx: 0, tz: 0, px: 0, pz: 0, rx: 0, ry: 0, rz: 0, face: 0, faceT: 0, span: 1,
   path: [], goal: null, task: null, actT: 0, atkT: 0, acting: 0, actSpan: 2, walkPhase: 0, bobPhase: 0, swingPhase: 0,
@@ -3497,10 +3518,12 @@ function dressRig(p, look, it) {
   }
   holdWeapon(p.wep, wepIt);
 }
+/* the worn list, with whatever the current task has put in your hand standing in for the weapon */
+const wornIt = s => (s === 'weapon' && shownTool) ? ITEMS[shownTool] : (eq[s] && ITEMS[eq[s]]) || null;
 function dressAvatar() {
-  dressRig(avatar.parts, P.look, s => (eq[s] && ITEMS[eq[s]]) || null);
-  applyFace(avatar.parts, P.look.face);
-  shownTool = '';
+  shownTool = '';   // cleared first, so this always shows the weapon and updateHeldTool puts the tool back
+  if (osrsOn) OSRSK.dress(osrsAvatar.parts, wornIt);
+  else { dressRig(avatar.parts, P.look, wornIt); applyFace(avatar.parts, P.look.face); }
   sendEquip();
 }
 const weaponIt = () => eq.weapon ? ITEMS[eq.weapon] : null;
@@ -5390,6 +5413,7 @@ const OPT_ROWS = [
   { k: 'viewRadius', n: 'View distance', min: 3, max: 9, step: 1, fmt: v => v + ' chunks', apply: 1 },
   { k: 'fog', n: 'Distance fog', tog: 1 }, { k: 'retaliate', n: 'Auto retaliate', tog: 1 }, { k: 'timers', n: 'Respawn clocks', tog: 1 }, { k: 'xpDrops', n: 'Xp drops', tog: 1 },
   { k: 'hideRoofs', n: 'Hide all roofs', tog: 1 }, { k: 'pvpWarn', n: 'PvP border warning', tog: 1 },
+  { k: 'osrs', n: '2007 player models', tog: 1 },
   { k: 'brightness', n: 'Brightness', min: 0.7, max: 1.4, step: 0.1, fmt: v => Math.round(v * 100) + '%' }
 ];
 const optList = el('optList');
@@ -5407,12 +5431,13 @@ on(optList, 'click', e => {
   if (k === 'dev') return devGate();
   const r = OPT_ROWS.find(x => x.k === k);
   if (r.tog) OPT[k] = OPT[k] ? 0 : 1; else { OPT[k] += r.step; if (OPT[k] > r.max + 1e-6) OPT[k] = r.min; }
+  if (k === 'osrs') osrsApply();
   applyOpts(r); drawOpts();
 });
 function applyOpts(r) {
   scene.fog = OPT.fog ? new THREE.Fog(SKY, 120, OPT.viewRadius * CHUNK * 0.95) : null;
   renderer.setClearColor(new THREE.Color(SKY).multiplyScalar(OPT.brightness));
-  mat.color.setScalar(OPT.brightness); tintMat.color.setScalar(OPT.brightness);
+  mat.color.setScalar(OPT.brightness); tintMat.color.setScalar(OPT.brightness); OSRSK.brightness(OPT.brightness);
   if (r && r.apply) { RADIUS = OPT.viewRadius; refresh(); }
   for (const rec of chunks.values()) for (const b of rec.roofs) if (b.roof) b.roof.visible = roofShown(b);
   document.body.classList.toggle('budget', !!OPT.budget);
@@ -6586,7 +6611,7 @@ function frame(now) {
   }
   if (deathSpot && Math.abs(deathSpot.x - P.rx) < 72 && Math.abs(deathSpot.z - P.rz) < 72)
     labelAt(deathSpot, 'mk', deathSpot.x, deathMark.position.y + 3.2, deathSpot.z, DEATH_HTML, 'plate mk boss', 1);
-  animate(P, avatar.parts, dt);
+  animate(P, myParts(), dt);
   petFrame(dt);
   skullFrame();
   updateRemotes(dt, alpha);
@@ -7293,17 +7318,19 @@ function remoteDef(R) {   // their Defence level off the wire (or reported hitpo
 }
 
 /* ---- 39. OTHER PLAYERS: the nearest twelve get articulated rigs, the rest one instanced pool ---- */
-const remotes = new Map(), REMOTE_FULL = 12, rigPool = [], allRigs = [];
-function takeRig() {
-  let g = rigPool.pop();
-  if (!g) { g = buildAvatar(); g.visible = false; scene.add(g); allRigs.push(g); }
+const remotes = new Map(), REMOTE_FULL = 12, rigPool = [], osrsPool = [], allRigs = [];
+function takeRig() {   // a rig is only ever reused for its own kind; the idle pool of the other kind costs nothing
+  const pool = osrsOn ? osrsPool : rigPool;
+  let g = pool.pop();
+  if (!g) { g = osrsOn ? OSRSK.rig() : buildAvatar(); g.visible = false; scene.add(g); allRigs.push(g); }
   g.visible = true;
   return g;
 }
 function giveRig(g) {
   g.visible = false;
   if (g.userData) g.userData.claim = 0;
-  if (rigPool.indexOf(g) < 0 && rigPool.length < 24) rigPool.push(g);
+  const pool = g.parts && g.parts.osrs ? osrsPool : rigPool;
+  if (pool.indexOf(g) < 0 && pool.length < 24) pool.push(g);
 }
 function newRemote(pid, name, x, z, eqArr) {
   return { remote: 1, pid, name: name || 'Adventurer', hp: 10, maxhp: 10, hurt: 0, tx: x | 0, tz: z | 0, px: x | 0, pz: z | 0, rx: x | 0, ry: 0, rz: z | 0,
@@ -7338,7 +7365,8 @@ function dressRemote(R) {
   R.eqDirty = 0;
   if (!R.parts) return;
   const e = R.eq || [];
-  dressRig(R.parts, REMOTE_LOOK, s => { const id = e[EQ_SLOTS.indexOf(s)]; return (id && ITEMS[id]) || null; });
+  const it = s => { const id = e[EQ_SLOTS.indexOf(s)]; return (id && ITEMS[id]) || null; };
+  if (R.parts.osrs) OSRSK.dress(R.parts, it); else dressRig(R.parts, REMOTE_LOOK, it);
 }
 const FAR_GEO = npcGeo([0.36, 0.42, 0.55], [0.82, 0.66, 0.5], 0.7, 1.7), POOL_FAR = Pool(FAR_GEO, 48, 1);
 /* nameplates are pooled DOM; marker icons click through to the thing they float over */
@@ -7420,8 +7448,9 @@ function updateRemotes(dt, alpha) {
     }
     R.rx = R.px + (R.tx - R.px) * alpha; R.rz = R.pz + (R.tz - R.pz) * alpha; R.ry = R.afloat ? 0 : groundY(R.rx, R.rz);
     const far = Math.abs(R.rx - P.rx) > cut || Math.abs(R.rz - P.rz) > cut, wantLod = far ? 2 : (i < REMOTE_FULL ? 0 : 1);
-    if (wantLod !== R.lod) {
-      if (R.g && wantLod !== 0) { giveRig(R.g); R.g = null; R.parts = null; }
+    const wrongKind = R.g && !!R.g.parts.osrs !== !!osrsOn;   // the setting changed under a rig that is already out
+    if (wantLod !== R.lod || wrongKind) {
+      if (R.g && (wantLod !== 0 || wrongKind)) { giveRig(R.g); R.g = null; R.parts = null; }
       if (wantLod === 0 && !R.g) { R.g = takeRig(); R.parts = R.g.parts; R.eqDirty = 1; }
       R.lod = wantLod;
     }
@@ -7448,6 +7477,7 @@ function updateRemotes(dt, alpha) {
 }
 /* ---- 40. BOOT ---- */
 freshCharacter();
+osrsApply();   // the saved setting, now that the rig, the pools and the dresser are all up
 dressAvatar();
 say('Welcome to Seedworld.', 'lv');
 say('This whole world is four bytes. Everything else is arithmetic.');

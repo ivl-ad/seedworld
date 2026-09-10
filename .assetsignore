@@ -8,6 +8,8 @@ wrangler.toml
 .git
 CLAUDE.md
 MAP.md
+EQUIPMENT.md
+EQUIPMENT-NAMES.md
 tools/
 # build-time tooling and its inputs — never served (covers icons07-tint/sync.mjs and the csvs when restored)
 *.mjs
